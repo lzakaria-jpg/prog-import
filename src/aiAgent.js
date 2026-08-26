@@ -3,7 +3,15 @@
 
 import { supabase } from "./supabase";
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent";
+
+// Fallback models if the primary one is unavailable
+const FALLBACK_MODELS = [
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
 
 // ─── App Knowledge (System Prompt) ─────────────────────────────────
 
@@ -124,39 +132,48 @@ export async function chatWithAgent(message, channelKey = "default", fileContext
     ...getHistory(channelKey),
   ];
 
-  try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1024,
-        },
-      }),
-    });
+  const body = {
+    contents,
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 1024,
+    },
+  };
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      console.error("[AI Agent] Gemini error:", err);
-      const msg = err?.error?.message || `HTTP ${response.status}`;
-      return { error: true, text: `⚠️ خطأ في الاتصال بالذكاء الاصطناعي: ${msg}` };
+  // Try each model until one works
+  for (const model of FALLBACK_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.warn(`[AI Agent] Model ${model} failed:`, err?.error?.message || response.status);
+        continue; // try next model
+      }
+
+      const data = await response.json();
+      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "لم أتمكن من إنشاء رد.";
+
+      // Add to history
+      addToHistory(channelKey, "model", reply);
+
+      // Update the URL to use the working model for next time
+      return { error: false, text: reply, model };
+    } catch (err) {
+      console.warn(`[AI Agent] Model ${model} network error:`, err.message);
+      continue;
     }
-
-    const data = await response.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "لم أتمكن من إنشاء رد.";
-
-    // Add to history
-    addToHistory(channelKey, "model", reply);
-
-    return { error: false, text: reply };
-  } catch (err) {
-    console.error("[AI Agent] Network error:", err);
-    return { error: true, text: "⚠️ خطأ في الاتصال. تأكد من اتصالك بالإنترنت." };
   }
+
+  // All models failed
+  return { error: true, text: "⚠️ جميع نماذج الذكاء الاصطناعي غير متاحة حالياً. يرجى المحاولة لاحقاً." };
 }
 
 // ─── Detect if message is for AI Agent ─────────────────────────────
