@@ -4,6 +4,7 @@ import { MergeTool } from "./MergeTool";
 import { LanguageProvider, useLanguage } from "./language";
 import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
 import { AISettings } from "./AIPanel";
+import { ChatPanel, ChatToggle } from "./chat";
 import { Watermark } from "./Watermark";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
 
@@ -142,6 +143,7 @@ function AppShell() {
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   if (loading || !currentUser) return <LoginScreen />;
 
@@ -149,7 +151,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.1.0";
+  const currentVersion = "1.2.0";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
@@ -305,6 +307,10 @@ function AppShell() {
           {tab === "journal" ? <JournalTool /> : <MergeTool />}
         </div>
       </main>
+
+      {/* Chat */}
+      {!chatOpen && <ChatToggle onClick={() => setChatOpen(true)} isRTL={dir === "rtl"} />}
+      <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} />
     </div>
   );
 }
