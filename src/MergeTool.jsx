@@ -2374,17 +2374,35 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
 
   const [zoom, setZoom] = useState(1);
   const treeScrollRef = useRef(null);
+  const zoomRef = useRef(1);
   const MIN_ZOOM = 0.2, MAX_ZOOM = 2;
   const fitToPage = useCallback(() => {
     const el = treeScrollRef.current;
     if (!el) return;
     const fitW = el.clientWidth / (canvasW || 1);
     const fitH = el.clientHeight / (canvasH || 1);
-    setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitW, fitH))));
+    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitW, fitH)));
+    zoomRef.current = z;
+    setZoom(z);
     el.scrollLeft = 0;
     el.scrollTop = 0;
   }, [canvasW, canvasH]);
-  const resetZoom = useCallback(() => { setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = 0; el.scrollTop = 0; } }, []);
+  const resetZoom = useCallback(() => { zoomRef.current = 1; setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = 0; el.scrollTop = 0; } }, []);
+
+  useEffect(() => {
+    const el = treeScrollRef.current;
+    if (!el) return;
+    const handler = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current + (e.deltaY < 0 ? 0.1 : -0.1)));
+        zoomRef.current = z;
+        setZoom(z);
+      }
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
   const { positioned, links, canvasW, canvasH } = useMemo(() => {
@@ -2419,9 +2437,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
             <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-500">−</button>
             <span className="text-xs text-slate-400">{Math.round(zoom * 100)}%</span>
           </div>
-          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-slate-200 bg-slate-50" style={{ maxHeight: 640 }}
-            onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); setZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z + (e.deltaY < 0 ? 0.1 : -0.1)))); } }}
-          >
+          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-slate-200 bg-slate-50" style={{ maxHeight: 640 }}>
             <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}>
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
