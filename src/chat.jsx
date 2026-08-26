@@ -277,24 +277,45 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
 
   const loadMessages = useCallback(async () => {
     setLoading(true);
-    let query = supabase
-      .from("chat_messages")
-      .select("*")
-      .eq("is_archived", showArchive);
+    try {
+      let query = supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("is_archived", showArchive);
 
-    if (activeChannel === "public") {
-      query = query.is("recipient_email", null);
-    } else {
-      const users = [currentUser, activeChannel];
-      query = query.not("recipient_email", "is", null)
-        .or(`sender_email.eq.${users[0]},sender_email.eq.${users[1]}`)
-        .or(`recipient_email.eq.${users[0]},recipient_email.eq.${users[1]}`);
+      if (activeChannel === "public") {
+        query = query.is("recipient_email", null);
+      } else {
+        // For DMs: get all DMs involving current user, filter client-side
+        query = query
+          .not("recipient_email", "is", null)
+          .or(`sender_email.eq.${currentUser},recipient_email.eq.${currentUser}`);
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: true }).limit(500);
+      if (error) {
+        console.error("[chat] Load error:", error);
+        setMessages([]);
+      } else if (data) {
+        // For DMs: filter to only messages between currentUser and activeChannel
+        if (activeChannel !== "public") {
+          const filtered = data.filter((m) =>
+            (m.sender_email === currentUser && m.recipient_email === activeChannel) ||
+            (m.sender_email === activeChannel && m.recipient_email === currentUser)
+          );
+          setMessages(filtered);
+        } else {
+          setMessages(data);
+        }
+      }
+    } catch (err) {
+      console.error("[chat] Load exception:", err);
+      setMessages([]);
     }
-
-    const { data, error } = await query.order("created_at", { ascending: true }).limit(200);
-    if (!error && data) setMessages(data);
     setLoading(false);
-  }, [activeChannel, showArchive, currentUser, activeChannel]);
+  }, [activeChannel, showArchive, currentUser]);
+
+  const [agentAvailable, setAgentAvailable] = useState(false);
 
   useEffect(() => { if (isOpen) loadMessages(); }, [isOpen, loadMessages]);
 
@@ -307,19 +328,26 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
       .channel("chat-room")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
         const msg = payload.new;
+        const isPublicMsg = !msg.recipient_email;
+        const isRelevantDM = msg.recipient_email && (
+          msg.sender_email === currentUser || msg.recipient_email === currentUser
+        );
+        if (!isPublicMsg && !isRelevantDM) return;
+
         setMessages((prev) => {
           if (prev.find((m) => m.id === msg.id)) return prev;
-          const next = [...prev, msg];
-          return next;
+          return [...prev, msg];
         });
-        // Play sound
         if (msg.sender_email !== currentUser && !muted) {
           playNotification();
         }
-        // Track unread
         if (msg.sender_email !== currentUser) {
-          const ch = msg.recipient_email ? [msg.sender_email, msg.recipient_email].sort().join("::") : "public";
-          if (ch !== (activeChannel === "public" ? "public" : activeChannel)) {
+          const isDM = !!msg.recipient_email;
+          let ch = "public";
+          if (isDM) {
+            ch = msg.sender_email === currentUser ? msg.recipient_email : msg.sender_email;
+          }
+          if (ch !== activeChannel) {
             setUnreadCounts((prev) => ({ ...prev, [ch]: (prev[ch] || 0) + 1 }));
           }
         }
@@ -364,6 +392,10 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     return () => { supabase.removeChannel(presenceChannel); };
   }, [isOpen, currentUser]);
 
+  // ── AI Agent availability ────────────────────────────────
+
+  useEffect(() => { if (isOpen) isAgentAvailable().then(setAgentAvailable).catch(() => {}); }, [isOpen]);
+
   // ── Auto-scroll ──────────────────────────────────────────
 
   useEffect(() => {
@@ -396,7 +428,6 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     const isForAI = isMessageForAgent(text, isPublicChannel) || isDMWithAgent;
 
     if (isForAI) {
-      // Send user message to DB
       const cleanText = isDMWithAgent ? text : cleanMessageForAgent(text);
       const userMsg = {
         sender_email: currentUser,
@@ -407,15 +438,11 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
       const { error: userErr } = await supabase.from("chat_messages").insert(userMsg);
       if (userErr) console.error("Send error:", userErr);
 
-      // Show typing indicator
       setAgentTyping(true);
-
-      // Get AI response
       const channelKey = isDMWithAgent ? `dm-${currentUser}-${AI_AGENT_EMAIL}` : "public";
       const reply = await chatWithAgent(cleanText, channelKey);
       setAgentTyping(false);
 
-      // Send agent response to DB
       await supabase.from("chat_messages").insert({
         sender_email: AI_AGENT_EMAIL,
         recipient_email: isDMWithAgent ? currentUser : null,
@@ -425,10 +452,10 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
       return;
     }
 
-    // Normal message
+    const recipientForDB = activeChannel === "public" ? null : activeChannel;
     const msg = {
       sender_email: currentUser,
-      recipient_email: channelKey,
+      recipient_email: recipientForDB,
       content: text,
       message_type: "text",
     };
@@ -445,9 +472,10 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     setUploading(true);
     try {
       const { url } = await uploadChatFile(file, currentUser);
+      const recipientForDB = activeChannel === "public" ? null : activeChannel;
       await supabase.from("chat_messages").insert({
         sender_email: currentUser,
-        recipient_email: channelKey,
+        recipient_email: recipientForDB,
         message_type: "file",
         file_name: file.name,
         file_url: url,
@@ -460,50 +488,33 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // ── Edit Message ──────────────────────────────────────────
-
   const handleEdit = async (id, newContent) => {
     await supabase.from("chat_messages").update({ content: newContent, is_edited: true }).eq("id", id);
   };
 
-  // ── Delete Message ────────────────────────────────────────
-
   const handleDelete = async (id) => {
     await supabase.from("chat_messages").delete().eq("id", id);
   };
-
-  // ── Archive Message ───────────────────────────────────────
 
   const handleArchive = async (id) => {
     await supabase.from("chat_messages").update({ is_archived: true }).eq("id", id);
     setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
-  // ── Download File ─────────────────────────────────────────
-
   const handleDownload = (msg) => {
     if (msg.file_url) window.open(msg.file_url, "_blank");
   };
-
-  // ── Clear unread when switching channel ───────────────────
 
   const switchChannel = (ch) => {
     setActiveChannel(ch);
     setUnreadCounts((prev) => ({ ...prev, [ch]: 0 }));
   };
 
-  // ── Total unread ──────────────────────────────────────────
-
   const totalUnread = useMemo(() => {
     return Object.values(unreadCounts).reduce((a, b) => a + b, 0);
   }, [unreadCounts]);
 
-  if (!isOpen) return null;
-
-  // ── Build participants list (from whitelist + online) ─────
-
-  const [agentAvailable, setAgentAvailable] = useState(false);
-  useEffect(() => { isAgentAvailable().then(setAgentAvailable); }, [isOpen]);
+  // ── Build participants list ──────────────────────────────
 
   const participants = useMemo(() => {
     const users = (whitelist || []).filter((email) => email !== currentUser);
@@ -513,11 +524,11 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     return users;
   }, [whitelist, currentUser, agentAvailable]);
 
-  // ── Filter messages by search ─────────────────────────────
-
   const filteredMessages = searchQuery
     ? messages.filter((m) => (m.content || "").toLowerCase().includes(searchQuery.toLowerCase()) || (m.file_name || "").toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
+
+  if (!isOpen) return null;
 
   return (
     <div
