@@ -304,7 +304,8 @@ function AppShell() {
         <Watermark />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
-          {tab === "journal" ? <JournalTool /> : <MergeTool />}
+          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}><JournalTool /></div>
+          <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
         </div>
       </main>
 

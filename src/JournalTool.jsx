@@ -8,6 +8,8 @@ import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesF
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { callClaude, parseJsonResponse } from "./lib/claudeProxy";
 import { useLanguage } from "./language";
+import { useAuth } from "./auth";
+import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
 import { SmartAnalysisPanel } from "./SmartPanel";
 
 const COLORS = {
@@ -201,6 +203,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
 
 export default function JournalTool() {
   const { t, lang, dir } = useLanguage();
+  const { currentUser } = useAuth();
   const [chartAccounts, setChartAccounts] = useState(null);
   const [chartFileName, setChartFileName] = useState("");
   const [chartBusy, setChartBusy] = useState(false);
@@ -283,9 +286,11 @@ export default function JournalTool() {
       setAiError("");
       setPage(0);
       setFilter("all");
+      if (currentUser) trackJournalImport(currentUser, { filename: file.name, entries_count: grouped.length });
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف القيود: " + err.message, lang));
       setEntries(null);
+      if (currentUser) trackJournalError(currentUser, { filename: file.name, error: err.message });
     } finally { setEntriesBusy(false); }
   };
 
@@ -377,6 +382,7 @@ export default function JournalTool() {
     try {
       const blob = await buildImportFile(entries);
       downloadBlob(blob, t({ ar: "قيود_جاهزة_للاستيراد.xlsx", en: "journal_entries_ready.xlsx" }));
+      if (currentUser) trackJournalExport(currentUser, { entries_count: entries.length });
     } catch (err) {
       setParseError(localizeError("تعذر إنشاء الملف: " + err.message, lang));
     } finally { setDownloading(false); }

@@ -7,6 +7,8 @@ import {
   Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers,
 } from "lucide-react";
 import { useLanguage } from "./language";
+import { useAuth } from "./auth";
+import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityTracker";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -1424,6 +1426,7 @@ function repairLevels(rows, ctx) {
 
 export function MergeTool() {
   const { t, dir, lang } = useLanguage();
+  const { currentUser } = useAuth();
   const [file1, setFile1] = useState(null);
   const treeMetaRef = useRef({ level2CodeMap: {}, level1CodeMap: {}, tree1Index: [], siblingCodesByParent: {}, existingCodes: [], file2ByCode: new Map() });
   const [file2, setFile2] = useState(null);
@@ -1475,7 +1478,11 @@ export function MergeTool() {
       if (which === 1) { setFile1(file); setFile1Rows(rows); setMapping1(mapping); }
       else { setFile2(file); setFile2Rows(rows); setMapping2(mapping); }
       setResults(null);
-    } catch (e) { setError(`تعذّرت قراءة الملف: ${e.message || e}`); }
+      if (currentUser) trackMergeImport(currentUser, { filename: file.name, file_number: which });
+    } catch (e) {
+      setError(`تعذّرت قراءة الملف: ${e.message || e}`);
+      if (currentUser) trackMergeError(currentUser, { filename: file.name, error: e.message });
+    }
   };
 
   const headerRow1 = file1Rows ? file1Rows[findHeaderRowIndex(file1Rows)] : null;
@@ -1714,6 +1721,7 @@ export function MergeTool() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Accounts Upload Template");
     XLSX.writeFile(wb, "qoyod_new_accounts_ready.xlsx");
+    if (currentUser) trackMergeExport(currentUser, { filename: "qoyod_new_accounts_ready.xlsx" });
   };
 
   const copyJsonForFinalExport = async () => {

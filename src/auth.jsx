@@ -1,19 +1,20 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useLanguage } from "./language";
 import { supabase } from "./supabase";
-import { Shield, Mail, UserPlus, UserX, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot } from "lucide-react";
+import { trackLogin, trackLogout, getUserStats, getRecentActivity } from "./activityTracker";
+import { Shield, Mail, UserPlus, UserX, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity } from "lucide-react";
 
 const AuthContext = createContext(null);
 const SESSION_KEY = "qoyod_session";
 
 function loadSession() {
-  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; }
+  try { return localStorage.getItem(SESSION_KEY); } catch { return null; }
 }
 function saveSession(data) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
+  localStorage.setItem(SESSION_KEY, data);
 }
 function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export function AuthProvider({ children }) {
@@ -130,6 +131,7 @@ export function AuthProvider({ children }) {
     if (trimmed === adminEmail.toLowerCase()) {
       setCurrentUser(trimmed);
       saveSession(trimmed);
+      trackLogin(trimmed);
       return { ok: true, admin: true };
     }
 
@@ -139,6 +141,7 @@ export function AuthProvider({ children }) {
       if (data) {
         setCurrentUser(trimmed);
         saveSession(trimmed);
+        trackLogin(trimmed);
         return { ok: true, admin: false };
       }
     } catch (e) { /* not found */ }
@@ -148,9 +151,10 @@ export function AuthProvider({ children }) {
 
   // Logout
   const logout = useCallback(() => {
+    if (currentUser) trackLogout(currentUser);
     setCurrentUser(null);
     clearSession();
-  }, []);
+  }, [currentUser]);
 
   // Add email (admin only)
   const addEmail = useCallback(async (email) => {
@@ -344,13 +348,26 @@ export function AdminPanel() {
   const [geminiKey, setGeminiKey] = useState("");
   const [geminiSaving, setGeminiSaving] = useState(false);
   const [geminiStatus, setGeminiStatus] = useState(null);
+  const [activeTab, setActiveTab] = useState("users");
+  const [userStats, setUserStats] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(false);
 
-  // Load Gemini key on mount
+  // Load Gemini key + stats on mount
   useEffect(() => {
     import("./aiAgent").then(({ getGeminiKey }) => {
       getGeminiKey().then((key) => { if (key) setGeminiKey(key); });
     });
+    loadStats();
   }, []);
+
+  const loadStats = async () => {
+    setLoadingStats(true);
+    const [stats, activity] = await Promise.all([getUserStats(), getRecentActivity(30)]);
+    setUserStats(stats);
+    setRecentActivity(activity);
+    setLoadingStats(false);
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -405,6 +422,17 @@ export function AdminPanel() {
             </div>
           </div>
 
+          {/* Tab navigation */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#F1F5F9", borderRadius: 10, padding: 3 }}>
+            <button onClick={() => setActiveTab("users")} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s", background: activeTab === "users" ? "#FFFFFF" : "transparent", color: activeTab === "users" ? "#162560" : "#64748B", boxShadow: activeTab === "users" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+              <Users size={14} /> {t({ ar: "المستخدمين", en: "Users" })}
+            </button>
+            <button onClick={() => setActiveTab("analytics")} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s", background: activeTab === "analytics" ? "#FFFFFF" : "transparent", color: activeTab === "analytics" ? "#162560" : "#64748B", boxShadow: activeTab === "analytics" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+              <BarChart3 size={14} /> {t({ ar: "الإحصائيات", en: "Analytics" })}
+            </button>
+          </div>
+
+          {activeTab === "users" ? (<>
           {/* Admin info */}
           <div style={{ padding: "12px 16px", borderRadius: 12, background: "#F0F9FF", border: "1px solid #BAE6FD", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
             <Shield size={16} color="#162560" />
@@ -529,6 +557,75 @@ export function AdminPanel() {
               {t({ ar: "← احصل على مفتاح مجاني من هنا", en: "← Get free key from here" })}
             </a>
           </div>
+          </>) : (
+          /* ── Analytics Tab ──────────────────────────── */
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#1E293B", margin: 0 }}>
+                {t({ ar: "إحصائيات استخدام التطبيق", en: "App Usage Analytics" })}
+              </p>
+              <button onClick={loadStats} disabled={loadingStats} style={{ padding: "6px 12px", borderRadius: 8, background: "#F1F5F9", border: "1px solid #E2E8F0", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                <RefreshCw size={12} className={loadingStats ? "animate-spin" : ""} /> {t({ ar: "تحديث", en: "Refresh" })}
+              </button>
+            </div>
+
+            {loadingStats ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</div>
+            ) : userStats.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>
+                <Activity size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
+                <p style={{ margin: 0, fontSize: 13 }}>{t({ ar: "لا يوجد نشاط بعد", en: "No activity yet" })}</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {userStats.map((u) => (
+                  <div key={u.email} style={{ padding: 14, borderRadius: 12, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #162560, #0F1A47)", color: "#FFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
+                          {u.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: "#1E293B", margin: 0, direction: "ltr", textAlign: "left" }}>{u.email}</p>
+                          <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>
+                            <Clock size={10} style={{ display: "inline", verticalAlign: "middle" }} /> {t({ ar: "آخر نشاط:", en: "Last:" })} {new Date(u.lastActivity).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Stats grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: "#EFF6FF", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#2563EB", margin: 0 }}>{u.logins}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "دخول", en: "Logins" })}</p>
+                      </div>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F0FDF4", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#16A34A", margin: 0 }}>{u.journalImports + u.mergeImports}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "استيراد", en: "Imports" })}</p>
+                      </div>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: "#FEF3C7", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#D97706", margin: 0 }}>{u.journalExports + u.mergeExports}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "تصدير", en: "Exports" })}</p>
+                      </div>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F0FDF4", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#16A34A", margin: 0 }}>{u.journalImports}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "قيود", en: "Journals" })}</p>
+                      </div>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F5F3FF", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#7C3AED", margin: 0 }}>{u.mergeImports}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "شجرة", en: "Merges" })}</p>
+                      </div>
+                      <div style={{ padding: "6px 8px", borderRadius: 8, background: u.journalErrors + u.mergeErrors > 0 ? "#FEF2F2" : "#F8FAFC", textAlign: "center" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: u.journalErrors + u.mergeErrors > 0 ? "#EF4444" : "#94A3B8", margin: 0 }}>{u.journalErrors + u.mergeErrors}</p>
+                        <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "أخطاء", en: "Errors" })}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          )}
         </div>
       </div>
     </div>
