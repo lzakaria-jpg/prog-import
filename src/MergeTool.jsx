@@ -2372,6 +2372,21 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const rootForLayout = useMemo(() => { if (!activeBucket || activeBucket.items.length === 0) return null; if (activeBucket.items.length === 1) return activeBucket.items[0]; return { isVirtual: true, code: "__virtual__", children: activeBucket.items }; }, [activeBucket]);
   useEffect(() => { if (!rootForLayout) return; setExpanded((prev) => { const next = new Set(prev); next.add(nodeKeyOf(rootForLayout)); rootForLayout.children.forEach((child) => next.add(nodeKeyOf(child))); return next; }); }, [activeRootKey]);
 
+  const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
+  const { positioned, links, canvasW, canvasH } = useMemo(() => {
+    if (!rootForLayout) return { positioned: [], links: [], canvasW: 0, canvasH: 0 };
+    const pruned = pruneForDisplay(rootForLayout);
+    const root = d3.hierarchy(pruned, (d) => d.children);
+    d3.tree().nodeSize([NODE_W + 28, NODE_H + 54])(root);
+    const descendants = root.descendants();
+    let minX = Infinity, maxX = -Infinity, maxY = 0;
+    descendants.forEach((d) => { minX = Math.min(minX, d.x); maxX = Math.max(maxX, d.x); maxY = Math.max(maxY, d.y); });
+    const offsetX = -minX + NODE_W / 2 + 24, offsetY = NODE_H / 2 + 24;
+    const positioned = descendants.filter((d) => !d.data._node.isVirtual).map((d) => ({ node: d.data._node, key: d.data._key, x: d.x + offsetX, y: d.y + offsetY }));
+    const links = root.links().filter((l) => !l.source.data._node.isVirtual).map((l) => ({ sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY }));
+    return { positioned, links, canvasW: (isFinite(maxX) ? maxX - minX : 0) + NODE_W + 48, canvasH: maxY + NODE_H + 48 };
+  }, [rootForLayout, expanded]);
+
   const [zoom, setZoom] = useState(1);
   const treeScrollRef = useRef(null);
   const zoomRef = useRef(1);
@@ -2403,21 +2418,6 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
   }, []);
-
-  const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
-  const { positioned, links, canvasW, canvasH } = useMemo(() => {
-    if (!rootForLayout) return { positioned: [], links: [], canvasW: 0, canvasH: 0 };
-    const pruned = pruneForDisplay(rootForLayout);
-    const root = d3.hierarchy(pruned, (d) => d.children);
-    d3.tree().nodeSize([NODE_W + 28, NODE_H + 54])(root);
-    const descendants = root.descendants();
-    let minX = Infinity, maxX = -Infinity, maxY = 0;
-    descendants.forEach((d) => { minX = Math.min(minX, d.x); maxX = Math.max(maxX, d.x); maxY = Math.max(maxY, d.y); });
-    const offsetX = -minX + NODE_W / 2 + 24, offsetY = NODE_H / 2 + 24;
-    const positioned = descendants.filter((d) => !d.data._node.isVirtual).map((d) => ({ node: d.data._node, key: d.data._key, x: d.x + offsetX, y: d.y + offsetY }));
-    const links = root.links().filter((l) => !l.source.data._node.isVirtual).map((l) => ({ sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY }));
-    return { positioned, links, canvasW: (isFinite(maxX) ? maxX - minX : 0) + NODE_W + 48, canvasH: maxY + NODE_H + 48 };
-  }, [rootForLayout, expanded]);
 
   return (
     <div className="mt-5" dir={dir}>
