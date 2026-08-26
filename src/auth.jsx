@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useLanguage } from "./language";
 import { supabase } from "./supabase";
-import { Shield, Mail, UserPlus, UserX, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { Shield, Mail, UserPlus, UserX, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot } from "lucide-react";
 
 const AuthContext = createContext(null);
 const SESSION_KEY = "qoyod_session";
@@ -341,6 +341,16 @@ export function AdminPanel() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiSaving, setGeminiSaving] = useState(false);
+  const [geminiStatus, setGeminiStatus] = useState(null);
+
+  // Load Gemini key on mount
+  useEffect(() => {
+    import("./aiAgent").then(({ getGeminiKey }) => {
+      getGeminiKey().then((key) => { if (key) setGeminiKey(key); });
+    });
+  }, []);
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -466,6 +476,58 @@ export function AdminPanel() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Gemini AI Key Section */}
+          <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#F5F3FF", border: "1px solid #C4B5FD" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Bot size={16} color="#7C3AED" />
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#7C3AED", margin: 0 }}>
+                {t({ ar: "إعداد المساعد الذكي (Gemini AI)", en: "AI Assistant Setup (Gemini AI)" })}
+              </p>
+            </div>
+            <p style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>
+              {t({
+                ar: "مجاني: أدخل مفتاح Gemini من Google AI Studio لتفعيل المساعد الذكي في الشات",
+                en: "Free: Enter Gemini key from Google AI Studio to enable AI assistant in chat",
+              })}
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="password"
+                value={geminiKey}
+                onChange={(e) => { setGeminiKey(e.target.value); setGeminiStatus(null); }}
+                placeholder="AIza..."
+                style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #C4B5FD", fontSize: 13, outline: "none", direction: "ltr" }}
+              />
+              <button
+                onClick={async () => {
+                  if (!geminiKey.trim()) return;
+                  setGeminiSaving(true);
+                  const { saveGeminiKey } = await import("./aiAgent");
+                  const ok = await saveGeminiKey(geminiKey.trim());
+                  setGeminiSaving(false);
+                  setGeminiStatus(ok ? "saved" : "error");
+                }}
+                disabled={geminiSaving || !geminiKey.trim()}
+                style={{ padding: "10px 16px", borderRadius: 8, background: "#7C3AED", color: "#FFF", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", opacity: geminiSaving || !geminiKey.trim() ? 0.5 : 1 }}
+              >
+                {geminiSaving ? "..." : t({ ar: "حفظ", en: "Save" })}
+              </button>
+            </div>
+            {geminiStatus === "saved" && (
+              <p style={{ fontSize: 11, color: "#16A34A", marginTop: 6 }}>
+                {t({ ar: "تم حفظ المفتاح بنجاح! المساعد جاهز في الشات", en: "Key saved! Assistant is ready in chat" })}
+              </p>
+            )}
+            {geminiStatus === "error" && (
+              <p style={{ fontSize: 11, color: "#EF4444", marginTop: 6 }}>
+                {t({ ar: "فشل الحفظ. تحقق من الاتصال", en: "Save failed. Check connection" })}
+              </p>
+            )}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#7C3AED", marginTop: 6, display: "inline-block" }}>
+              {t({ ar: "← احصل على مفتاح مجاني من هنا", en: "← Get free key from here" })}
+            </a>
           </div>
         </div>
       </div>

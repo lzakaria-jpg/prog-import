@@ -3,10 +3,14 @@ import { supabase } from "./supabase";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import {
+  chatWithAgent, isMessageForAgent, cleanMessageForAgent,
+  AI_AGENT_EMAIL, AI_AGENT_NAME_AR, AI_AGENT_NAME_EN, isAgentAvailable,
+} from "./aiAgent";
+import {
   MessageCircle, X, Send, Paperclip, Image, FileSpreadsheet, FileText,
   ChevronLeft, ChevronRight, Volume2, VolumeX, Archive, Trash2, Edit3,
   Check, CheckCheck, Smile, Search, MoreVertical, Download, Eye, EyeOff,
-  Bell, BellOff, Users, Hash, Lock, ArrowDown,
+  Bell, BellOff, Users, Hash, Lock, ArrowDown, Bot,
 } from "lucide-react";
 
 // ─── Sound ──────────────────────────────────────────────────────────
@@ -380,11 +384,48 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
 
   // ── Send Message ──────────────────────────────────────────
 
+  const [agentTyping, setAgentTyping] = useState(false);
+
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText("");
 
+    const isPublicChannel = activeChannel === "public";
+    const isDMWithAgent = activeChannel === AI_AGENT_EMAIL;
+    const isForAI = isMessageForAgent(text, isPublicChannel) || isDMWithAgent;
+
+    if (isForAI) {
+      // Send user message to DB
+      const cleanText = isDMWithAgent ? text : cleanMessageForAgent(text);
+      const userMsg = {
+        sender_email: currentUser,
+        recipient_email: isDMWithAgent ? AI_AGENT_EMAIL : null,
+        content: text,
+        message_type: "text",
+      };
+      const { error: userErr } = await supabase.from("chat_messages").insert(userMsg);
+      if (userErr) console.error("Send error:", userErr);
+
+      // Show typing indicator
+      setAgentTyping(true);
+
+      // Get AI response
+      const channelKey = isDMWithAgent ? `dm-${currentUser}-${AI_AGENT_EMAIL}` : "public";
+      const reply = await chatWithAgent(cleanText, channelKey);
+      setAgentTyping(false);
+
+      // Send agent response to DB
+      await supabase.from("chat_messages").insert({
+        sender_email: AI_AGENT_EMAIL,
+        recipient_email: isDMWithAgent ? currentUser : null,
+        content: reply.text,
+        message_type: "text",
+      });
+      return;
+    }
+
+    // Normal message
     const msg = {
       sender_email: currentUser,
       recipient_email: channelKey,
@@ -461,7 +502,16 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
 
   // ── Build participants list (from whitelist + online) ─────
 
-  const participants = (whitelist || []).filter((email) => email !== currentUser);
+  const [agentAvailable, setAgentAvailable] = useState(false);
+  useEffect(() => { isAgentAvailable().then(setAgentAvailable); }, [isOpen]);
+
+  const participants = useMemo(() => {
+    const users = (whitelist || []).filter((email) => email !== currentUser);
+    if (agentAvailable) {
+      return [AI_AGENT_EMAIL, ...users];
+    }
+    return users;
+  }, [whitelist, currentUser, agentAvailable]);
 
   // ── Filter messages by search ─────────────────────────────
 
@@ -564,7 +614,8 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
 
             {/* Users list */}
             {participants.map((email) => {
-              const isOnline = onlineUsers.has(email);
+              const isAgent = email === AI_AGENT_EMAIL;
+              const isOnline = isAgent ? agentAvailable : onlineUsers.has(email);
               const isActive = activeChannel === email;
               const unread = unreadCounts[email] || 0;
               return (
@@ -583,11 +634,13 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <div style={{
                       width: 32, height: 32, borderRadius: 16,
-                      background: `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`,
+                      background: isAgent
+                        ? "linear-gradient(135deg, #7C3AED, #4A90D9)"
+                        : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       color: "#FFF", fontSize: 12, fontWeight: 700,
                     }}>
-                      {email.charAt(0).toUpperCase()}
+                      {isAgent ? <Bot size={16} /> : email.charAt(0).toUpperCase()}
                     </div>
                     <div style={{
                       position: "absolute", bottom: 0, right: isRTL ? "auto" : 0, left: isRTL ? 0 : "auto",
@@ -597,15 +650,15 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                     }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: "#1E293B", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {emailToName(email)}
+                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#7C3AED" : "#1E293B", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
                     </p>
                     <p style={{ fontSize: 9, color: isOnline ? "#16A34A" : "#94A3B8", margin: 0 }}>
-                      {isOnline ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" })}
+                      {isAgent ? (isOnline ? t({ ar: "ذكاء اصطناعي", en: "AI Agent" }) : t({ ar: "غير متاح", en: "Offline" })) : (isOnline ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" }))}
                     </p>
                   </div>
                   {unread > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#FFF", background: "#DC2626", borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#FFF", background: "#7C3AED", borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>
                       {unread}
                     </span>
                   )}
@@ -679,6 +732,31 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                   onDownload={handleDownload}
                 />
               ))
+            )}
+            {/* AI Agent Typing Indicator */}
+            {agentTyping && (
+              <div className="flex w-full" style={{ justifyContent: isRTL ? "flex-end" : "flex-start", marginBottom: 4 }}>
+                <div style={{
+                  background: "linear-gradient(135deg, #7C3AED22, #4A90D922)",
+                  border: "1px solid #7C3AED33",
+                  borderRadius: "16px 16px 16px 4px",
+                  padding: "10px 16px",
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <Bot size={14} color="#7C3AED" />
+                  <div style={{ display: "flex", gap: 3 }}>
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} style={{
+                        width: 6, height: 6, borderRadius: 3, background: "#7C3AED",
+                        animation: `bounce 1.2s ${i * 0.2}s infinite`,
+                      }} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 500 }}>
+                    {t({ ar: "المساعد يكتب...", en: "Assistant typing..." })}
+                  </span>
+                </div>
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>

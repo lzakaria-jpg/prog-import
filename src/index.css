@@ -183,6 +183,16 @@ body {
   animation: pulse-soft 2s ease-in-out infinite;
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+
 /* Table styles */
 .table-container {
   overflow-x: auto;
