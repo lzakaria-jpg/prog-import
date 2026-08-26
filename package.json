@@ -1,0 +1,74 @@
+{
+  "name": "qoyod-journal-import",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "d3": "^7.9.0",
+    "electron-updater": "^6.8.9",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.31.0",
+    "mammoth": "^1.12.1",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^8.2.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.qoyod.journal-import",
+    "productName": "مدقق استيراد القيود",
+    "icon": "build/icon.ico",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "lzakaria-jpg",
+      "repo": "prog-import"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "مدقق استيراد القيود"
+    }
+  }
+}
