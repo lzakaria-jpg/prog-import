@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useRef, useCallback, memo } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect, memo } from "react";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, XCircle, Loader2,
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy, Sparkles,
-  ChevronLeft, ChevronRight, Languages, Wand2,
+  ChevronLeft, ChevronRight, Languages, Wand2, Search, X,
 } from "lucide-react";
 import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, buildSemanticsPrompt, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
@@ -223,7 +223,20 @@ export default function JournalTool() {
   const [aiError, setAiError] = useState("");
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef(null);
   const [showSmartAnalysis, setShowSmartAnalysis] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const chartMap = useMemo(() => {
     if (!chartAccounts) return {};
@@ -253,10 +266,21 @@ export default function JournalTool() {
 
   const filteredEntries = useMemo(() => {
     if (!entries) return [];
-    if (filter === "ok") return entries.filter((e) => (issuesBySeq[e.seq] || []).length === 0);
-    if (filter === "error") return entries.filter((e) => (issuesBySeq[e.seq] || []).length > 0);
-    return entries;
-  }, [entries, filter, issuesBySeq]);
+    let result = entries;
+    if (filter === "ok") result = result.filter((e) => (issuesBySeq[e.seq] || []).length === 0);
+    else if (filter === "error") result = result.filter((e) => (issuesBySeq[e.seq] || []).length > 0);
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter((e) => {
+        const text = [
+          e.date, e.desc, e.seq,
+          ...(e.rows || []).map((r) => [r.code, r.name, r.comment, r.debit, r.credit].join(" ")),
+        ].join(" ").toLowerCase();
+        return text.includes(q);
+      });
+    }
+    return result;
+  }, [entries, filter, issuesBySeq, searchQuery]);
 
   const totalPages = Math.ceil(filteredEntries.length / PAGE_SIZE);
   const pagedEntries = useMemo(() => {
@@ -485,6 +509,21 @@ export default function JournalTool() {
               <SummaryStat label={{ ar: "قيود بها مشاكل", en: "Entries with Issues" }} value={entriesWithIssues} color={totalOpenIssues > 0 ? COLORS.red : COLORS.green} />
             </div>
 
+            <div className="mb-3">
+              <div className="relative">
+                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
+                <input ref={searchInputRef} type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+                  placeholder={t({ ar: "بحث بالرمز، اسم الحساب، التاريخ، التعليق...", en: "Search by code, account name, date, comment..." })}
+                  className="w-full rounded-lg border border-slate-300 bg-white py-2 pe-3 ps-9 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  style={{ direction: dir }} />
+                {searchQuery && (
+                  <button onClick={() => { setSearchQuery(""); setPage(0); }} className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">{t({ ar: "Ctrl+F للبحث السريع", en: "Ctrl+F for quick search" })}</p>
+            </div>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {filters.map(({ key, label }) => (
                 <button key={key} onClick={() => { setFilter(key); setPage(0); }}

@@ -37,9 +37,9 @@ function UpdateBanner() {
   const [dismissed, setDismissed] = useState(false);
 
   const api = window.electronAPI;
-  if (!api || !api.onUpdateStatus) return null;
 
   useEffect(() => {
+    if (!api || !api.onUpdateStatus) return;
     const unsubscribe = api.onUpdateStatus((data) => {
       if (data.status === "available") {
         setUpdateState({ type: "available", version: data.version });
@@ -57,6 +57,7 @@ function UpdateBanner() {
     return () => { if (unsubscribe) unsubscribe(); };
   }, []);
 
+  if (!api || !api.onUpdateStatus) return null;
   if (dismissed || !updateState) return null;
 
   // Available: show download button
@@ -151,7 +152,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.2.1";
+  const currentVersion = "1.2.4";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>

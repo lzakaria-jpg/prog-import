@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   updateDownload: () => ipcRenderer.invoke("update-download"),
   updateInstall: () => ipcRenderer.invoke("update-install"),
   onUpdateStatus: (callback) => {
-    ipcRenderer.on("update-status", (_event, data) => callback(data));
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("update-status", listener);
+    return () => ipcRenderer.removeListener("update-status", listener);
   },
 });

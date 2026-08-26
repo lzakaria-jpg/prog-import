@@ -50,7 +50,7 @@ const LEVEL2_TYPES = Object.keys(LEVEL2_TO_LEVEL1);
 
 const LEVEL3_MAP = {
   "الأصول المتداولة": [
-    "المدينون", "حساب البنك", "سلف موظفين", "المخزون", "النقدية وما في حكمها",
+    "المدينون", "حساب البنك", "سلف موظفين", "المخزون", "النقدية ومافي حكمها",
     "أصول متداولة أخرى", "عهد نقدية", "مصروفات مقدمة", "مخزون قطع غيار أصول",
   ],
   "الأصول غير المتداولة": [
@@ -97,7 +97,7 @@ const LEVEL1_ROOT_KEYWORDS = {
 };
 
 const KEYWORD_SYNONYMS = {
-  "النقدية وما في حكمها": ["نقدية", "نقد", "كاش", "صندوق", "خزينة", "اموال", "ودائع بنكية", "ودائع", "أرصدة بنكية"],
+  "النقدية ومافي حكمها": ["نقدية", "نقد", "كاش", "صندوق", "خزينة", "اموال", "ودائع بنكية", "ودائع", "أرصدة بنكية"],
   "حساب البنك": ["بنك", "مصرف", "حساب بنكي", "حساب جاري", "حسابات جارية", "الراجحي", "الأهلي", "الإنماء", "سامبا"],
   "المدينون": ["عملاء", "عميل", "مدينون", "ذمم مدينة", "مستحقات على عملاء"],
   "سلف موظفين": ["سلفة", "سلف", "سلفيات", "سلفة موظف", "سلف موظفين"],
@@ -147,7 +147,7 @@ const KEYWORD_SYNONYMS = {
 
 // مرادفات إنجليزية - كثير من ملفات العملاء أسماء حساباتها إنجليزية فقط
 const KEYWORD_SYNONYMS_EN = {
-  "النقدية وما في حكمها": ["cash", "petty cash", "cash on hand", "cash in hand"],
+  "النقدية ومافي حكمها": ["cash", "petty cash", "cash on hand", "cash in hand"],
   "حساب البنك": ["bank", "bank account", "current account", "checking account"],
   "المدينون": ["customer", "customers", "receivable", "receivables", "accounts receivable", "ar", "debtors", "trade receivable"],
   "سلف موظفين": ["employee advance", "employees advances", "staff advance", "advance to employee"],
@@ -2372,6 +2372,20 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const rootForLayout = useMemo(() => { if (!activeBucket || activeBucket.items.length === 0) return null; if (activeBucket.items.length === 1) return activeBucket.items[0]; return { isVirtual: true, code: "__virtual__", children: activeBucket.items }; }, [activeBucket]);
   useEffect(() => { if (!rootForLayout) return; setExpanded((prev) => { const next = new Set(prev); next.add(nodeKeyOf(rootForLayout)); rootForLayout.children.forEach((child) => next.add(nodeKeyOf(child))); return next; }); }, [activeRootKey]);
 
+  const [zoom, setZoom] = useState(1);
+  const treeScrollRef = useRef(null);
+  const MIN_ZOOM = 0.2, MAX_ZOOM = 2;
+  const fitToPage = useCallback(() => {
+    const el = treeScrollRef.current;
+    if (!el) return;
+    const fitW = el.clientWidth / (canvasW || 1);
+    const fitH = el.clientHeight / (canvasH || 1);
+    setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitW, fitH))));
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+  }, [canvasW, canvasH]);
+  const resetZoom = useCallback(() => { setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = 0; el.scrollTop = 0; } }, []);
+
   const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
   const { positioned, links, canvasW, canvasH } = useMemo(() => {
     if (!rootForLayout) return { positioned: [], links: [], canvasW: 0, canvasH: 0 };
@@ -2398,8 +2412,18 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               <button key={key} onClick={() => setActiveRootKey(key)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${activeRootKey === key ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-blue-700 hover:text-blue-700"}`}>{bucket.label} ({bucket.items.length})</button>
             ))}
           </div>
-          <div className="overflow-auto rounded-xl border border-slate-200 bg-slate-50" style={{ maxHeight: 640 }}>
-            <div className="relative" style={{ width: canvasW, height: canvasH, minWidth: "100%" }}>
+          <div className="mb-2 flex items-center gap-2">
+            <button onClick={fitToPage} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-500 hover:text-blue-600 transition">{t({ ar: "ملء الصفحة", en: "Fit to Page" })}</button>
+            <button onClick={resetZoom} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-500 hover:text-blue-600 transition">{t({ ar: "100%", en: "100%" })}</button>
+            <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-500">+</button>
+            <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-500">−</button>
+            <span className="text-xs text-slate-400">{Math.round(zoom * 100)}%</span>
+          </div>
+          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-slate-200 bg-slate-50" style={{ maxHeight: 640 }}
+            onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); setZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z + (e.deltaY < 0 ? 0.1 : -0.1)))); } }}
+          >
+            <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
+              <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}>
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
                 {links.map((l, i) => { const midY = (l.sy + l.ty) / 2; return (<path key={i} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#cbd5e1" strokeWidth={1.5} />); })}
               </svg>
@@ -2407,6 +2431,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
                 const code = node.isAnchor ? node.code : node.row.code;
                 return (<TreeNodeBox key={key} node={node} nodeKey={key} x={x} y={y} isOpen={expanded.has(key)} isBeingDragged={draggedCode === code} isDropTarget={!!draggedCode && draggedCode !== code} isDragOverTarget={!!draggedCode && draggedCode !== code && dragOverCode === code} isRecentlyMoved={recentlyMovedCode === code} isEditing={editingCode === code && !node.isAnchor} onToggle={toggleExpand} onSetDragged={setDraggedCode} onSetDragOver={setDragOverCode} onClearDropMessage={clearDropMessage} onDropNode={handleDrop} onAddChild={handleAddChild} onDeleteNode={handleDeleteNode} onToggleEditing={setEditingCode} updateRow={updateRow} availableTypesFor={availableTypesFor} />);
               })}
+              </div>
             </div>
           </div>
         </>
