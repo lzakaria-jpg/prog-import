@@ -46,6 +46,13 @@ app.whenReady().then(() => {
   if (app.isPackaged) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.forceDevUpdateConfig = false;
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "lzakaria-jpg",
+      repo: "prog-import",
+      releaseType: "release",
+    });
     autoUpdater.logger = {
       info: (msg) => console.log("[update]", msg),
       warn: (msg) => console.warn("[update]", msg),
@@ -54,6 +61,7 @@ app.whenReady().then(() => {
 
     // Check for updates 3 seconds after app starts
     setTimeout(() => {
+      console.log("[update] Checking for updates...");
       autoUpdater.checkForUpdates().catch((err) => {
         console.log("[update] Check failed:", err.message);
       });
