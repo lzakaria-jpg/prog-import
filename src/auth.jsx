@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useLanguage } from "./language";
 import { supabase } from "./supabase";
 import { trackLogin, trackLogout, getUserStats, getRecentActivity } from "./activityTracker";
-import { Shield, Mail, UserPlus, UserX, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity } from "lucide-react";
+import { Shield, Mail, UserPlus, UserX, Users, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity } from "lucide-react";
 
 const AuthContext = createContext(null);
 const SESSION_KEY = "qoyod_session";
