@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import JournalTool from "./JournalTool";
 import { MergeTool } from "./MergeTool";
 import { LanguageProvider, useLanguage } from "./language";
 import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
@@ -11,30 +12,6 @@ const NAV_ITEMS = [
   { id: "journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز واستيراد القيود", en: "Review, prepare & import journal entries" } },
   { id: "merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
 ];
-
-const OLD_ENTRIES_TOOL_URL = "https://adorable-pasca-c43c76.netlify.app/";
-
-function OldEntriesTool() {
-  const { t } = useLanguage();
-  const [loaded, setLoaded] = useState(false);
-  return (
-    <div className="relative w-full overflow-hidden rounded-xl border" style={{ borderColor: "var(--qoyod-border)", background: "var(--qoyod-surface)", height: "calc(100vh - 150px)" }}>
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm" style={{ color: "var(--qoyod-text-secondary)", background: "var(--qoyod-surface)" }}>
-          <span className="animate-pulse-soft">⏳</span> {t({ ar: "جاري تحميل أداة القيود...", en: "Loading entries tool..." })}
-        </div>
-      )}
-      <iframe
-        title="entries-tool"
-        src={OLD_ENTRIES_TOOL_URL}
-        onLoad={() => setLoaded(true)}
-        className="h-full w-full"
-        style={{ border: "none", display: loaded ? "block" : "none" }}
-        allow="clipboard-read; clipboard-write"
-      />
-    </div>
-  );
-}
 
 function LanguageToggle({ compact }) {
   const { lang, toggle, t } = useLanguage();
@@ -170,7 +147,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.3.1";
+  const currentVersion = "1.4.0";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
@@ -323,7 +300,7 @@ function AppShell() {
         <Watermark />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
-          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}><OldEntriesTool /></div>
+          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}><JournalTool /></div>
           <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
         </div>
       </main>
