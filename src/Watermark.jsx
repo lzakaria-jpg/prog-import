@@ -63,11 +63,19 @@ const BILL_PATTERN_EN = encodeURIComponent(`
   </g><text x='86' y='310' font-family='Cairo, Segoe UI, sans-serif' font-size='25' font-weight='700' fill='#7DD3FC' opacity='0.18'>PURCHASE BILL</text>
 </svg>`);
 
+const SALE_PATTERN = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#38BDF8' stroke-width='2' opacity='0.2'><rect x='68' y='42' width='184' height='214' rx='10'/><path d='M98 82h124M98 116h124M98 150h90M98 184h124M98 218h70'/><circle cx='222' cy='70' r='18'/><path d='M212 70h20M222 60v20'/></g>
+  <text x='86' y='300' font-family='Cairo, Segoe UI, sans-serif' font-size='28' font-weight='700' fill='#38BDF8' opacity='0.18'>SALE INVOICE</text>
+</svg>`);
+
 export function Watermark({ type = "journal", lang = "ar" }) {
   const pattern = type === "tree"
     ? (lang === "en" ? TREE_PATTERN_EN : TREE_PATTERN_AR)
     : type === "bill"
       ? (lang === "en" ? BILL_PATTERN_EN : BILL_PATTERN_AR)
+      : type === "sale"
+        ? SALE_PATTERN
       : (lang === "en" ? JOURNAL_PATTERN_EN : JOURNAL_PATTERN_AR);
   return (
     <div
@@ -87,7 +95,7 @@ export function Watermark({ type = "journal", lang = "ar" }) {
           backgroundImage: `url("data:image/svg+xml,${pattern}")`,
           backgroundRepeat: "repeat",
           backgroundSize: "320px 320px",
-          opacity: type === "tree" ? 0.52 : type === "bill" ? 0.2 : 0.08,
+          opacity: type === "tree" ? 0.52 : type === "bill" || type === "sale" ? 0.2 : 0.08,
         }}
       />
       {type === "tree" && <svg

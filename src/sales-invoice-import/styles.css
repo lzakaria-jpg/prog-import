@@ -1,0 +1,359 @@
+/*
+  أنماط أداة استيراد فواتير المبيعات.
+
+  كل المحددات منطَّقة داخل `.qii-app` أو مسبوقة بـ `qii-`، لأن الأداة تُدمج
+  داخل تطبيق مضيف له أنماطه: محدد عام مثل `table` أو `.btn` كان سيسرّب
+  التنسيق إلى بقية التطبيق أو يتعرض للكتابة فوقه.
+
+  الألوان مشتقة من قالب قيود نفسه: الكحلي 122664 والأزرق 004586 والسماوي 00DAF9
+  هي ألوان رؤوس القالب الرسمي.
+
+  الأرقام كلها بخط أحادي المسافة لأن الأداة أداة تدقيق: الأعمدة الرقمية يجب
+  أن تصطف بصرياً حتى يُلتقط الانحراف بالنظر.
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+.qii-app {
+  --qii-ink:        #0B1B3A;
+  --qii-ink-2:      #46587A;
+  --qii-ink-3:      #6B7C99;
+  --qii-paper:      #EEF1F6;
+  --qii-surface:    #FFFFFF;
+  --qii-surface-2:  #F7F9FC;
+  --qii-line:       #D6DEEA;
+  --qii-line-soft:  #E7ECF3;
+
+  --qii-navy:       #122664;
+  --qii-brand:      #004586;
+  --qii-brand-soft: #E6EEF6;
+  --qii-cyan:       #00A9C7;
+  --qii-cyan-soft:  #E0F6FA;
+
+  --qii-ok:         #0E7C55;
+  --qii-ok-soft:    #E3F3EC;
+  --qii-warn:       #9A6100;
+  --qii-warn-soft:  #FBF0DC;
+  --qii-stop:       #B3261E;
+  --qii-stop-soft:  #FBE8E7;
+
+  --qii-r:   6px;
+  --qii-r-lg: 10px;
+  --qii-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --qii-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --qii-rail: 92px;
+}
+
+.qii-app *, .qii-app *::before, .qii-app *::after { box-sizing: border-box; }
+
+
+
+.num, .mono { font-family: var(--qii-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+.qii-app button, .qii-app input, .qii-app select, .qii-app textarea { font-family: inherit; font-size: inherit; color: inherit; }
+
+.qii-app :focus-visible { outline: 2px solid var(--qii-brand); outline-offset: 2px; border-radius: 3px; }
+
+/* Shared Qoyod dark theme for the sales invoice tool. */
+.qii-app {
+  --qii-ink: #E6EDF6; --qii-ink-2: #8CA3C1; --qii-ink-3: #5C7196;
+  --qii-paper: #0B1120; --qii-surface: #111A2E; --qii-surface-2: #0E1830;
+  --qii-line: #233152; --qii-line-soft: #2E4068; --qii-navy: #0F1F3E;
+  --qii-brand: #12B886; --qii-brand-soft: rgba(18,184,134,0.12); --qii-cyan: #38BDF8;
+  --qii-cyan-soft: rgba(56,189,248,0.1); --qii-ok: #34E0A0; --qii-ok-soft: rgba(52,224,160,0.1);
+  --qii-warn: #FBBF24; --qii-warn-soft: rgba(251,191,36,0.12); --qii-stop: #FB7185;
+  --qii-stop-soft: rgba(251,113,133,0.12); background: var(--qii-paper); color: var(--qii-ink);
+}
+.qii-sidebar, .qii-card, .qii-panel, .qii-box, .qii-table-wrap { background: var(--qii-surface) !important; border-color: var(--qii-line) !important; }
+.qii-sidebar { background: linear-gradient(180deg, #0F1F3E, #0A1328) !important; }
+.qii-topbar { background: linear-gradient(135deg, #0F1F3E, #0A1328); border-bottom-color: var(--qii-brand); }
+.qii-step, .qii-step-num { background: var(--qii-surface-2); border-color: var(--qii-line); color: var(--qii-ink-2); }
+.qii-step.active { background: #162560; border-color: #2E4068; color: var(--qii-ink); }
+.qii-step.active .qii-step-num, .qii-step.done .qii-step-num { background: var(--qii-brand); color: #04120C; }
+.qii-app input, .qii-app select, .qii-app textarea { background: var(--qii-surface-2) !important; border-color: var(--qii-line) !important; color: var(--qii-ink) !important; }
+.qii-btn { background: var(--qii-brand); border-color: var(--qii-brand); color: #04120C; }
+.qii-btn.ghost { background: var(--qii-surface-2); border-color: var(--qii-line); color: var(--qii-ink); }
+.qii-btn.dark { background: #162560; border-color: #2E4068; color: var(--qii-ink); }
+.qii-drop, .qii-reference, .qii-note { background: var(--qii-surface-2) !important; border-color: var(--qii-line-soft) !important; color: var(--qii-ink-2); }
+.qii-msg.info { background: var(--qii-cyan-soft); border-color: var(--qii-line-soft); color: #7DD3FC; }
+.qii-msg.warn { background: var(--qii-warn-soft); border-color: rgba(251,191,36,0.35); color: var(--qii-warn); }
+.qii-msg.err { background: var(--qii-stop-soft); border-color: rgba(251,113,133,0.35); color: var(--qii-stop); }
+.qii-msg.ok { background: var(--qii-ok-soft); border-color: rgba(52,224,160,0.35); color: var(--qii-ok); }
+.qii-app table { background: var(--qii-surface-2); color: var(--qii-ink); }
+.qii-app th { background: #16213A !important; color: var(--qii-ink-2); border-color: var(--qii-line); }
+.qii-app td { border-color: var(--qii-line); }
+.qii-app tbody tr:nth-child(even) { background: rgba(22,33,58,0.45); }
+.qii-card-head, .qii-recon { background: #16213A !important; }
+.qii-card-body, .qii-main { background: transparent; }
+.qii-page-sub, .qii-step-hint, .qii-drop-hint, .qii-recon-note { color: #8CA3C1; }
+.qii-note { background: rgba(56,189,248,0.1) !important; border-color: #2E4068 !important; color: #7DD3FC !important; }
+.qii-note.warn { background: rgba(251,191,36,0.12) !important; border-color: rgba(251,191,36,0.35) !important; color: #FBBF24 !important; }
+.qii-note.stop { background: rgba(251,113,133,0.12) !important; border-color: rgba(251,113,133,0.35) !important; color: #FB7185 !important; }
+.qii-note.ok { background: rgba(52,224,160,0.1) !important; border-color: rgba(52,224,160,0.35) !important; color: #34E0A0 !important; }
+.qii-recon { border-top-color: #12B886; }
+.qii-recon-k { color: #8CA3C1; }
+.qii-recon-v.ok { color: #34E0A0; }
+.qii-recon-v.warn { color: #FBBF24; }
+.qii-recon-v.stop { color: #FB7185; }
+.qii-tabs { background: #0E1830 !important; border-color: #233152 !important; }
+.qii-tab { color: #8CA3C1 !important; }
+.qii-tab.active { background: #162560 !important; color: #20D9A0 !important; }
+.qii-checkline { color: #8CA3C1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qii-app *, .qii-app *::before, .qii-app *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ─────────────────────────── الهيكل ─────────────────────────── */
+
+.qii-app { display: flex; flex-direction: column; min-height: 100%; }
+
+.qii-topbar {
+  background: var(--qii-navy);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 3px solid var(--qii-cyan);
+}
+.qii-topbar h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.qii-topbar .sub { color: #A8BCDF; font-size: 12.5px; }
+.qii-topbar .spacer { flex: 1; }
+
+.qii-shell { flex: 1; display: grid; grid-template-columns: 268px 1fr; gap: 0; align-items: start; }
+
+.qii-sidebar {
+  position: sticky; top: 0;
+  padding: 20px 16px;
+  border-inline-start: 1px solid var(--qii-line);
+  background: var(--qii-surface-2);
+  min-height: calc(100vh - 58px);
+}
+
+.qii-main { padding: 22px 26px 120px; min-width: 0; }
+
+/* ─────────────────────────── الخطوات ─────────────────────────── */
+
+.qii-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.qii-step {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 10px;
+  border: 0; width: 100%;
+  background: transparent;
+  border-radius: var(--qii-r);
+  cursor: pointer;
+  text-align: start;
+  transition: background .12s;
+}
+.qii-step:hover:not(:disabled) { background: var(--qii-brand-soft); }
+.qii-step:disabled { cursor: not-allowed; opacity: .45; }
+.qii-step.active { background: var(--qii-surface); box-shadow: inset 3px 0 0 var(--qii-brand); }
+
+.qii-step-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--qii-mono); font-size: 12px; font-weight: 600;
+  background: var(--qii-line-soft); color: var(--qii-ink-3);
+}
+.qii-step.active .qii-step-num { background: var(--qii-brand); color: #fff; }
+.qii-step.done .qii-step-num { background: var(--qii-ok); color: #fff; }
+
+.qii-step-label { font-weight: 500; font-size: 13.5px; }
+.qii-step-hint { font-size: 11.5px; color: var(--qii-ink-3); line-height: 1.45; }
+
+/* ─────────────────────── شريط المطابقة (العنصر المميّز) ─────────────────────── */
+/*
+  الشريط ثابت أسفل الشاشة ويعرض دائماً: إجمالي المصدر، إجمالي قيود، الفرق.
+  السبب: السؤال الوحيد الذي يقرر نجاح الترحيل هو «هل تغيّرت الفلوس؟»،
+  فيجب أن تكون إجابته مرئية في كل خطوة لا في تقرير نهائي.
+*/
+
+.qii-recon {
+  position: fixed; inset-inline: 0; bottom: 0;
+  background: var(--qii-navy);
+  color: #fff;
+  display: flex; align-items: stretch;
+  border-top: 3px solid var(--qii-cyan);
+  z-index: 30;
+}
+.qii-recon-cell {
+  padding: 10px 22px;
+  border-inline-end: 1px solid rgba(255,255,255,.13);
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 150px;
+}
+.qii-recon-cell:last-child { border: 0; }
+.qii-recon-k { font-size: 11px; color: #A8BCDF; letter-spacing: .01em; }
+.qii-recon-v { font-family: var(--qii-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.qii-recon-v.ok   { color: #5FE3AE; }
+.qii-recon-v.warn { color: #FFCF70; }
+.qii-recon-v.stop { color: #FF9E96; }
+.qii-recon .spacer { flex: 1; border: 0; }
+.qii-recon-note { align-self: center; padding-inline: 22px; font-size: 12px; color: #A8BCDF; }
+
+/* ─────────────────────────── البطاقات ─────────────────────────── */
+
+.qii-card {
+  background: var(--qii-surface);
+  border: 1px solid var(--qii-line);
+  border-radius: var(--qii-r-lg);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.qii-card-head {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--qii-line-soft);
+  display: flex; align-items: center; gap: 12px;
+  background: var(--qii-surface-2);
+}
+.qii-card-head h2 { margin: 0; font-size: 14.5px; font-weight: 600; }
+.qii-card-head .spacer { flex: 1; }
+.card-.card-body.tight { padding: 0; }
+
+.qii-page-title { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+.qii-page-sub { margin: 0 0 20px; color: var(--qii-ink-3); font-size: 13px; }
+
+/* ─────────────────────────── إفلات الملفات ─────────────────────────── */
+
+.qii-drop {
+  border: 1.5px dashed var(--qii-line);
+  border-radius: var(--qii-r-lg);
+  background: var(--qii-surface-2);
+  padding: 22px 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.qii-drop:hover, .qii-drop.over { border-color: var(--qii-brand); background: var(--qii-brand-soft); }
+.qii-drop.filled { border-style: solid; border-color: var(--qii-ok); background: var(--qii-ok-soft); text-align: start; }
+.qii-drop-title { font-weight: 600; font-size: 13.5px; }
+.qii-drop-hint { font-size: 12px; color: var(--qii-ink-3); margin-top: 3px; }
+.qii-drop input { display: none; }
+
+.qii-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.qii-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+
+/* ─────────────────────────── الجداول ─────────────────────────── */
+
+.qii-table-wrap { overflow: auto; max-height: 460px; }
+
+.qii-app table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.qii-app thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--qii-brand); color: #fff;
+  font-weight: 600; font-size: 12.5px;
+  text-align: start; padding: 9px 12px;
+  white-space: nowrap;
+}
+.qii-app tbody td { padding: 8px 12px; border-bottom: 1px solid var(--qii-line-soft); vertical-align: middle; }
+.qii-app tbody tr:hover { background: var(--qii-surface-2); }
+.qii-app tbody tr.row-stop { background: var(--qii-stop-soft); }
+.qii-app tbody tr.row-stop:hover { background: #F8DDDB; }
+.qii-app tbody tr.row-warn { background: var(--qii-warn-soft); }
+.qii-app tbody tr.row-ok   { background: var(--qii-ok-soft); }
+.qii-app td.n, .qii-app th.n { font-family: var(--qii-mono); font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
+
+/* ─────────────────────────── العناصر ─────────────────────────── */
+
+.qii-btn {
+  border: 1px solid var(--qii-line);
+  background: var(--qii-surface);
+  padding: 8px 16px;
+  border-radius: var(--qii-r);
+  cursor: pointer;
+  font-weight: 500; font-size: 13.5px;
+  transition: background .12s, border-color .12s;
+}
+.qii-btn:hover:not(:disabled) { background: var(--qii-surface-2); border-color: var(--qii-ink-3); }
+.qii-btn:disabled { opacity: .45; cursor: not-allowed; }
+.qii-btn.primary { background: var(--qii-brand); border-color: var(--qii-brand); color: #fff; }
+.qii-btn.primary:hover:not(:disabled) { background: #003a72; }
+.qii-btn.ghost { border-color: transparent; background: transparent; color: var(--qii-brand); }
+.qii-btn.ghost:hover:not(:disabled) { background: var(--qii-brand-soft); }
+.qii-btn.sm { padding: 5px 11px; font-size: 12.5px; }
+
+.qii-app select, .qii-app input[type=text], .qii-app input[type=number] {
+  border: 1px solid var(--qii-line);
+  border-radius: var(--qii-r);
+  padding: 6px 10px;
+  background: var(--qii-surface);
+  width: 100%;
+  max-width: 100%;
+}
+.qii-app select:hover, .qii-app input:hover { border-color: var(--qii-ink-3); }
+select.unset { border-color: var(--qii-stop); background: var(--qii-stop-soft); }
+select.set { border-color: var(--qii-ok); background: var(--qii-ok-soft); }
+
+label.field { display: block; margin-bottom: 12px; }
+label.field > span { display: block; font-size: 12.5px; color: var(--qii-ink-2); margin-bottom: 4px; font-weight: 500; }
+
+.qii-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600;
+  background: var(--qii-line-soft); color: var(--qii-ink-2);
+  white-space: nowrap;
+}
+.qii-badge.ok   { background: var(--qii-ok-soft);   color: var(--qii-ok); }
+.qii-badge.warn { background: var(--qii-warn-soft); color: var(--qii-warn); }
+.qii-badge.stop { background: var(--qii-stop-soft); color: var(--qii-stop); }
+.qii-badge.info { background: var(--qii-cyan-soft); color: #00707F; }
+
+.qii-stat {
+  background: var(--qii-surface-2);
+  border: 1px solid var(--qii-line-soft);
+  border-radius: var(--qii-r);
+  padding: 12px 14px;
+}
+.qii-stat-k { font-size: 11.5px; color: var(--qii-ink-3); }
+.qii-stat-v { font-family: var(--qii-mono); font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.qii-stat-v.ok { color: var(--qii-ok); } .qii-stat-v.warn { color: var(--qii-warn); } .qii-stat-v.stop { color: var(--qii-stop); }
+
+.qii-note {
+  border-inline-start: 3px solid var(--qii-brand);
+  background: var(--qii-brand-soft);
+  padding: 11px 14px;
+  border-radius: 0 var(--qii-r) var(--qii-r) 0;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+.qii-note.warn { border-color: var(--qii-warn); background: var(--qii-warn-soft); }
+.qii-note.stop { border-color: var(--qii-stop); background: var(--qii-stop-soft); }
+.qii-note.ok   { border-color: var(--qii-ok);   background: var(--qii-ok-soft); }
+.qii-note strong { font-weight: 600; }
+
+.qii-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--qii-line); padding: 0 18px; background: var(--qii-surface-2); }
+.qii-tab {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 11px 14px; font-size: 13.5px; font-weight: 500;
+  color: var(--qii-ink-3); border-bottom: 2px solid transparent;
+  display: flex; align-items: center; gap: 7px;
+}
+.qii-tab:hover { color: var(--qii-ink); }
+.qii-tab.active { color: var(--qii-brand); border-bottom-color: var(--qii-brand); }
+
+.qii-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+
+.qii-empty { text-align: center; padding: 34px 18px; color: var(--qii-ink-3); font-size: 13px; }
+
+.qii-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; }
+.qii-kv dt { color: var(--qii-ink-3); }
+.qii-kv dd { margin: 0; font-family: var(--qii-mono); font-variant-numeric: tabular-nums; }
+
+.qii-checkline { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 13px; }
+.qii-checkline input { width: auto; }
+
+.qii-truncate { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+
+@media (max-width: 900px) {
+  .qii-shell { grid-template-columns: 1fr; }
+  .qii-sidebar { position: static; min-height: 0; border-inline-start: 0; border-bottom: 1px solid var(--qii-line); }
+  .qii-steps { flex-direction: row; overflow-x: auto; }
+  .qii-step { min-width: 190px; }
+  .qii-recon { overflow-x: auto; }
+}
