@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import JournalTool from "./JournalTool";
 import { MergeTool } from "./MergeTool";
 import { LanguageProvider, useLanguage } from "./language";
 import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
@@ -147,7 +146,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.4.0";
+  const currentVersion = "1.5.0";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
@@ -300,7 +299,14 @@ function AppShell() {
         <Watermark />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
-          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}><JournalTool /></div>
+          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
+            <iframe
+              src="./old/index.html"
+              title="أداة القيود"
+              style={{ width: "100%", height: "100%", border: "none", borderRadius: 12, background: "#0E3B36" }}
+              allowFullScreen
+            />
+          </div>
           <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
         </div>
       </main>
