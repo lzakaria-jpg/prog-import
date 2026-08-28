@@ -439,31 +439,6 @@ export default function JournalTool() {
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
   }, [updateRow]);
 
-  const applyAllSuggestions = useCallback(() => {
-    setEntries((prev) => {
-      if (!prev) return prev;
-      const resolved = {};
-      const next = prev.map((entry) => {
-        const struct = structuralIssuesBySeq[entry.seq] || [];
-        const issues = [...struct, ...(semanticIssues[entry.seq] || [])].filter((i) => !resolvedIds[i.id]);
-        let changed = false;
-        const rows = entry.rows.map((r) => {
-          const iss = issues.find((i) => i.rowIndex === r._rowIndex && (i.type === "unknown_code" || i.type === "semantic_mismatch") && i.suggestions && i.suggestions.length > 0 && i.suggestions[0].confidence !== "low");
-          if (iss) {
-            changed = true;
-            resolved[iss.id] = true;
-            const sugg = iss.suggestions[0];
-            return { ...r, code: sugg.code };
-          }
-          return r;
-        });
-        return changed ? { ...entry, rows } : entry;
-      });
-      if (Object.keys(resolved).length > 0) setResolvedIds((p) => ({ ...p, ...resolved }));
-      return next;
-    });
-  }, [structuralIssuesBySeq, semanticIssues, resolvedIds]);
-
   const dismissIssue = useCallback((issueId) => {
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
   }, []);
@@ -613,12 +588,6 @@ export default function JournalTool() {
                   {t(label)}
                 </button>
               ))}
-              {applicableCount > 0 && (
-                <button onClick={applyAllSuggestions}
-                  className="rounded-lg border bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700">
-                  <CheckCircle2 size={13} className="inline me-1" />{t({ ar: `تطبيق كل التصحيحات على كامل القيود (${applicableCount})`, en: `Apply All Fixes to All Entries (${applicableCount})` })}
-                </button>
-              )}
               {totalPages > 1 && (
                 <div className="ms-auto flex items-center gap-1">
                   <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
@@ -692,7 +661,7 @@ export default function JournalTool() {
               )}
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <button onClick={handleDownload} disabled={downloading}
-                   className="btn-primary flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "#162560" }}>
+                   className="btn-primary flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
                   {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {t({ ar: "تنزيل الملف الجاهز", en: "Download prepared file" })}
                 </button>
                 <button onClick={copyToClipboard} className="btn-secondary flex items-center gap-2 rounded-md border px-5 py-2.5 text-sm font-semibold" style={{ borderColor: COLORS.green, color: COLORS.green }}>
