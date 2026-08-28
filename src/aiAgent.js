@@ -1,6 +1,10 @@
 import { supabase } from "./supabase";
 
-// جلب المفتاح المحفوظ من الإعدادات أو قاعدة البيانات
+export const AI_AGENT_EMAIL = "ai-agent@system.local";
+export const AI_AGENT_NAME_AR = "مساعد قيود (ذكاء اصطناعي)";
+export const AI_AGENT_NAME_EN = "Qoyod Assistant (AI)";
+
+// جلب المفتاح المخزن من localStorage أو app_settings
 export async function getGeminiKey() {
   try {
     const localKey = localStorage.getItem("gemini_api_key");
@@ -30,31 +34,60 @@ export async function saveGeminiKey(key) {
   }
 }
 
-// إرسال الرسالة إلى Gemini API
-export async function generateAIResponse(prompt) {
+export async function isAgentAvailable() {
+  const key = await getGeminiKey();
+  return !!key;
+}
+
+export function isMessageForAgent(text, isPublicChannel) {
+  if (!text) return false;
+  if (!isPublicChannel) return true;
+  return text.toLowerCase().includes("@ai") || text.includes("ذكاء") || text.includes("مساعد");
+}
+
+export function cleanMessageForAgent(text) {
+  return text.replace(/@ai/gi, "").trim();
+}
+
+// إرسال الرسالة إلى Gemini API مباشرة
+export async function chatWithAgent(userPrompt, channelKey = "default") {
   const apiKey = await getGeminiKey();
+
   if (!apiKey) {
-    return "⚠️ لم يتم إدخال مفتاح Gemini API. يرجى إدخاله من لوحة التحكم ⚙️.";
+    return {
+      text: "⚠️ لم يتم حفظ مفتاح Gemini API في الإعدادات. يرجى فتح لوحة التحكم وإدخال المفتاح.",
+      error: true
+    };
   }
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: userPrompt }] }]
       })
     });
 
-    const data = await response.json();
+    const data = await res.json();
+
     if (data.error) {
-      console.error("Gemini API Error:", data.error);
-      return "⚠️ المفتاح المستخدَم غير صالح أو انتهت حصته المجانية. يرجى التأكد من المفتاح.";
+      return {
+        text: `⚠️ خطأ في المفتاح: ${data.error.message || "تأكد من صحة المفتاح المُدخل في لوحة الإعدادات."}`,
+        error: true
+      };
     }
 
-    return data.candidates[0].content.parts[0].text;
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return {
+      text: reply || "لم يتم استلام رد من الذكاء الاصطناعي.",
+      error: false
+    };
+
   } catch (err) {
-    console.error("AI Error:", err);
-    return "⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي. تحقق من الاتصال بالإنترنت.";
+    return {
+      text: "⚠️ حدث خطأ في الاتصال بالسيرفر. تحقق من الاتصال بالإنترنت.",
+      error: true
+    };
   }
 }
