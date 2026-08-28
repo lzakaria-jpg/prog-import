@@ -1743,13 +1743,13 @@ export function MergeTool() {
   const ColumnMapEditor = ({ headerRow, mapping, setMapping, label }) => {
     if (!headerRow) return null;
     return (
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-        <div className="mb-2 font-semibold text-slate-600">{label}</div>
+      <div className="mt-3 rounded-lg border border-[#233152] bg-[#16213A] p-3 text-xs">
+        <div className="mb-2 font-semibold text-[#8CA3C1]">{label}</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {Object.keys(COLUMN_CANDIDATES).map((field) => (
             <div key={field} className="flex items-center gap-1">
-              <span className="w-20 shrink-0 text-slate-500">{fieldLabel(field, lang)}</span>
-              <select className="w-full rounded border border-slate-300 bg-white px-1 py-1 text-xs" value={mapping[field]} onChange={(e) => setMapping({ ...mapping, [field]: parseInt(e.target.value, 10) })}>
+              <span className="w-20 shrink-0 text-[#8CA3C1]">{fieldLabel(field, lang)}</span>
+              <select className="w-full rounded border border-[#233152] bg-[#0E1830] px-1 py-1 text-xs" value={mapping[field]} onChange={(e) => setMapping({ ...mapping, [field]: parseInt(e.target.value, 10) })}>
                 <option value={-1}>—</option>
                 {headerRow.map((h, i) => (<option key={i} value={i}>{String(h).slice(0, 20) || (lang === "en" ? `Column ${i + 1}` : `عمود ${i + 1}`)}</option>))}
               </select>
@@ -1770,47 +1770,47 @@ export function MergeTool() {
   };
 
   return (
-    <div dir={dir} className="h-full w-full overflow-auto font-cairo text-slate-800">
+    <div dir={dir} className="h-full w-full overflow-auto bg-[#0B1120] font-cairo text-[#E6EDF6]">
       <div className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-8 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-sm" style={{ background: "#162560" }}><FileSpreadsheet size={22} /></div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">{t({ ar: "مطابقة ودمج شجرة الحسابات", en: "Chart of Accounts Matching & Merge" })}</h1>
-              <p className="text-sm text-slate-500">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
+              <h1 className="text-xl font-bold text-[#E6EDF6]">{t({ ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart of Accounts" })}</h1>
+              <p className="text-sm text-[#8CA3C1]">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
             </div>
           </div>
-           <button onClick={resetAll} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
+           <button onClick={resetAll} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-2 text-xs font-semibold text-[#8CA3C1] shadow-sm transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
         </div>
 
         {pendingDelete && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => setPendingDelete(null)}>
-            <div dir="rtl" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="mb-2 flex items-center gap-2 text-slate-900">
+            <div dir="rtl" className="w-full max-w-md rounded-2xl bg-[#111A2E] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-2 flex items-center gap-2 text-[#E6EDF6]">
                 <AlertTriangle size={18} className="text-amber-500" />
                 <h3 className="text-base font-bold">{t({ ar: "تأكيد الاستبعاد", en: "Confirm exclusion" })}</h3>
               </div>
-              <p className="mb-4 text-sm leading-relaxed text-slate-600">
-                {t({ ar: "الحساب", en: "The account" })} <span className="font-bold text-slate-900">"{pendingDelete.name}"</span>
-                {pendingDelete.code ? <span className="font-mono text-slate-500"> ({pendingDelete.code})</span> : null}
-                {" "}{t({ ar: "تحته", en: "has" })} <span className="font-bold text-slate-900">{pendingDelete.count}</span> {t({ ar: "حساب فرعي جديد بملف الرفع.", en: "new child accounts in the upload file." })}
+              <p className="mb-4 text-sm leading-relaxed text-[#8CA3C1]">
+                {t({ ar: "الحساب", en: "The account" })} <span className="font-bold text-[#E6EDF6]">"{pendingDelete.name}"</span>
+                {pendingDelete.code ? <span className="font-mono text-[#8CA3C1]"> ({pendingDelete.code})</span> : null}
+                {" "}{t({ ar: "تحته", en: "has" })} <span className="font-bold text-[#E6EDF6]">{pendingDelete.count}</span> {t({ ar: "حساب فرعي جديد بملف الرفع.", en: "new child accounts in the upload file." })}
               </p>
               <div className="flex flex-col gap-2">
                 <button
                   onClick={() => { const p = pendingDelete; setPendingDelete(null); setRowDeleted(p.id, true, "self"); }}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-right text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                  className="w-full rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-2.5 text-right text-sm font-semibold text-[#E6EDF6] hover:bg-[#16213A]">
                   {t({ ar: "استبعد الأب فقط", en: "Exclude parent only" })}
-                  <span className="mt-0.5 block text-[11px] font-normal text-slate-500">{t({ ar: "موجود مسبقًا بقيود - الأبناء يبقون ويرتبطون به تلقائيًا", en: "Already exists in Qoyod — children stay and link to it automatically" })}</span>
+                  <span className="mt-0.5 block text-[11px] font-normal text-[#8CA3C1]">{t({ ar: "موجود مسبقًا بقيود - الأبناء يبقون ويرتبطون به تلقائيًا", en: "Already exists in Qoyod — children stay and link to it automatically" })}</span>
                 </button>
                 <button
                   onClick={() => { const p = pendingDelete; setPendingDelete(null); setRowDeleted(p.id, true, "cascade"); }}
-                  className="w-full rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-right text-sm font-semibold text-red-700 hover:bg-red-100">
+                  className="w-full rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-right text-sm font-semibold text-red-300 hover:bg-red-500/25">
                   {t({ ar: "استبعد الأب وكل أبنائه", en: "Exclude parent and all its children" })} ({pendingDelete.count})
-                  <span className="mt-0.5 block text-[11px] font-normal text-red-600">{t({ ar: "يخرجون كلهم من ملف الرفع", en: "All removed from the upload file" })}</span>
+                  <span className="mt-0.5 block text-[11px] font-normal text-red-400">{t({ ar: "يخرجون كلهم من ملف الرفع", en: "All removed from the upload file" })}</span>
                 </button>
                 <button
                   onClick={() => setPendingDelete(null)}
-                  className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">
+                  className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-[#8CA3C1] hover:bg-[#14213B]">
                   {t({ ar: "إلغاء", en: "Cancel" })}
                 </button>
               </div>
@@ -1819,7 +1819,7 @@ export function MergeTool() {
         )}
 
         {toast && (
-          <div className={`fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,560px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-semibold shadow-lg ${toast.type === "error" ? "border-red-200 bg-red-50 text-red-700" : toast.type === "info" ? "border-slate-200 bg-slate-50 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+          <div className={`fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,560px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-semibold shadow-lg ${toast.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : toast.type === "info" ? "border-[#233152] bg-[#16213A] text-[#8CA3C1]" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
             <span>{lang === "en" ? localizeMergeError(toast.text) : toast.text}</span>
             <button onClick={() => setToast(null)} className="shrink-0 opacity-60 hover:opacity-100"><X size={14} /></button>
           </div>
@@ -1827,9 +1827,9 @@ export function MergeTool() {
 
         {results && (
           <div className="relative mb-6">
-            <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t({ ar: "ابحث برمز الحساب أو اسمه (عربي/انجليزي) أو نوعه...", en: "Search by account code, name (AR/EN) or type..." })} className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-9 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20" />
-            {searchInput && (<button onClick={() => { setSearchInput(""); setSearchQuery(""); }} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" title={t({ ar: "مسح البحث", en: "Clear search" })}><X size={16} /></button>)}
+            <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#5C7196]" />
+            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t({ ar: "ابحث برمز الحساب أو اسمه (عربي/انجليزي) أو نوعه...", en: "Search by account code, name (AR/EN) or type..." })} className="w-full rounded-xl border border-[#233152] bg-[#0E1830] py-2.5 pl-9 pr-9 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20" />
+            {searchInput && (<button onClick={() => { setSearchInput(""); setSearchQuery(""); }} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5C7196] hover:text-[#8CA3C1]" title={t({ ar: "مسح البحث", en: "Clear search" })}><X size={16} /></button>)}
           </div>
         )}
 
@@ -1842,9 +1842,9 @@ export function MergeTool() {
           </UploadCard>
         </div>
 
-        <div className="mt-5 flex flex-col items-stretch justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={useFile2Codes} onChange={(e) => setUseFile2Codes(e.target.checked)} className="h-4 w-4 rounded border-slate-300 accent-blue-700" />
+        <div className="mt-5 flex flex-col items-stretch justify-between gap-4 rounded-xl border border-[#233152] bg-[#111A2E] p-4 shadow-sm sm:flex-row sm:items-center">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[#E6EDF6]">
+            <input type="checkbox" checked={useFile2Codes} onChange={(e) => setUseFile2Codes(e.target.checked)} className="h-4 w-4 rounded border-[#233152] accent-blue-700" />
             {t({ ar: "اعتماد أرقام الحسابات من ملف 2 (بدل ملف 1)", en: "Use account codes from File 2 (instead of File 1)" })}
           </label>
           <button onClick={() => setShowPreCompareConfirm(true)} disabled={!file1Rows || !file2Rows || busy} className="flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
@@ -1854,24 +1854,24 @@ export function MergeTool() {
 
         {showPreCompareConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-            <div dir="rtl" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-              <div className="mb-3 flex items-center gap-2 text-amber-600"><AlertTriangle size={22} /><h3 className="text-base font-bold text-slate-900">{t({ ar: "تأكيد قبل بدء المقارنة", en: "Confirmation before starting comparison" })}</h3></div>
-              <p className="text-sm leading-relaxed text-slate-600">{t({ ar: "يرجى التحقق من عدم حذف الحسابات الخمسة الرئيسية بالمستوى الأول (الأصول، الالتزامات، حقوق الملكية، الإيرادات، المصاريف)", en: "Please make sure the five main level-1 accounts (Assets, Liabilities, Equity, Revenue, Expenses)" })} <span className="font-semibold">{t({ ar: "من داخل النظام", en: "have not been deleted in the system" })}</span> {t({ ar: "قبل ما تبدأ المقارنة.", en: "before you start the comparison." })}</p>
+            <div dir="rtl" className="w-full max-w-md rounded-2xl bg-[#111A2E] p-6 shadow-xl">
+              <div className="mb-3 flex items-center gap-2 text-amber-400"><AlertTriangle size={22} /><h3 className="text-base font-bold text-[#E6EDF6]">{t({ ar: "تأكيد قبل بدء المقارنة", en: "Confirmation before starting comparison" })}</h3></div>
+              <p className="text-sm leading-relaxed text-[#8CA3C1]">{t({ ar: "يرجى التحقق من عدم حذف الحسابات الخمسة الرئيسية بالمستوى الأول (الأصول، الالتزامات، حقوق الملكية، الإيرادات، المصاريف)", en: "Please make sure the five main level-1 accounts (Assets, Liabilities, Equity, Revenue, Expenses)" })} <span className="font-semibold">{t({ ar: "من داخل النظام", en: "have not been deleted in the system" })}</span> {t({ ar: "قبل ما تبدأ المقارنة.", en: "before you start the comparison." })}</p>
               <div className="mt-5 flex justify-end gap-2">
-                <button onClick={() => setShowPreCompareConfirm(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">{t({ ar: "إلغاء", en: "Cancel" })}</button>
+                <button onClick={() => setShowPreCompareConfirm(false)} className="rounded-lg border border-[#233152] px-4 py-2 text-sm font-semibold text-[#8CA3C1] hover:bg-[#16213A]">{t({ ar: "إلغاء", en: "Cancel" })}</button>
                 <button onClick={() => { setShowPreCompareConfirm(false); runCompare(); }} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">{t({ ar: "استمر", en: "Continue" })}</button>
               </div>
             </div>
           </div>
         )}
 
-        {error && (<div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><XCircle size={18} className="mt-0.5 shrink-0" /><span>{lang === "en" ? localizeMergeError(error) : error}</span></div>)}
+        {error && (<div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"><XCircle size={18} className="mt-0.5 shrink-0" /><span>{lang === "en" ? localizeMergeError(error) : error}</span></div>)}
 
         {results && (
           <div className="mt-8">
             {missingParentCodes.size > 0 && (
-              <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs leading-relaxed text-red-700">
+              <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs leading-relaxed text-red-300">
                   <div className="mb-1 flex items-center gap-1.5 font-bold"><XCircle size={15} /> {t({ ar: `فيه ${missingParentCodes.size} حساب رئيسي مفقود من الشجرة`, en: `There are ${missingParentCodes.size} missing parent accounts in the tree` })}</div>
                   <div className="font-mono">{Array.from(missingParentCodes).slice(0, 10).join("، ")}{missingParentCodes.size > 10 ? " ..." : ""}</div>
                   <div className="mt-1">{t({ ar: "رفع الملف بهالحالة راح يُرفض من قيود لأن الحسابات الفرعية تشير لأب غير موجود.", en: "Uploading the file in this state will be rejected by Qoyod because child accounts point to a non-existent parent." })}</div>
@@ -1892,9 +1892,9 @@ export function MergeTool() {
             {activeFilter !== "all" && activeFilter !== "tree" && (<button onClick={() => selectFilter("all")} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">{t({ ar: "✕ إلغاء الفلتر وعرض الكل", en: "✕ Clear filter and show all" })}</button>)}
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <button onClick={() => selectFilter("tree")} className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${activeFilter === "tree" ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-blue-700 hover:text-blue-700"}`}><GitBranch size={16} /> {t({ ar: "مخطط شجرة الحسابات التفاعلي", en: "Interactive accounts tree diagram" })}</button>
-              <button onClick={fixMissingParents} className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-violet-500 hover:text-violet-700"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
-              <button onClick={runRepairLevels} className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-700 hover:text-blue-700"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
+              <button onClick={() => selectFilter("tree")} className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${activeFilter === "tree" ? "border-blue-700 bg-blue-700 text-white" : "border-[#233152] bg-[#111A2E] text-[#E6EDF6] hover:border-blue-700 hover:text-blue-700"}`}><GitBranch size={16} /> {t({ ar: "مخطط شجرة الحسابات التفاعلي", en: "Interactive accounts tree diagram" })}</button>
+              <button onClick={fixMissingParents} className="flex items-center gap-2 rounded-xl border border-[#233152] bg-[#111A2E] px-4 py-2.5 text-sm font-semibold text-[#E6EDF6] transition hover:border-violet-500 hover:text-violet-300"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
+              <button onClick={runRepairLevels} className="flex items-center gap-2 rounded-xl border border-[#233152] bg-[#111A2E] px-4 py-2.5 text-sm font-semibold text-[#E6EDF6] transition hover:border-blue-700 hover:text-blue-700"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
             </div>
 
             {searchActive ? (
@@ -1907,29 +1907,29 @@ export function MergeTool() {
               <DeletedAccountsTable rows={deletedRows} onRestore={setRowDeleted} onExportDeleted={exportDeletedExcel} />
             ) : (
               <>
-                <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <button onClick={exportQuickExcel} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download size={14} /> {t({ ar: "تنزيل نسخة أولية Excel", en: "Download draft Excel" })}</button>
-                  <button onClick={copyJsonForFinalExport} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Copy size={14} /> {copied ? t({ ar: "تم النسخ ✓", en: "Copied ✓" }) : t({ ar: "نسخ للتصدير النهائي", en: "Copy for final export" })}</button>
+                <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#233152] bg-[#111A2E] p-3">
+                  <button onClick={exportQuickExcel} className="flex items-center gap-2 rounded-lg border border-[#233152] px-3 py-2 text-xs font-semibold text-[#E6EDF6] hover:bg-[#16213A]"><Download size={14} /> {t({ ar: "تنزيل نسخة أولية Excel", en: "Download draft Excel" })}</button>
+                  <button onClick={copyJsonForFinalExport} className="flex items-center gap-2 rounded-lg border border-[#233152] px-3 py-2 text-xs font-semibold text-[#E6EDF6] hover:bg-[#16213A]"><Copy size={14} /> {copied ? t({ ar: "تم النسخ ✓", en: "Copied ✓" }) : t({ ar: "نسخ للتصدير النهائي", en: "Copy for final export" })}</button>
                 </div>
 
                 {exportText && (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mt-3 rounded-lg border border-[#233152] bg-[#111A2E] p-3">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-600">{copied ? t({ ar: "✅ انتسخ تلقائيًا", en: "✅ Copied automatically" }) : t({ ar: "⚠️ انسخ يدويًا من الصندوق أو نزّله كملف", en: "⚠️ Copy manually from the box or download as a file" })}</span>
+                      <span className="text-xs font-semibold text-[#8CA3C1]">{copied ? t({ ar: "✅ انتسخ تلقائيًا", en: "✅ Copied automatically" }) : t({ ar: "⚠️ انسخ يدويًا من الصندوق أو نزّله كملف", en: "⚠️ Copy manually from the box or download as a file" })}</span>
                       <div className="flex gap-2">
-                        <button onClick={downloadExportFile} className="flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download size={12} /> {t({ ar: "تنزيل", en: "Download" })}</button>
-                        <button onClick={() => setExportText("")} className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50">{t({ ar: "✕ إغلاق", en: "✕ Close" })}</button>
+                        <button onClick={downloadExportFile} className="flex items-center gap-1 rounded-lg border border-[#233152] px-2 py-1 text-xs font-semibold text-[#E6EDF6] hover:bg-[#16213A]"><Download size={12} /> {t({ ar: "تنزيل", en: "Download" })}</button>
+                        <button onClick={() => setExportText("")} className="rounded-lg border border-[#233152] px-2 py-1 text-xs font-semibold text-[#8CA3C1] hover:bg-[#16213A]">{t({ ar: "✕ إغلاق", en: "✕ Close" })}</button>
                       </div>
                     </div>
-                    <textarea readOnly value={exportText} onFocus={(e) => e.target.select()} className="h-40 w-full resize-y rounded border border-slate-300 bg-slate-50 p-2 font-mono text-[10px] leading-tight text-slate-700" />
+                    <textarea readOnly value={exportText} onFocus={(e) => e.target.select()} className="h-40 w-full resize-y rounded border border-[#233152] bg-[#0E1830] p-2 font-mono text-[10px] leading-tight text-[#E6EDF6]" />
                   </div>
                 )}
 
-                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><Info size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "تم اختيار جميع أنواع الحسابات وتحديث فئاتها التابعة تلقائيًا، وترتيب ملف الرفع بحيث يسبق كل حساب أب أبناءه.", en: "All account types have been assigned and their sub-categories updated automatically, and the upload file is ordered so each parent precedes its children." })}</span></div>
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300"><Info size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "تم اختيار جميع أنواع الحسابات وتحديث فئاتها التابعة تلقائيًا، وترتيب ملف الرفع بحيث يسبق كل حساب أب أبناءه.", en: "All account types have been assigned and their sub-categories updated automatically, and the upload file is ordered so each parent precedes its children." })}</span></div>
 
-                <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <div className="mt-5 overflow-x-auto rounded-xl border border-[#233152] bg-[#111A2E]">
                   <table className="w-full text-right text-xs" style={{ minWidth: 960 }}>
-                    <thead className="bg-slate-50 text-slate-500">
+                    <thead className="bg-[#16213A] text-[#8CA3C1]">
                       <tr>
                          <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "الاسم الانجليزي", en: "English name" })}</th>
                          <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
@@ -1938,14 +1938,14 @@ export function MergeTool() {
                     </thead>
                     <tbody>
                       {tableRows.slice(0, visibleCount).map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
-                      {tableRows.length === 0 && (<tr><td colSpan={10} className="px-3 py-6 text-center text-slate-400">{newRows.length === 0 ? t({ ar: "ما فيه حسابات جديدة - كل حسابات ملف 2 مطابقة 🎉", en: "No new accounts — all of File 2 already matches 🎉" }) : t({ ar: "ما فيه حسابات ضمن هذا الفلتر", en: "No accounts in this filter" })}</td></tr>)}
+                      {tableRows.length === 0 && (<tr><td colSpan={10} className="px-3 py-6 text-center text-[#5C7196]">{newRows.length === 0 ? t({ ar: "ما فيه حسابات جديدة - كل حسابات ملف 2 مطابقة 🎉", en: "No new accounts — all of File 2 already matches 🎉" }) : t({ ar: "ما فيه حسابات ضمن هذا الفلتر", en: "No accounts in this filter" })}</td></tr>)}
                     </tbody>
                   </table>
                 </div>
 
-                {tableRows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, tableRows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, tableRows.length - visibleCount)} more accounts` })}</button>)}
+                {tableRows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-[#233152] py-2 text-xs font-semibold text-[#8CA3C1] hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, tableRows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, tableRows.length - visibleCount)} more accounts` })}</button>)}
 
-                {activeFilter === "all" && (<><div className="mb-2 mt-6 text-sm font-semibold text-slate-600">{t({ ar: `الحسابات المطابقة موجودة مسبقًا (${existingRows.length})`, en: `Already-matched accounts (${existingRows.length})` })}</div><ExistingMatchesTable rows={existingRows} compact /></>)}
+                {activeFilter === "all" && (<><div className="mb-2 mt-6 text-sm font-semibold text-[#8CA3C1]">{t({ ar: `الحسابات المطابقة موجودة مسبقًا (${existingRows.length})`, en: `Already-matched accounts (${existingRows.length})` })}</div><ExistingMatchesTable rows={existingRows} compact /></>)}
               </>
             )}
           </div>
@@ -1969,11 +1969,11 @@ function fieldLabel(field, lang) {
 function UploadCard({ title, hint, file, onPick, inputRef, onChange, children }) {
   const { t } = useLanguage();
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-1 text-sm font-semibold text-slate-800">{title}</div>
-      <div className="mb-3 text-xs text-slate-400">{hint}</div>
+    <div className="rounded-xl border border-[#233152] bg-[#111A2E] p-4 shadow-sm">
+      <div className="mb-1 text-sm font-semibold text-[#E6EDF6]">{title}</div>
+      <div className="mb-3 text-xs text-[#5C7196]">{hint}</div>
       <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => e.target.files[0] && onChange(e.target.files[0])} />
-      <button onClick={onPick} className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 py-4 text-sm text-slate-500 transition hover:border-blue-700 hover:text-blue-700"><Upload size={16} />{file ? file.name : t({ ar: "اختر ملف Excel أو CSV", en: "Choose an Excel or CSV file" })}</button>
+      <button onClick={onPick} className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#233152] py-4 text-sm text-[#8CA3C1] transition hover:border-blue-700 hover:text-blue-700"><Upload size={16} />{file ? file.name : t({ ar: "اختر ملف Excel أو CSV", en: "Choose an Excel or CSV file" })}</button>
       {children}
     </div>
   );
@@ -1983,7 +1983,7 @@ function MappingSummary({ mapping, headerRow, onToggle }) {
   const { t } = useLanguage();
   const detected = Object.values(mapping).filter((v) => v !== -1).length;
   return (
-    <button onClick={onToggle} className="mt-3 flex w-full items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100">
+    <button onClick={onToggle} className="mt-3 flex w-full items-center justify-between rounded-lg bg-[#16213A] px-3 py-2 text-xs text-[#8CA3C1] hover:bg-[#14213B]">
       <span className="flex items-center gap-1"><Settings2 size={13} /> {t({ ar: `تم التعرّف على ${detected} من ${Object.keys(mapping).length} أعمدة تلقائيًا`, en: `Detected ${detected} of ${Object.keys(mapping).length} columns automatically` })}</span>
       <span className="text-blue-700">{t({ ar: "تأكيد/تعديل", en: "Confirm/edit" })}</span>
     </button>
@@ -1992,12 +1992,12 @@ function MappingSummary({ mapping, headerRow, onToggle }) {
 
 function SummaryCard({ label, value, tone, active, onClick }) {
   const tones = {
-    slate: "bg-slate-50 text-slate-700 border-slate-200",
-    green: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    amber: "bg-amber-50 text-amber-700 border-amber-200",
-    red: "bg-red-50 text-red-700 border-red-200",
-    teal: "bg-blue-50 text-blue-800 border-blue-200",
-    violet: "bg-violet-50 text-violet-700 border-violet-200",
+    slate: "bg-[#16213A] text-[#E6EDF6] border-[#233152]",
+    green: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+    amber: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+    red: "bg-red-500/10 text-red-300 border-red-500/30",
+    teal: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+    violet: "bg-violet-500/10 text-violet-300 border-violet-500/30",
   };
   return (
     <button type="button" onClick={onClick} className={`rounded-xl border p-4 text-start transition ${tones[tone]} ${onClick ? "cursor-pointer hover:shadow-md" : ""} ${active ? "ring-2 ring-blue-700 ring-offset-1" : ""}`}>
@@ -2027,32 +2027,32 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
   const typeOptions = r.type && !baseTypeOptions.includes(r.type) ? [r.type, ...baseTypeOptions] : baseTypeOptions;
 
   return (
-    <tr className={`border-t border-slate-100 align-top hover:bg-slate-50/60 ${r.autoParent ? "bg-violet-50/40" : ""}`}>
+    <tr className={`border-t border-[#233152] align-top hover:bg-[#16213A]/60 ${r.autoParent ? "bg-violet-500/10" : ""}`}>
       <td className="px-3 py-2">
         <StatusBadge row={r} />
-        {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
+        {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-300"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
       </td>
       <td className="px-3 py-2"><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
       <td className="px-3 py-2"><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} /></td>
       <td className="px-3 py-2"><EditableCell value={r.nameEn} onChange={(v) => updateRow(r.id, { nameEn: v })} /></td>
       <td className="px-3 py-2">
-        <select value={r.level} onChange={(e) => updateRow(r.id, { level: e.target.value })} className="w-16 rounded border border-slate-300 bg-white px-1 py-1">
+        <select value={r.level} onChange={(e) => updateRow(r.id, { level: e.target.value })} className="w-16 rounded border border-[#233152] bg-[#0E1830] px-1 py-1">
           <option value="">—</option>{[2,3,4,5,6,7].map((l) => (<option key={l} value={l}>{l}</option>))}
         </select>
       </td>
       <td className="px-3 py-2">
         <EditableCell value={r.parent} onChange={(v) => updateRow(r.id, { parent: v })} mono />
-        {parentMissing && (<div className="mt-0.5 text-[10px] font-semibold text-red-600">⚠ {t({ ar: "هذا الأب غير موجود بالشجرة", en: "This parent does not exist in the tree" })}</div>)}
+        {parentMissing && (<div className="mt-0.5 text-[10px] font-semibold text-red-400">⚠ {t({ ar: "هذا الأب غير موجود بالشجرة", en: "This parent does not exist in the tree" })}</div>)}
       </td>
       <td className="px-3 py-2">
-        {isTopLevel ? (<span className="text-slate-400">— (لا ينطبق)</span>) : (
-          <select value={computedCategory} onChange={(e) => updateRow(r.id, { level2Category: e.target.value, type: "" })} className={`w-40 rounded border bg-white px-1 py-1 ${computedCategory ? "border-slate-300" : "border-amber-400 text-amber-700"}`}>
+        {isTopLevel ? (<span className="text-[#5C7196]">— (لا ينطبق)</span>) : (
+          <select value={computedCategory} onChange={(e) => updateRow(r.id, { level2Category: e.target.value, type: "" })} className={`w-40 rounded border bg-[#0E1830] px-1 py-1 ${computedCategory ? "border-[#233152]" : "border-amber-400 text-amber-300"}`}>
             <option value="">{t({ ar: "اختر الفئة", en: "Select category" })}</option>{categoryOptions.map((t) => (<option key={t} value={t}>{t}</option>))}
           </select>
         )}
       </td>
       <td className="px-3 py-2">
-        <select value={r.type || ""} onChange={(e) => updateRow(r.id, { type: e.target.value })} className={`w-44 rounded border bg-white px-1 py-1 ${r.type ? "border-slate-300" : "border-amber-400 text-amber-700"}`}>
+        <select value={r.type || ""} onChange={(e) => updateRow(r.id, { type: e.target.value })} className={`w-44 rounded border bg-[#0E1830] px-1 py-1 ${r.type ? "border-[#233152]" : "border-amber-400 text-amber-300"}`}>
           <option value="">{t({ ar: "اختر النوع", en: "Select type" })}</option>
           {typeOptions.map((t) => (<option key={t} value={t}>{t}</option>))}
         </select>
@@ -2060,12 +2060,12 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
       <td className="px-3 py-2" style={{ maxWidth: 220 }}><NotesCell row={r} /></td>
       <td className="px-3 py-2" style={{ maxWidth: 170 }}>
         {isExistingCodeConflict ? (
-          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "هذا الرمز موجود أصلاً بشجرة قيود", en: "This code already exists in the Qoyod chart of accounts" })} className="flex w-full flex-col items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-center text-[11px] font-semibold leading-snug text-amber-800 hover:bg-amber-100">
+          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "هذا الرمز موجود أصلاً بشجرة قيود", en: "This code already exists in the Qoyod chart of accounts" })} className="flex w-full flex-col items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-center text-[11px] font-semibold leading-snug text-amber-300 hover:bg-amber-500/25">
             <span className="flex items-center gap-1"><AlertTriangle size={12} /> {t({ ar: "احذف من ملف الاستيراد", en: "Remove from import file" })}</span>
-            <span className="font-normal text-amber-700">{t({ ar: "لأنه تم التعديل في شجرة الحسابات الموجودة", en: "Because it was modified in the existing chart of accounts" })}</span>
+            <span className="font-normal text-amber-300">{t({ ar: "لأنه تم التعديل في شجرة الحسابات الموجودة", en: "Because it was modified in the existing chart of accounts" })}</span>
           </button>
         ) : (
-          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "استبعاد هذا الحساب من الرفع", en: "Exclude this account from the upload" })} className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-100">{t({ ar: "حذف", en: "Delete" })}</button>
+          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "استبعاد هذا الحساب من الرفع", en: "Exclude this account from the upload" })} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/25">{t({ ar: "حذف", en: "Delete" })}</button>
         )}
       </td>
     </tr>
@@ -2079,23 +2079,23 @@ function StatusBadge({ row, compact }) {
     const title = row.errors.length > 0 ? t({ ar: "خطأ", en: "Error" }) : row.autoParent ? t({ ar: "أب أُنشئ تلقائيًا", en: "Auto-created parent" }) : row.warnings.length > 0 ? t({ ar: "تنبيه", en: "Warning" }) : t({ ar: "سليم", en: "OK" });
     return <span title={title} className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} />;
   }
-  if (row.errors.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>;
-  if (row.warnings.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"><AlertTriangle size={12} /> {t({ ar: "تنبيه", en: "Warning" })}</span>;
-  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"><CheckCircle2 size={12} /> {t({ ar: "سليم", en: "OK" })}</span>;
+  if (row.errors.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-300"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>;
+  if (row.warnings.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"><AlertTriangle size={12} /> {t({ ar: "تنبيه", en: "Warning" })}</span>;
+  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300"><CheckCircle2 size={12} /> {t({ ar: "سليم", en: "OK" })}</span>;
 }
 
 function NotesCell({ row }) {
-  if (row.errors.length === 0 && row.warnings.length === 0) return <span className="text-slate-300">—</span>;
+  if (row.errors.length === 0 && row.warnings.length === 0) return <span className="text-[#5C7196]">—</span>;
   return (
     <ul className="space-y-1">
-      {row.errors.map((e, i) => (<li key={`e${i}`} className="text-red-600">• {e}</li>))}
-      {row.warnings.map((w, i) => (<li key={`w${i}`} className="text-amber-600">• {w}</li>))}
+      {row.errors.map((e, i) => (<li key={`e${i}`} className="text-red-400">• {e}</li>))}
+      {row.warnings.map((w, i) => (<li key={`w${i}`} className="text-amber-400">• {w}</li>))}
     </ul>
   );
 }
 
 function EditableCell({ value, onChange, mono }) {
-  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} className={`w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-slate-300 focus:border-blue-700 focus:bg-white focus:outline-none ${mono ? "font-mono" : ""}`} />;
+  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} className={`w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-[#233152] focus:border-blue-700 focus:bg-[#0E1830] focus:outline-none ${mono ? "font-mono" : ""}`} />;
 }
 
 function ExistingMatchesTable({ rows, compact }) {
@@ -2105,25 +2105,25 @@ function ExistingMatchesTable({ rows, compact }) {
   const visibleRows = rows.slice(0, visibleCount);
   return (
     <div>
-      <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white ${compact ? "" : "mt-5"}`}>
+      <div className={`overflow-x-auto rounded-xl border border-[#233152] bg-[#111A2E] ${compact ? "" : "mt-5"}`}>
         <table className="w-full text-start text-xs">
-          <thead className="bg-slate-50 text-slate-500">
+          <thead className="bg-[#16213A] text-[#8CA3C1]">
             <tr><th className="px-3 py-2">{t({ ar: "اسم ملف 2", en: "File 2 name" })}</th><th className="px-3 py-2">{t({ ar: "طابق مع (ملف 1)", en: "Matched with (File 1)" })}</th><th className="px-3 py-2">{t({ ar: "نوع المطابقة", en: "Match type" })}</th><th className="px-3 py-2">{t({ ar: "تنبيه", en: "Warning" })}</th></tr>
           </thead>
           <tbody>
             {visibleRows.map((r) => (
-              <tr key={r.id} className="border-t border-slate-100">
+              <tr key={r.id} className="border-t border-[#233152]">
                 <td className="px-3 py-2">{r.source.nameAr || r.source.nameEn}</td>
                 <td className="px-3 py-2">{r.matchedWith.nameAr || r.matchedWith.nameEn} ({r.matchedWith.code})</td>
                 <td className="px-3 py-2">{r.matchType === "code" ? t({ ar: "بالرمز", en: "By code" }) : r.matchType === "exact-name" ? t({ ar: "بالاسم (تام)", en: "By name (exact)" }) : t({ ar: `بالاسم (تقريبي ${Math.round(r.matchScore * 100)}%)`, en: `By name (fuzzy ${Math.round(r.matchScore * 100)}%)` })}</td>
-                <td className="px-3 py-2 text-amber-600">{r.warnings.join(" / ")}</td>
+                <td className="px-3 py-2 text-amber-400">{r.warnings.join(" / ")}</td>
               </tr>
             ))}
-            {rows.length === 0 && (<tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">{t({ ar: "ما فيه حسابات مطابقة مسبقًا", en: "No previously-matched accounts" })}</td></tr>)}
+            {rows.length === 0 && (<tr><td colSpan={4} className="px-3 py-6 text-center text-[#5C7196]">{t({ ar: "ما فيه حسابات مطابقة مسبقًا", en: "No previously-matched accounts" })}</td></tr>)}
           </tbody>
         </table>
       </div>
-      {rows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} more accounts` })}</button>)}
+      {rows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-[#233152] py-2 text-xs font-semibold text-[#8CA3C1] hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} more accounts` })}</button>)}
     </div>
   );
 }
@@ -2135,25 +2135,25 @@ function DeletedAccountsTable({ rows, onRestore, onExportDeleted, compact }) {
   const visibleRows = rows.slice(0, visibleCount);
   return (
     <div className={compact ? "" : "mt-5"}>
-      {!compact && rows.length > 0 && onExportDeleted && (<button onClick={onExportDeleted} className="mb-3 flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download size={14} /> {t({ ar: "تنزيل الحسابات المستبعدة Excel", en: "Download excluded accounts (Excel)" })}</button>)}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      {!compact && rows.length > 0 && onExportDeleted && (<button onClick={onExportDeleted} className="mb-3 flex items-center gap-2 rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-2 text-xs font-semibold text-[#E6EDF6] hover:bg-[#16213A]"><Download size={14} /> {t({ ar: "تنزيل الحسابات المستبعدة Excel", en: "Download excluded accounts (Excel)" })}</button>)}
+      <div className="overflow-x-auto rounded-xl border border-[#233152] bg-[#111A2E]">
         <table className="w-full text-start text-xs" style={{ minWidth: 700 }}>
-          <thead className="bg-slate-50 text-slate-500">
+          <thead className="bg-[#16213A] text-[#8CA3C1]">
             <tr><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "استرجاع", en: "Restore" })}</th></tr>
           </thead>
           <tbody>
             {visibleRows.map((r) => (
-              <tr key={r.id} className="border-t border-slate-100 text-slate-400">
+              <tr key={r.id} className="border-t border-[#233152] text-[#5C7196]">
                 <td className="px-3 py-2 font-mono">{r.code}</td><td className="px-3 py-2">{r.nameAr}</td><td className="px-3 py-2">{r.level}</td>
                 <td className="px-3 py-2 font-mono">{r.parent}</td><td className="px-3 py-2">{r.type}</td>
                 <td className="px-3 py-2"><button onClick={() => onRestore(r.id, false)} className="flex items-center gap-1 rounded-lg border border-blue-700/30 bg-blue-700/5 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-700/10"><RefreshCw size={12} /> {t({ ar: "استرجاع", en: "Restore" })}</button></td>
               </tr>
             ))}
-            {rows.length === 0 && (<tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">{t({ ar: "ما فيه حسابات مستبعدة", en: "No excluded accounts" })}</td></tr>)}
+            {rows.length === 0 && (<tr><td colSpan={6} className="px-3 py-6 text-center text-[#5C7196]">{t({ ar: "ما فيه حسابات مستبعدة", en: "No excluded accounts" })}</td></tr>)}
           </tbody>
         </table>
       </div>
-      {rows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} more accounts` })}</button>)}
+      {rows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-[#233152] py-2 text-xs font-semibold text-[#8CA3C1] hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, rows.length - visibleCount)} more accounts` })}</button>)}
     </div>
   );
 }
@@ -2166,22 +2166,22 @@ function SearchResultsView({ query, newRows, existingRows, deletedRows, updateRo
   useEffect(() => { setVisibleCount(ROWS_PER_PAGE); }, [newRows]);
   return (
     <div className="mt-5">
-      <div className="mb-3 text-sm text-slate-500">{t({ ar: `نتائج البحث عن "${query}" — ${total} نتيجة`, en: `Search results for "${query}" — ${total} result(s)` })}</div>
-      {total === 0 && (<div className="rounded-xl border border-dashed border-slate-300 bg-white py-8 text-center text-sm text-slate-400">{t({ ar: "ما فيه أي حساب يطابق بحثك", en: "No account matches your search" })}</div>)}
+      <div className="mb-3 text-sm text-[#8CA3C1]">{t({ ar: `نتائج البحث عن "${query}" — ${total} نتيجة`, en: `Search results for "${query}" — ${total} result(s)` })}</div>
+      {total === 0 && (<div className="rounded-xl border border-dashed border-[#233152] bg-[#111A2E] py-8 text-center text-sm text-[#5C7196]">{t({ ar: "ما فيه أي حساب يطابق بحثك", en: "No account matches your search" })}</div>)}
       {newRows.length > 0 && (
         <div className="mb-6">
-          <div className="mb-2 text-sm font-semibold text-slate-600">{t({ ar: `حسابات جديدة (${newRows.length})`, en: `New accounts (${newRows.length})` })}</div>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <div className="mb-2 text-sm font-semibold text-[#8CA3C1]">{t({ ar: `حسابات جديدة (${newRows.length})`, en: `New accounts (${newRows.length})` })}</div>
+          <div className="overflow-x-auto rounded-xl border border-[#233152] bg-[#111A2E]">
             <table className="w-full text-start text-xs" style={{ minWidth: 960 }}>
-              <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "الاسم الانجليزي", en: "English name" })}</th><th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة", en: "Category" })}</th><th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th></tr></thead>
+              <thead className="bg-[#16213A] text-[#8CA3C1]"><tr><th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "الاسم الانجليزي", en: "English name" })}</th><th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة", en: "Category" })}</th><th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th></tr></thead>
               <tbody>{newRows.slice(0, visibleCount).map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && !!missingParentCodes && missingParentCodes.has(String(r.parent).trim())} />))}</tbody>
             </table>
           </div>
-          {newRows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, newRows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, newRows.length - visibleCount)} more accounts` })}</button>)}
+          {newRows.length > visibleCount && (<button onClick={() => setVisibleCount((c) => c + ROWS_PER_PAGE)} className="mt-3 w-full rounded-lg border border-dashed border-[#233152] py-2 text-xs font-semibold text-[#8CA3C1] hover:border-blue-700 hover:text-blue-700">{t({ ar: `تحميل ${Math.min(ROWS_PER_PAGE, newRows.length - visibleCount)} حساب إضافي`, en: `Load ${Math.min(ROWS_PER_PAGE, newRows.length - visibleCount)} more accounts` })}</button>)}
         </div>
       )}
-      {existingRows.length > 0 && (<div className="mb-6"><div className="mb-2 text-sm font-semibold text-slate-600">{t({ ar: `حسابات مطابقة (${existingRows.length})`, en: `Matched accounts (${existingRows.length})` })}</div><ExistingMatchesTable rows={existingRows} compact /></div>)}
-      {deletedRows.length > 0 && (<div className="mb-6"><div className="mb-2 text-sm font-semibold text-slate-600">{t({ ar: `حسابات مستبعدة (${deletedRows.length})`, en: `Excluded accounts (${deletedRows.length})` })}</div><DeletedAccountsTable rows={deletedRows} onRestore={setRowDeleted} compact /></div>)}
+      {existingRows.length > 0 && (<div className="mb-6"><div className="mb-2 text-sm font-semibold text-[#8CA3C1]">{t({ ar: `حسابات مطابقة (${existingRows.length})`, en: `Matched accounts (${existingRows.length})` })}</div><ExistingMatchesTable rows={existingRows} compact /></div>)}
+      {deletedRows.length > 0 && (<div className="mb-6"><div className="mb-2 text-sm font-semibold text-[#8CA3C1]">{t({ ar: `حسابات مستبعدة (${deletedRows.length})`, en: `Excluded accounts (${deletedRows.length})` })}</div><DeletedAccountsTable rows={deletedRows} onRestore={setRowDeleted} compact /></div>)}
     </div>
   );
 }
@@ -2232,42 +2232,42 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDropNode(node); }}
         style={{ width: NODE_W, height: NODE_H }}
         className={`relative flex flex-col justify-center rounded-lg border px-2.5 py-1.5 text-[11px] shadow-sm transition-all ${
-          node.isAnchor ? "border-dashed border-slate-300 bg-slate-100 text-slate-500" :
-          isBeingDragged ? "border-blue-400 bg-blue-50 opacity-40 ring-2 ring-blue-300" :
-          isDragOverTarget ? "scale-105 border-blue-600 bg-blue-50 ring-2 ring-blue-500 shadow-lg" :
-          isRecentlyMoved ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-300" :
-          isAutoParent ? "border-violet-300 bg-violet-50 hover:border-violet-500 hover:shadow-md" :
-          "border-slate-200 bg-white hover:border-blue-400 hover:shadow-md"
+          node.isAnchor ? "border-dashed border-[#2E4068] bg-[#16213A] text-[#8CA3C1]" :
+          isBeingDragged ? "border-blue-400 bg-blue-500/10 opacity-40 ring-2 ring-blue-300" :
+          isDragOverTarget ? "scale-105 border-blue-600 bg-blue-500/10 ring-2 ring-blue-500 shadow-lg" :
+          isRecentlyMoved ? "border-emerald-400 bg-emerald-500/10 ring-2 ring-emerald-300" :
+          isAutoParent ? "border-violet-500/40 bg-violet-500/10 hover:border-violet-500 hover:shadow-md" :
+          "border-[#233152] bg-[#111A2E] hover:border-blue-400 hover:shadow-md"
         } ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}>
         {isBeingDragged && (<span className="absolute -top-2.5 right-1 rounded-full bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "جاري النقل...", en: "Moving..." })}</span>)}
         {isRecentlyMoved && (<span className="absolute -top-2.5 right-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "تم النقل ✓", en: "Moved ✓" })}</span>)}
         {!isBeingDragged && !isRecentlyMoved && isAutoParent && (<span className="absolute -top-2.5 right-1 rounded-full bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "أب تلقائي", en: "Auto parent" })}</span>)}
         <div className="flex items-center justify-between gap-1">
-          <span className="truncate font-mono text-[10px] text-slate-400">{code}</span>
+          <span className="truncate font-mono text-[10px] text-[#5C7196]">{code}</span>
           <div className="flex items-center gap-1">
             {!node.isAnchor && <StatusBadge row={node.row} compact />}
-            <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-slate-300 hover:text-blue-700"><Plus size={12} /></button>
-            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-slate-300 hover:text-blue-700"><Pencil size={11} /></button>)}
-            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-slate-300 hover:text-red-600"><Trash2 size={11} /></button>)}
+            <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-[#5C7196] hover:text-blue-700"><Plus size={12} /></button>
+            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-[#5C7196] hover:text-blue-700"><Pencil size={11} /></button>)}
+            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#5C7196] hover:text-red-400"><Trash2 size={11} /></button>)}
           </div>
         </div>
-        <div className={`truncate ${node.isAnchor ? "italic" : "font-semibold text-slate-800"}`}>{name}</div>
+        <div className={`truncate ${node.isAnchor ? "italic" : "font-semibold text-[#E6EDF6]"}`}>{name}</div>
       </div>
-      {hasChildren && (<button onClick={() => onToggle(nodeKey)} title={isOpen ? t({ ar: "طيّ", en: "Collapse" }) : t({ ar: "عرض", en: "Expand" })} className="z-10 -mt-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] text-slate-500 shadow-sm hover:border-blue-600 hover:text-blue-700">{isOpen ? "−" : "+"}</button>)}
+      {hasChildren && (<button onClick={() => onToggle(nodeKey)} title={isOpen ? t({ ar: "طيّ", en: "Collapse" }) : t({ ar: "عرض", en: "Expand" })} className="z-10 -mt-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#233152] bg-[#111A2E] text-[10px] text-[#8CA3C1] shadow-sm hover:border-blue-600 hover:text-blue-700">{isOpen ? "−" : "+"}</button>)}
       {isEditing && (
-        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} className="absolute right-0 z-30 w-60 rounded-xl border border-blue-300 bg-white p-3 text-start shadow-xl" style={{ top: NODE_H + 6 }}>
-          <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-slate-600">{t({ ar: "تعديل الحساب", en: "Edit account" })}</span><button onClick={() => onToggleEditing(null)} className="text-slate-400 hover:text-slate-700"><X size={13} /></button></div>
-          <label className="mb-0.5 block text-[10px] text-slate-400">{t({ ar: "الرمز", en: "Code" })}</label><EditableCell value={node.row.code} onChange={(v) => updateRow(node.row.id, { code: v })} mono />
-          <label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "الاسم العربي", en: "Arabic name" })}</label><EditableCell value={node.row.nameAr} onChange={(v) => updateRow(node.row.id, { nameAr: v })} />
-          <label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "الاسم الانجليزي", en: "English name" })}</label><EditableCell value={node.row.nameEn} onChange={(v) => updateRow(node.row.id, { nameEn: v })} />
-          {(node.row.level === 1 || node.row.level === "1") && (<><label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "النوع", en: "Type" })}</label><select value={node.row.type} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-slate-300 bg-white px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{LEVEL1_TYPES_ALLOWING_NEW.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>)}
-          {(node.row.level === 2 || node.row.level === "2") && (<><label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "النوع (م2)", en: "Type (L2)" })}</label><select value={node.row.type} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-slate-300 bg-white px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{LEVEL2_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>)}
+        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} className="absolute right-0 z-30 w-60 rounded-xl border border-blue-500/40 bg-[#111A2E] p-3 text-start shadow-xl" style={{ top: NODE_H + 6 }}>
+          <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-[#8CA3C1]">{t({ ar: "تعديل الحساب", en: "Edit account" })}</span><button onClick={() => onToggleEditing(null)} className="text-[#5C7196] hover:text-[#E6EDF6]"><X size={13} /></button></div>
+          <label className="mb-0.5 block text-[10px] text-[#5C7196]">{t({ ar: "الرمز", en: "Code" })}</label><EditableCell value={node.row.code} onChange={(v) => updateRow(node.row.id, { code: v })} mono />
+          <label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "الاسم العربي", en: "Arabic name" })}</label><EditableCell value={node.row.nameAr} onChange={(v) => updateRow(node.row.id, { nameAr: v })} />
+          <label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "الاسم الانجليزي", en: "English name" })}</label><EditableCell value={node.row.nameEn} onChange={(v) => updateRow(node.row.id, { nameEn: v })} />
+          {(node.row.level === 1 || node.row.level === "1") && (<><label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "النوع", en: "Type" })}</label><select value={node.row.type} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-[#233152] bg-[#0E1830] px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{LEVEL1_TYPES_ALLOWING_NEW.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>)}
+          {(node.row.level === 2 || node.row.level === "2") && (<><label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "النوع (م2)", en: "Type (L2)" })}</label><select value={node.row.type} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-[#233152] bg-[#0E1830] px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{LEVEL2_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>)}
           {Number(node.row.level) >= 3 && (() => {
             const cat = TYPE_TO_LEVEL2[node.row.type] || canonicalizeLevel2Category(node.row.level2Category) || node.row.level2Category || "";
             const catOptions = cat && !LEVEL2_TYPES.includes(cat) ? [cat, ...LEVEL2_TYPES] : LEVEL2_TYPES;
             const baseTypes = availableTypesFor(cat);
             const typeOptions = node.row.type && !baseTypes.includes(node.row.type) ? [node.row.type, ...baseTypes] : baseTypes;
-            return (<><label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "الفئة (م2)", en: "Category (L2)" })}</label><select value={cat} onChange={(e) => updateRow(node.row.id, { level2Category: e.target.value, type: "" })} className="w-full rounded border border-slate-300 bg-white px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{catOptions.map((t) => (<option key={t} value={t}>{t}</option>))}</select><label className="mb-0.5 mt-2 block text-[10px] text-slate-400">{t({ ar: "نوع الحساب", en: "Account type" })}</label><select value={node.row.type || ""} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-slate-300 bg-white px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{typeOptions.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>);
+            return (<><label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "الفئة (م2)", en: "Category (L2)" })}</label><select value={cat} onChange={(e) => updateRow(node.row.id, { level2Category: e.target.value, type: "" })} className="w-full rounded border border-[#233152] bg-[#0E1830] px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{catOptions.map((t) => (<option key={t} value={t}>{t}</option>))}</select><label className="mb-0.5 mt-2 block text-[10px] text-[#5C7196]">{t({ ar: "نوع الحساب", en: "Account type" })}</label><select value={node.row.type || ""} onChange={(e) => updateRow(node.row.id, { type: e.target.value })} className="w-full rounded border border-[#233152] bg-[#0E1830] px-1 py-1 text-[11px]"><option value="">{t({ ar: "اختر", en: "Select" })}</option>{typeOptions.map((t) => (<option key={t} value={t}>{t}</option>))}</select></>);
           })()}
         </div>
       )}
@@ -2366,11 +2366,20 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   };
 
   const bucketEntries = Object.entries(buckets).filter(([, b]) => b.items.length > 0);
+  const [fullView, setFullView] = useState(false);
   const [activeRootKey, setActiveRootKey] = useState(null);
   useEffect(() => { if ((!activeRootKey || !buckets[activeRootKey] || buckets[activeRootKey].items.length === 0) && bucketEntries.length > 0) setActiveRootKey(bucketEntries[0][0]); }, [bucketEntries.map(([k]) => k).join(","), rows]);
   const activeBucket = activeRootKey ? buckets[activeRootKey] : null;
-  const rootForLayout = useMemo(() => { if (!activeBucket || activeBucket.items.length === 0) return null; if (activeBucket.items.length === 1) return activeBucket.items[0]; return { isVirtual: true, code: "__virtual__", children: activeBucket.items }; }, [activeBucket]);
-  useEffect(() => { if (!rootForLayout) return; setExpanded((prev) => { const next = new Set(prev); next.add(nodeKeyOf(rootForLayout)); rootForLayout.children.forEach((child) => next.add(nodeKeyOf(child))); return next; }); }, [activeRootKey]);
+  const rootForLayout = useMemo(() => {
+    if (fullView) {
+      const allItems = bucketEntries.flatMap(([, b]) => b.items);
+      if (allItems.length === 0) return null;
+      if (allItems.length === 1) return allItems[0];
+      return { isVirtual: true, code: "__all_roots__", children: allItems };
+    }
+    if (!activeBucket || activeBucket.items.length === 0) return null; if (activeBucket.items.length === 1) return activeBucket.items[0]; return { isVirtual: true, code: "__virtual__", children: activeBucket.items };
+  }, [activeBucket, fullView, bucketEntries]);
+  useEffect(() => { if (!rootForLayout) return; setExpanded((prev) => { const next = new Set(prev); next.add(nodeKeyOf(rootForLayout)); rootForLayout.children.forEach((child) => next.add(nodeKeyOf(child))); return next; }); }, [activeRootKey, fullView]);
 
   const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
   const { positioned, links, canvasW, canvasH } = useMemo(() => {
@@ -2403,6 +2412,14 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     el.scrollTop = 0;
   }, [canvasW, canvasH]);
   const resetZoom = useCallback(() => { zoomRef.current = 1; setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = 0; el.scrollTop = 0; } }, []);
+  const fittedRef = useRef(null);
+  useEffect(() => {
+    const key = fullView ? "__all_roots__" : (activeRootKey || "");
+    if (fittedRef.current === key) return;
+    fittedRef.current = key;
+    const id = requestAnimationFrame(fitToPage);
+    return () => cancelAnimationFrame(id);
+  }, [activeRootKey, fullView]);
 
   useEffect(() => {
     const el = treeScrollRef.current;
@@ -2421,27 +2438,30 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
 
   return (
     <div className="mt-5" dir={dir}>
-      <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
-      {dropMessage && (<div className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-200 bg-red-50 text-red-700" : dropMessage.type === "warning" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
-      {bucketEntries.length === 0 ? (<div className="rounded-xl border border-dashed border-slate-300 bg-white py-8 text-center text-sm text-slate-400">{t({ ar: "ما فيه حسابات جديدة لعرضها", en: "No new accounts to display" })}</div>) : (
+      <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-300"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
+      {dropMessage && (<div className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : dropMessage.type === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
+      {bucketEntries.length === 0 ? (<div className="rounded-xl border border-dashed border-[#233152] bg-[#111A2E] py-8 text-center text-sm text-[#5C7196]">{t({ ar: "ما فيه حسابات جديدة لعرضها", en: "No new accounts to display" })}</div>) : (
         <>
           <div className="mb-3 flex flex-wrap gap-2">
             {bucketEntries.map(([key, bucket]) => (
-              <button key={key} onClick={() => setActiveRootKey(key)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${activeRootKey === key ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-blue-700 hover:text-blue-700"}`}>{bucket.label} ({bucket.items.length})</button>
+              <button key={key} onClick={() => { setFullView(false); setActiveRootKey(key); }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${!fullView && activeRootKey === key ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#233152] bg-[#111A2E] text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0]"}`}>{bucket.label} ({bucket.items.length})</button>
             ))}
           </div>
-          <div className="mb-2 flex items-center gap-2">
-            <button onClick={fitToPage} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-500 hover:text-blue-600 transition">{t({ ar: "ملء الصفحة", en: "Fit to Page" })}</button>
-            <button onClick={resetZoom} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-500 hover:text-blue-600 transition">{t({ ar: "100%", en: "100%" })}</button>
-            <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-500">+</button>
-            <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-500">−</button>
-            <span className="text-xs text-slate-400">{Math.round(zoom * 100)}%</span>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {bucketEntries.length > 1 && (
+              <button onClick={() => setFullView((v) => !v)} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${fullView ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#2E4068] bg-[#16213A] text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0]"}`}>{t({ ar: "☰ العرض الكامل للشجرة", en: "☰ View Entire Tree" })}</button>
+            )}
+            <button onClick={fitToPage} className="rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-1.5 text-xs font-semibold text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0] transition">{t({ ar: "ملء الشاشة", en: "Fit on Screen" })}</button>
+            <button onClick={resetZoom} className="rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-1.5 text-xs font-semibold text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0] transition">{t({ ar: "100%", en: "100%" })}</button>
+            <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-[#233152] bg-[#111A2E] px-2 py-1.5 text-xs font-bold text-[#8CA3C1] hover:border-[#12B886]">+</button>
+            <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-[#233152] bg-[#111A2E] px-2 py-1.5 text-xs font-bold text-[#8CA3C1] hover:border-[#12B886]">−</button>
+            <span className="text-xs text-[#5C7196]">{Math.round(zoom * 100)}%</span>
           </div>
-          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-slate-200 bg-slate-50" style={{ maxHeight: 640 }}>
+          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-[#233152] bg-[#16213A]" style={{ maxHeight: 640 }}>
             <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}>
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
-                {links.map((l, i) => { const midY = (l.sy + l.ty) / 2; return (<path key={i} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#cbd5e1" strokeWidth={1.5} />); })}
+                {links.map((l, i) => { const midY = (l.sy + l.ty) / 2; return (<path key={i} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#2A3A5C" strokeWidth={1.5} />); })}
               </svg>
               {positioned.map(({ node, key, x, y }) => {
                 const code = node.isAnchor ? node.code : node.row.code;

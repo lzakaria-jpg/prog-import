@@ -9,8 +9,8 @@ import { Watermark } from "./Watermark";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { id: "journal", label: { ar: "أدوات الاستيراد", en: "Import Tools" }, icon: BookOpen, desc: { ar: "فحص وتجهيز ملفات القيود", en: "Review & prepare journal entries" } },
-  { id: "merge", label: { ar: "مطابقة الشجرة", en: "Chart Merge" }, icon: GitBranch, desc: { ar: "دمج شجرة الحسابات", en: "Merge chart of accounts" } },
+  { id: "journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز واستيراد القيود", en: "Review, prepare & import journal entries" } },
+  { id: "merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
 ];
 
 function LanguageToggle({ compact }) {
@@ -147,7 +147,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.2.9";
+  const currentVersion = "1.3.0";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
@@ -168,8 +168,8 @@ function AppShell() {
         <div className="flex items-center px-5 py-5 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
           {!collapsed ? (
             <div className="animate-fadeIn">
-              <h1 className="text-white text-base font-bold leading-tight tracking-tight">{t({ ar: "اداة الاستيراد", en: "Import Tool" })}</h1>
-              <p className="text-[10px] font-medium" style={{ color: "rgba(255,255,255,0.5)" }}>{t({ ar: "مدقّق القيود بالذكاء الاصطناعي", en: "AI Journal Entries Auditor" })}</p>
+              <h1 className="text-white text-base font-bold leading-tight tracking-tight">{t({ ar: "أدوات قيود المحاسبية", en: "Qoyod Accounting Tools" })}</h1>
+              <p className="text-[10px] font-medium" style={{ color: "rgba(255,255,255,0.5)" }}>{t({ ar: "تحليل واستيراد القيود والشجرة", en: "Analyze & import entries and chart" })}</p>
             </div>
           ) : (
             <span className="text-white text-lg font-bold mx-auto">م</span>

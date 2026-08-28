@@ -67,7 +67,7 @@ function fileIcon(fileName) {
   if (["pdf"].includes(ext)) return <FileText size={16} color="#DC2626" />;
   if (["docx", "doc"].includes(ext)) return <FileText size={16} color="#2563EB" />;
   if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return <Image size={16} color="#D97706" />;
-  return <FileText size={16} color="#64748B" />;
+  return <FileText size={16} color="#8CA3C1" />;
 }
 
 // ─── Message Bubble ─────────────────────────────────────────────────
@@ -91,8 +91,8 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
     setEditing(false);
   };
 
-  const bubbleColor = isOwn ? "linear-gradient(135deg, #162560, #1E3370)" : "#FFF";
-  const textColor = isOwn ? "#FFF" : "#1E293B";
+  const bubbleColor = isOwn ? "linear-gradient(135deg, #162560, #1E3370)" : "#0E1830";
+  const textColor = isOwn ? "#FFF" : "#E6EDF6";
   const align = isRTL ? (isOwn ? "flex-end" : "flex-start") : (isOwn ? "flex-end" : "flex-start");
 
   return (
@@ -124,22 +124,22 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
             onClick={() => onDownload && onDownload(msg)}
             style={{
               display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
-              background: isOwn ? "rgba(255,255,255,0.15)" : "#F1F5F9", marginBottom: msg.content ? 6 : 0,
+              background: isOwn ? "rgba(255,255,255,0.15)" : "#16213A", marginBottom: msg.content ? 6 : 0,
               cursor: "pointer", transition: "background 0.15s",
             }}
           >
             {fileIcon(msg.file_name)}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: isOwn ? "#FFF" : "#1E293B", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: isOwn ? "#FFF" : "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {msg.file_name}
               </p>
               {msg.file_size && (
-                <p style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.6)" : "#94A3B8", margin: 0 }}>
+                <p style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.6)" : "#5C7196", margin: 0 }}>
                   {msg.file_size > 1048576 ? `${(msg.file_size / 1048576).toFixed(1)} MB` : `${(msg.file_size / 1024).toFixed(0)} KB`}
                 </p>
               )}
             </div>
-            <Download size={14} color={isOwn ? "rgba(255,255,255,0.7)" : "#64748B"} />
+            <Download size={14} color={isOwn ? "rgba(255,255,255,0.7)" : "#8CA3C1"} />
           </div>
         )}
 
@@ -151,7 +151,7 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSaveEdit(); if (e.key === "Escape") setEditing(false); }}
               autoFocus
-              style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#FFF", color: "#1E293B", outline: "none" }}
+              style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 6, border: "1px solid #233152", background: "#111A2E", color: "#E6EDF6", outline: "none" }}
             />
             <button onClick={handleSaveEdit} style={{ padding: "4px 8px", borderRadius: 6, background: "#16A34A", color: "#FFF", border: "none", fontSize: 11, cursor: "pointer" }}>
               <Check size={12} />
@@ -168,11 +168,11 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
         {/* Edited + Time */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start", gap: 4, marginTop: 4 }}>
           {msg.is_edited && (
-            <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8", fontStyle: "italic" }}>
+            <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#5C7196", fontStyle: "italic" }}>
               {lang === "ar" ? "تم التعديل" : "edited"}
             </span>
           )}
-          <span style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8" }}>
+          <span style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.5)" : "#5C7196" }}>
             {formatFullTime(msg.created_at)}
           </span>
           {isOwn && (
@@ -192,30 +192,30 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
               }}
               className="group-hover:opacity-100"
             >
-              <MoreVertical size={12} color="#64748B" />
+              <MoreVertical size={12} color="#8CA3C1" />
             </button>
             {showMenu && (
               <div style={{
                 position: "absolute", top: 28, [isRTL ? "left" : "right"]: 0, zIndex: 50,
-                background: "#FFF", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                border: "1px solid #E2E8F0", overflow: "hidden", minWidth: 140,
+                background: "#111A2E", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                border: "1px solid #233152", overflow: "hidden", minWidth: 140,
               }}>
                 <button
                   onClick={() => { setEditing(true); setShowMenu(false); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#1E293B", textAlign: isRTL ? "right" : "left" }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#E6EDF6", textAlign: isRTL ? "right" : "left" }}
                 >
                   <Edit3 size={14} /> {lang === "ar" ? "تعديل" : "Edit"}
                 </button>
                 <button
                   onClick={() => { onArchive(msg.id); setShowMenu(false); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#1E293B", textAlign: isRTL ? "right" : "left" }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#E6EDF6", textAlign: isRTL ? "right" : "left" }}
                 >
                   <Archive size={14} /> {lang === "ar" ? "أرشفة" : "Archive"}
                 </button>
-                <div style={{ height: 1, background: "#F1F5F9" }} />
+                <div style={{ height: 1, background: "#16213A" }} />
                 <button
                   onClick={() => { onDelete(msg.id); setShowMenu(false); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#DC2626", textAlign: isRTL ? "right" : "left" }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#FB7185", textAlign: isRTL ? "right" : "left" }}
                 >
                   <Trash2 size={14} /> {lang === "ar" ? "حذف" : "Delete"}
                 </button>
@@ -546,7 +546,7 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
         overflow: "hidden",
         boxShadow: "0 12px 48px rgba(22, 37, 96, 0.25), 0 0 0 1px rgba(22, 37, 96, 0.08)",
         fontFamily: "Cairo, sans-serif",
-        background: "#FFF",
+        background: "#111A2E",
       }}
     >
       {/* ── Header ──────────────────────────────────── */}
@@ -588,9 +588,9 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
         {showOnline && (
           <div style={{
             width: 130,
-            borderRight: isRTL ? "none" : "1px solid #F1F5F9",
-            borderLeft: isRTL ? "1px solid #F1F5F9" : "none",
-            background: "#FAFBFC",
+            borderRight: isRTL ? "none" : "1px solid #16213A",
+            borderLeft: isRTL ? "1px solid #16213A" : "none",
+            background: "#0E1830",
             overflow: "auto",
             flexShrink: 0,
           }}>
@@ -610,7 +610,7 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                 <Hash size={14} color="#FFF" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#1E293B", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {t({ ar: "عام", en: "Public" })}
                 </p>
               </div>
@@ -621,7 +621,7 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
               )}
             </button>
 
-            <div style={{ height: 1, background: "#E2E8F0", margin: "4px 12px" }} />
+            <div style={{ height: 1, background: "#233152", margin: "4px 12px" }} />
 
             {/* Users list */}
             {participants.map((email) => {
@@ -656,15 +656,15 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                     <div style={{
                       position: "absolute", bottom: 0, right: isRTL ? "auto" : 0, left: isRTL ? 0 : "auto",
                       width: 10, height: 10, borderRadius: 5,
-                      background: isOnline ? "#16A34A" : "#CBD5E1",
-                      border: "2px solid #FAFBFC",
+                      background: isOnline ? "#16A34A" : "#5C7196",
+                      border: "2px solid #0E1830",
                     }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#7C3AED" : "#1E293B", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#A78BFA" : "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
                     </p>
-                    <p style={{ fontSize: 9, color: isOnline ? "#16A34A" : "#94A3B8", margin: 0 }}>
+                    <p style={{ fontSize: 9, color: isOnline ? "#16A34A" : "#5C7196", margin: 0 }}>
                       {isAgent ? (isOnline ? t({ ar: "ذكاء اصطناعي", en: "AI Agent" }) : t({ ar: "غير متاح", en: "Offline" })) : (isOnline ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" }))}
                     </p>
                   </div>
@@ -682,16 +682,16 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
         {/* ── Messages Area ─────────────────────────── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* Search + Archive toggle */}
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #16213A", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#16213A" }}>
             <div style={{ flex: 1, position: "relative" }}>
-              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
+              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}
                 style={{
                   width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8,
-                  border: "1px solid #E2E8F0", fontSize: 11, outline: "none",
+                  border: "1px solid #233152", fontSize: 11, outline: "none", background: "#0E1830", color: "#E6EDF6",
                   [isRTL ? "paddingRight" : "paddingLeft"]: 28,
                   [isRTL ? "paddingLeft" : "paddingRight"]: 10,
                 }}
@@ -701,8 +701,8 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
               title={showArchive ? t({ ar: "العودة للشات", en: "Back to chat" }) : t({ ar: "الأرشيف", en: "Archive" })}
               style={{
                 width: 28, height: 28, borderRadius: 8, border: "none",
-                background: showArchive ? "#FEF3C7" : "#F1F5F9",
-                color: showArchive ? "#D97706" : "#64748B",
+                background: showArchive ? "#2D2410" : "#16213A",
+                color: showArchive ? "#FBBF24" : "#8CA3C1",
                 cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
               }}>
               {showArchive ? <Eye size={12} /> : <Archive size={12} />}
@@ -717,12 +717,12 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
           >
             {loading ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 24, height: 24, border: "3px solid #E2E8F0", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                <div style={{ width: 24, height: 24, border: "3px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
               </div>
             ) : filteredMessages.length === 0 ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
-                <MessageCircle size={32} color="#CBD5E1" />
-                <p style={{ fontSize: 13, color: "#94A3B8", margin: 0 }}>
+                <MessageCircle size={32} color="#5C7196" />
+                <p style={{ fontSize: 13, color: "#5C7196", margin: 0 }}>
                   {showArchive
                     ? t({ ar: "لا رسائلمؤرشفة", en: "No archived messages" })
                     : t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}
@@ -791,12 +791,12 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
           {!showArchive && (
             <div style={{
               padding: "10px 12px",
-              borderTop: "1px solid #F1F5F9",
+              borderTop: "1px solid #16213A",
               display: "flex",
               alignItems: "center",
               gap: 8,
               flexShrink: 0,
-              background: "#FAFBFC",
+              background: "#16213A",
             }}>
               <input
                 ref={fileInputRef}
@@ -810,11 +810,11 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                 disabled={uploading}
                 style={{
                   width: 34, height: 34, borderRadius: 10, border: "none",
-                  background: "#F1F5F9", color: "#64748B", cursor: "pointer",
+                  background: "#16213A", color: "#8CA3C1", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}
               >
-                {uploading ? <div style={{ width: 14, height: 14, border: "2px solid #E2E8F0", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Paperclip size={16} />}
+                {uploading ? <div style={{ width: 14, height: 14, border: "2px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Paperclip size={16} />}
               </button>
               <input
                 value={inputText}
@@ -823,21 +823,21 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
                 placeholder={t({ ar: "اكتب رسالة...", en: "Type a message..." })}
                 style={{
                   flex: 1, padding: "8px 14px", borderRadius: 12,
-                  border: "1px solid #E2E8F0", fontSize: 13,
-                  outline: "none", background: "#FFF",
+                  border: "1px solid #233152", fontSize: 13,
+                  outline: "none", background: "#0E1830", color: "#E6EDF6",
                   fontFamily: "Cairo, sans-serif",
                   transition: "border-color 0.2s",
                 }}
-                onFocus={(e) => e.target.style.borderColor = "#4A90D9"}
-                onBlur={(e) => e.target.style.borderColor = "#E2E8F0"}
+                onFocus={(e) => e.target.style.borderColor = "#12B886"}
+                onBlur={(e) => e.target.style.borderColor = "#233152"}
               />
               <button
                 onClick={handleSend}
                 disabled={!inputText.trim()}
                 style={{
                   width: 34, height: 34, borderRadius: 10, border: "none",
-                  background: inputText.trim() ? "linear-gradient(135deg, #162560, #4A90D9)" : "#E2E8F0",
-                  color: inputText.trim() ? "#FFF" : "#94A3B8",
+                  background: inputText.trim() ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152",
+                  color: inputText.trim() ? "#FFF" : "#5C7196",
                   cursor: inputText.trim() ? "pointer" : "default",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   transition: "all 0.2s",
