@@ -10,6 +10,7 @@ import { callClaude, parseJsonResponse } from "./lib/claudeProxy";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
+import { findSimilarAccounts } from "./ruleEngine";
 import { SmartAnalysisPanel } from "./SmartPanel";
 
 const COLORS = {
@@ -193,6 +194,27 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                   <button onClick={() => onDismiss(issue.id)} className="rounded border px-2 py-1 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
                 </div>
               )}
+              {issue.type === "unknown_code" && issue.suggestions && issue.suggestions.length > 0 && (
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5" style={{ maxWidth: 280 }}>
+                    {issue.suggestions.map((s) => (
+                      <button key={s.code} onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)}
+                        title={`${s.code} — ${s.name} (${Math.round(s.score * 100)}%)`}
+                        className="rounded px-2 py-1 text-left text-[11px] font-semibold transition"
+                        style={{
+                          direction: "ltr",
+                          background: s.confidence === "high" ? "#DCFCE7" : s.confidence === "medium" ? "#FEF9C3" : "#F1F5F9",
+                          color: s.confidence === "high" ? "#15803D" : s.confidence === "medium" ? "#A16207" : "#475569",
+                          border: "1px solid " + (s.confidence === "high" ? "#86EFAC" : s.confidence === "medium" ? "#FDE68A" : "#CBD5E1"),
+                          cursor: "pointer",
+                        }}>
+                        {s.code} · {s.name}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => onDismiss(issue.id)} className="rounded border px-2 py-0.5 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -250,7 +272,23 @@ export default function JournalTool() {
   const structuralIssuesBySeq = useMemo(() => {
     if (!entries || !chartAccounts) return {};
     const out = {};
-    entries.forEach((entry) => (out[entry.seq] = validateEntryStructure(entry, chartMap, parentInfo)));
+    entries.forEach((entry) => {
+      const issues = validateEntryStructure(entry, chartMap, parentInfo);
+      issues.forEach((iss) => {
+        if (iss.type === "unknown_code" && iss.code) {
+          const similar = findSimilarAccounts(iss.code, chartAccounts, 4);
+          if (similar.length > 0) {
+            iss.suggestions = similar.map((s) => ({
+              code: s.code,
+              name: s.name,
+              score: s.score,
+              confidence: s.score > 0.7 ? "high" : s.score > 0.5 ? "medium" : "low",
+            }));
+          }
+        }
+      });
+      out[entry.seq] = issues;
+    });
     return out;
   }, [entries, chartMap, parentInfo, chartAccounts]);
 
@@ -388,6 +426,32 @@ export default function JournalTool() {
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
   }, [updateRow]);
 
+  const applyAllSuggestions = useCallback(() => {
+    setEntries((prev) => {
+      if (!prev) return prev;
+      const resolved = {};
+      const next = prev.map((entry) => {
+        const struct = structuralIssuesBySeq[entry.seq] || [];
+        const issues = [...struct, ...(semanticIssues[entry.seq] || [])].filter((i) => !resolvedIds[i.id]);
+        let changed = false;
+        const rows = entry.rows.map((r) => {
+          if (changed) return r;
+          const iss = issues.find((i) => i.rowIndex === r._rowIndex && (i.type === "unknown_code" || i.type === "semantic_mismatch") && i.suggestions && i.suggestions.length > 0 && i.suggestions[0].confidence !== "low");
+          if (iss) {
+            changed = true;
+            resolved[iss.id] = true;
+            const sugg = iss.suggestions[0];
+            return { ...r, code: sugg.code };
+          }
+          return r;
+        });
+        return changed ? { ...entry, rows } : entry;
+      });
+      if (Object.keys(resolved).length > 0) setResolvedIds((p) => ({ ...p, ...resolved }));
+      return next;
+    });
+  }, [structuralIssuesBySeq, semanticIssues, resolvedIds]);
+
   const dismissIssue = useCallback((issueId) => {
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
   }, []);
@@ -399,6 +463,10 @@ export default function JournalTool() {
   const totalEntries = entries ? entries.length : 0;
   const entriesWithIssues = entries ? entries.filter((e) => (issuesBySeq[e.seq] || []).length > 0).length : 0;
   const totalOpenIssues = Object.values(issuesBySeq).reduce((s, arr) => s + arr.length, 0);
+  const applicableCount = Object.values(issuesBySeq).reduce(
+    (s, arr) => s + arr.filter((i) => (i.type === "unknown_code" || i.type === "semantic_mismatch") && i.suggestions && i.suggestions[0] && i.suggestions[0].confidence !== "low").length,
+    0
+  );
   const ready = chartAccounts && entries;
 
   const handleDownload = async () => {
@@ -533,6 +601,12 @@ export default function JournalTool() {
                   {t(label)}
                 </button>
               ))}
+              {applicableCount > 0 && (
+                <button onClick={applyAllSuggestions}
+                  className="rounded-lg border bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700">
+                  {t({ ar: `تطبيق الكل (${applicableCount})`, en: `Apply All (${applicableCount})` })}
+                </button>
+              )}
               {totalPages > 1 && (
                 <div className="ms-auto flex items-center gap-1">
                   <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
