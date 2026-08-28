@@ -297,7 +297,7 @@ function AppShell() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto relative" style={{ background: "var(--qoyod-bg)" }}>
-        <Watermark type={tab === "merge" ? "tree" : "journal"} />
+        <Watermark type={tab === "merge" ? "tree" : "journal"} lang={lang} />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
           <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>

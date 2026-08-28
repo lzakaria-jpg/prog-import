@@ -1,7 +1,7 @@
 import React from "react";
 
 // Subtle, low-opacity watermark layers kept behind the readable application content.
-const JOURNAL_PATTERN = encodeURIComponent(`
+const JOURNAL_PATTERN_AR = encodeURIComponent(`
 <svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
   <g fill='none' stroke='#CBD5E1' stroke-width='2' opacity='0.14'>
     <path d='M30 65h90M30 95h90M30 125h90M30 155h90'/>
@@ -13,7 +13,13 @@ const JOURNAL_PATTERN = encodeURIComponent(`
   <text x='190' y='230' font-family='Cairo, Segoe UI, sans-serif' font-size='34' font-weight='700' fill='#CBD5E1' opacity='0.12'>دائن</text>
 </svg>`);
 
-const TREE_PATTERN = encodeURIComponent(`
+const JOURNAL_PATTERN_EN = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#CBD5E1' stroke-width='2' opacity='0.14'><path d='M30 65h90M30 95h90M30 125h90M30 155h90M48 50v120M82 50v120'/><path d='M190 80h82M190 115h82M190 150h82M210 65v105M246 65v105'/></g>
+  <text x='35' y='230' font-family='Cairo, Segoe UI, sans-serif' font-size='30' font-weight='700' fill='#CBD5E1' opacity='0.12'>Debit</text><text x='190' y='230' font-family='Cairo, Segoe UI, sans-serif' font-size='30' font-weight='700' fill='#CBD5E1' opacity='0.12'>Credit</text>
+</svg>`);
+
+const TREE_PATTERN_AR = encodeURIComponent(`
 <svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
   <g fill='none' stroke='#7DD3FC' stroke-width='2' opacity='0.34'>
     <path d='M48 42v228M48 82h72M48 142h72M48 202h72'/>
@@ -30,8 +36,20 @@ const TREE_PATTERN = encodeURIComponent(`
   <text x='32' y='292' font-family='Cairo, Segoe UI, sans-serif' font-size='30' font-weight='700' fill='#7DD3FC' opacity='0.18'>شجرة الحسابات</text>
 </svg>`);
 
-export function Watermark({ type = "journal" }) {
-  const pattern = type === "tree" ? TREE_PATTERN : JOURNAL_PATTERN;
+const TREE_PATTERN_EN = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#4A90D9' stroke-width='2' opacity='0.36'>
+    <path d='M48 42v228M48 82h72M48 142h72M48 202h72M120 82v28M120 142v28M120 202v28M120 110h88M120 170h88M120 230h88M208 110v22M208 170v22M208 230v22'/>
+    <circle cx='48' cy='42' r='10'/><circle cx='120' cy='82' r='9'/><circle cx='120' cy='142' r='9'/><circle cx='120' cy='202' r='9'/><circle cx='208' cy='110' r='7'/><circle cx='208' cy='170' r='7'/><circle cx='208' cy='230' r='7'/>
+  </g>
+  <g fill='none' stroke='#12B886' stroke-width='2' opacity='0.3'><rect x='245' y='42' width='42' height='34' rx='5'/><path d='M249 42l6-7h14l6 7'/><rect x='245' y='142' width='42' height='34' rx='5'/><path d='M249 142l6-7h14l6 7'/></g>
+  <text x='32' y='292' font-family='Cairo, Segoe UI, sans-serif' font-size='28' font-weight='700' fill='#4A90D9' opacity='0.2'>Chart of Accounts</text>
+</svg>`);
+
+export function Watermark({ type = "journal", lang = "ar" }) {
+  const pattern = type === "tree"
+    ? (lang === "en" ? TREE_PATTERN_EN : TREE_PATTERN_AR)
+    : (lang === "en" ? JOURNAL_PATTERN_EN : JOURNAL_PATTERN_AR);
   return (
     <div
       aria-hidden="true"
@@ -50,7 +68,7 @@ export function Watermark({ type = "journal" }) {
           backgroundImage: `url("data:image/svg+xml,${pattern}")`,
           backgroundRepeat: "repeat",
           backgroundSize: "320px 320px",
-          opacity: type === "tree" ? 0.42 : 0.12,
+          opacity: type === "tree" ? 0.52 : 0.08,
         }}
       />
       {type === "tree" && <svg
