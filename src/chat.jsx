@@ -3,8 +3,8 @@ import { supabase } from "./supabase";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import {
-  chatWithAgent, isMessageForAgent, cleanMessageForAgent,
-  AI_AGENT_EMAIL, AI_AGENT_NAME_AR, AI_AGENT_NAME_EN, isAgentAvailable,
+  generateAIResponse,
+  AI_AGENT_EMAIL, AI_AGENT_NAME_AR, AI_AGENT_NAME_EN
 } from "./aiAgent";
 import {
   MessageCircle, X, Send, Paperclip, Image, FileSpreadsheet, FileText,
@@ -111,14 +111,12 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
           position: "relative",
         }}
       >
-        {/* Sender name (in public chat, not own) */}
         {!isOwn && !isArchivedView && (
           <p style={{ fontSize: 11, fontWeight: 700, color: emailToColor(msg.sender_email), marginBottom: 2 }}>
             {emailToName(msg.sender_email)}
           </p>
         )}
 
-        {/* File attachment */}
         {msg.message_type === "file" && msg.file_name && (
           <div
             onClick={() => onDownload && onDownload(msg)}
@@ -143,7 +141,6 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
           </div>
         )}
 
-        {/* Message content */}
         {editing ? (
           <div style={{ display: "flex", gap: 4 }}>
             <input
@@ -165,7 +162,6 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
           )
         )}
 
-        {/* Edited + Time */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start", gap: 4, marginTop: 4 }}>
           {msg.is_edited && (
             <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#5C7196", fontStyle: "italic" }}>
@@ -180,7 +176,6 @@ function MessageBubble({ msg, isOwn, isRTL, lang, onEdit, onDelete, onArchive, i
           )}
         </div>
 
-        {/* Menu */}
         {isOwn && !isArchivedView && (
           <div ref={menuRef} style={{ position: "absolute", [isRTL ? "left" : "right"]: -8, top: -4 }}>
             <button
@@ -261,44 +256,24 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const channelRef = useRef(null);
-  const lastMessageIdRef = useRef(null);
-
-  // Determine channel key for DB
-  const channelKey = useMemo(() => {
-    if (activeChannel === "public") return null;
-    return [currentUser, activeChannel].sort().join("::");
-  }, [activeChannel, currentUser]);
 
   const channelLabel = useMemo(() => {
     if (activeChannel === "public") return { ar: "الشات العام", en: "Public Chat" };
+    if (activeChannel === AI_AGENT_EMAIL) return { ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN };
     return { ar: `خاص مع ${emailToName(activeChannel)}`, en: `Chat with ${emailToName(activeChannel)}` };
   }, [activeChannel]);
-
-  // ── Load Messages ────────────────────────────────────────
 
   const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from("chat_messages")
-        .select("*")
-        .eq("is_archived", showArchive);
-
+      let query = supabase.from("chat_messages").select("*").eq("is_archived", showArchive);
       if (activeChannel === "public") {
         query = query.is("recipient_email", null);
       } else {
-        // For DMs: get all DMs involving current user, filter client-side
-        query = query
-          .not("recipient_email", "is", null)
-          .or(`sender_email.eq.${currentUser},recipient_email.eq.${currentUser}`);
+        query = query.not("recipient_email", "is", null).or(`sender_email.eq.${currentUser},recipient_email.eq.${currentUser}`);
       }
-
       const { data, error } = await query.order("created_at", { ascending: true }).limit(500);
-      if (error) {
-        console.error("[chat] Load error:", error);
-        setMessages([]);
-      } else if (data) {
-        // For DMs: filter to only messages between currentUser and activeChannel
+      if (data) {
         if (activeChannel !== "public") {
           const filtered = data.filter((m) =>
             (m.sender_email === currentUser && m.recipient_email === activeChannel) ||
@@ -316,11 +291,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     setLoading(false);
   }, [activeChannel, showArchive, currentUser]);
 
-  const [agentAvailable, setAgentAvailable] = useState(false);
-
   useEffect(() => { if (isOpen) loadMessages(); }, [isOpen, loadMessages]);
-
-  // ── Realtime Subscription ─────────────────────────────────
 
   useEffect(() => {
     const channel = supabase
@@ -328,9 +299,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
         const msg = payload.new;
         const isPublicMsg = !msg.recipient_email;
-        const isRelevantDM = msg.recipient_email && (
-          msg.sender_email === currentUser || msg.recipient_email === currentUser
-        );
+        const isRelevantDM = msg.recipient_email && (msg.sender_email === currentUser || msg.recipient_email === currentUser);
         if (!isPublicMsg && !isRelevantDM) return;
 
         setMessages((prev) => {
@@ -339,18 +308,6 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         });
         if (msg.sender_email !== currentUser && !muted) {
           playNotification();
-        }
-        if (msg.sender_email !== currentUser) {
-          const isDM = !!msg.recipient_email;
-          let ch = "public";
-          if (isDM) {
-            ch = msg.sender_email === currentUser ? msg.recipient_email : msg.sender_email;
-          }
-          if (ch !== activeChannel) {
-            setUnreadCounts((prev) => ({ ...prev, [ch]: (prev[ch] || 0) + 1 }));
-            setPopup({ sender: emailToName(msg.sender_email), text: msg.content || "" });
-            onUnreadChange?.((count) => count + 1);
-          }
         }
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_messages" }, (payload) => {
@@ -363,24 +320,17 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
-  }, [isOpen, currentUser, muted, activeChannel]);
-
-  // ── Presence (online tracking) ───────────────────────────
+  }, [isOpen, currentUser, muted]);
 
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-
-    const presenceChannel = supabase.channel("online-users", {
-      config: { presence: { key: currentUser } },
-    });
-
+    const presenceChannel = supabase.channel("online-users", { config: { presence: { key: currentUser } } });
     presenceChannel
       .on("presence", { event: "sync" }, () => {
         const state = presenceChannel.presenceState();
         const online = new Set();
         Object.keys(state).forEach((key) => {
-          const presences = state[key];
-          if (presences && presences.length > 0) online.add(key);
+          if (state[key] && state[key].length > 0) online.add(key);
         });
         setOnlineUsers(online);
       })
@@ -389,23 +339,13 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           await presenceChannel.track({ user: currentUser, online_at: new Date().toISOString() });
         }
       });
-
     return () => { supabase.removeChannel(presenceChannel); };
   }, [isOpen, currentUser]);
-
-  // ── AI Agent availability ────────────────────────────────
-
-  useEffect(() => { if (isOpen) isAgentAvailable().then(setAgentAvailable).catch(() => {}); }, [isOpen]);
-
-  // ── Auto-scroll ──────────────────────────────────────────
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-    if (isNearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleScroll = () => {
@@ -415,8 +355,6 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     setShowScrollBtn(!isNearBottom);
   };
 
-  // ── Send Message ──────────────────────────────────────────
-
   const [agentTyping, setAgentTyping] = useState(false);
 
   const handleSend = async () => {
@@ -424,48 +362,31 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     if (!text) return;
     setInputText("");
 
-    const isPublicChannel = activeChannel === "public";
     const isDMWithAgent = activeChannel === AI_AGENT_EMAIL;
-    const isForAI = isMessageForAgent(text, isPublicChannel) || isDMWithAgent;
 
-    if (isForAI) {
-      const cleanText = isDMWithAgent ? text : cleanMessageForAgent(text);
-      const userMsg = {
-        sender_email: currentUser,
-        recipient_email: isDMWithAgent ? AI_AGENT_EMAIL : null,
-        content: text,
-        message_type: "text",
-      };
-      const { error: userErr } = await supabase.from("chat_messages").insert(userMsg);
-      if (userErr) console.error("Send error:", userErr);
+    // حفظ رسالة المستخدم
+    const userMsg = {
+      sender_email: currentUser,
+      recipient_email: activeChannel === "public" ? null : activeChannel,
+      content: text,
+      message_type: "text",
+    };
+    await supabase.from("chat_messages").insert(userMsg);
 
+    // إذا كانت المحادثة موجهة للـ Ai Agent
+    if (isDMWithAgent || activeChannel === "public" && text.includes("@AI")) {
       setAgentTyping(true);
-      const channelKey = isDMWithAgent ? `dm-${currentUser}-${AI_AGENT_EMAIL}` : "public";
-      const reply = await chatWithAgent(cleanText, channelKey);
+      const replyText = await generateAIResponse(text);
       setAgentTyping(false);
 
       await supabase.from("chat_messages").insert({
         sender_email: AI_AGENT_EMAIL,
         recipient_email: isDMWithAgent ? currentUser : null,
-        content: reply.text,
+        content: replyText,
         message_type: "text",
       });
-      return;
     }
-
-    const recipientForDB = activeChannel === "public" ? null : activeChannel;
-    const msg = {
-      sender_email: currentUser,
-      recipient_email: recipientForDB,
-      content: text,
-      message_type: "text",
-    };
-
-    const { error } = await supabase.from("chat_messages").insert(msg);
-    if (error) console.error("Send error:", error);
   };
-
-  // ── Send File ─────────────────────────────────────────────
 
   const handleFileSend = async (e) => {
     const file = e.target.files?.[0];
@@ -511,30 +432,16 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     setUnreadCounts((prev) => ({ ...prev, [ch]: 0 }));
   };
 
-  const totalUnread = useMemo(() => {
-    return Object.values(unreadCounts).reduce((a, b) => a + b, 0);
-  }, [unreadCounts]);
-
-  // ── Build participants list ──────────────────────────────
-
   const participants = useMemo(() => {
     const users = (whitelist || []).filter((email) => email !== currentUser);
-    if (agentAvailable) {
-      return [AI_AGENT_EMAIL, ...users];
-    }
-    return users;
-  }, [whitelist, currentUser, agentAvailable]);
+    return [AI_AGENT_EMAIL, ...users];
+  }, [whitelist, currentUser]);
 
   const filteredMessages = searchQuery
     ? messages.filter((m) => (m.content || "").toLowerCase().includes(searchQuery.toLowerCase()) || (m.file_name || "").toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
-  if (!isOpen) return popup ? (
-    <button onClick={() => { setPopup(null); onUnreadChange?.(0); }} style={{ position: "fixed", bottom: 84, [isRTL ? "left" : "right"]: 16, zIndex: 1000, width: 300, maxWidth: "calc(100vw - 32px)", padding: "12px 14px", borderRadius: 12, border: "1px solid #2E4068", background: "#111A2E", color: "#E6EDF6", textAlign: isRTL ? "right" : "left", cursor: "pointer", boxShadow: "0 10px 30px rgba(0,0,0,.35)" }}>
-      <strong style={{ display: "block", color: "#20D9A0", fontSize: 12 }}>{popup.sender}</strong>
-      <span style={{ display: "block", marginTop: 4, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{popup.text || t({ ar: "رسالة جديدة", en: "New message" })}</span>
-    </button>
-  ) : null;
+  if (!isOpen) return null;
 
   return (
     <div
@@ -555,15 +462,8 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         background: "#111A2E",
       }}
     >
-      {/* ── Header ──────────────────────────────────── */}
-      <div style={{
-        background: "linear-gradient(135deg, #162560, #0F1A47)",
-        padding: "12px 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexShrink: 0,
-      }}>
+      {/* Header */}
+      <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={onClose} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 10, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#FFF" }}>
             <X size={16} />
@@ -578,116 +478,62 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <button onClick={() => setMuted(!muted)} title={muted ? t({ ar: "تشغيل الصوت", en: "Unmute" }) : t({ ar: "كتم الصوت", en: "Mute" })}
-            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: muted ? "#F59E0B" : "rgba(255,255,255,0.7)" }}>
+          <button onClick={() => setMuted(!muted)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: muted ? "#F59E0B" : "rgba(255,255,255,0.7)" }}>
             {muted ? <BellOff size={14} /> : <Bell size={14} />}
           </button>
-          <button onClick={() => setShowOnline(!showOnline)} title={t({ ar: "المتصلون", en: "Online users" })}
-            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: showOnline ? "#4ADE80" : "rgba(255,255,255,0.7)" }}>
+          <button onClick={() => setShowOnline(!showOnline)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: showOnline ? "#4ADE80" : "rgba(255,255,255,0.7)" }}>
             <Users size={14} />
           </button>
         </div>
       </div>
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* ── Online Users Sidebar ──────────────────── */}
+        {/* Sidebar */}
         {showOnline && (
-          <div style={{
-            width: 130,
-            borderRight: isRTL ? "none" : "1px solid #16213A",
-            borderLeft: isRTL ? "1px solid #16213A" : "none",
-            background: "#0E1830",
-            overflow: "auto",
-            flexShrink: 0,
-          }}>
-            {/* Public chat */}
+          <div style={{ width: 130, borderRight: isRTL ? "none" : "1px solid #16213A", borderLeft: isRTL ? "1px solid #16213A" : "none", background: "#0E1830", overflow: "auto", flexShrink: 0 }}>
             <button
               onClick={() => switchChannel("public")}
-              style={{
-                display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px",
-                border: "none", cursor: "pointer", textAlign: "start",
-                background: activeChannel === "public" ? "rgba(22,37,96,0.08)" : "transparent",
-                borderLeft: activeChannel === "public" && isRTL ? "3px solid #162560" : "none",
-                borderRight: activeChannel === "public" && !isRTL ? "3px solid #162560" : "none",
-                transition: "all 0.15s",
-              }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", border: "none", cursor: "pointer", textAlign: "start", background: activeChannel === "public" ? "rgba(22,37,96,0.08)" : "transparent" }}
             >
               <div style={{ width: 32, height: 32, borderRadius: 16, background: "linear-gradient(135deg, #162560, #4A90D9)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Hash size={14} color="#FFF" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {t({ ar: "عام", en: "Public" })}
-                </p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t({ ar: "عام", en: "Public" })}</p>
               </div>
-              {unreadCounts["public"] > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#FFF", background: "#DC2626", borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>
-                  {unreadCounts["public"]}
-                </span>
-              )}
             </button>
 
             <div style={{ height: 1, background: "#233152", margin: "4px 12px" }} />
 
-            {/* Users list */}
             {participants.map((email) => {
               const isAgent = email === AI_AGENT_EMAIL;
-              const isOnline = isAgent ? agentAvailable : onlineUsers.has(email);
+              const isOnline = isAgent ? true : onlineUsers.has(email);
               const isActive = activeChannel === email;
-              const unread = unreadCounts[email] || 0;
               return (
                 <button
                   key={email}
                   onClick={() => switchChannel(email)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px",
-                    border: "none", cursor: "pointer", textAlign: "start",
-                    background: isActive ? "rgba(22,37,96,0.08)" : "transparent",
-                    borderLeft: isActive && isRTL ? "3px solid #162560" : "none",
-                    borderRight: isActive && !isRTL ? "3px solid #162560" : "none",
-                    transition: "all 0.15s",
-                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", cursor: "pointer", textAlign: "start", background: isActive ? "rgba(22,37,96,0.08)" : "transparent" }}
                 >
                   <div style={{ position: "relative", flexShrink: 0 }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: 16,
-                      background: isAgent
-                        ? "linear-gradient(135deg, #7C3AED, #4A90D9)"
-                        : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      color: "#FFF", fontSize: 12, fontWeight: 700,
-                    }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 16, background: isAgent ? "linear-gradient(135deg, #7C3AED, #4A90D9)" : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
                       {isAgent ? <Bot size={16} /> : email.charAt(0).toUpperCase()}
                     </div>
-                    <div style={{
-                      position: "absolute", bottom: 0, right: isRTL ? "auto" : 0, left: isRTL ? 0 : "auto",
-                      width: 10, height: 10, borderRadius: 5,
-                      background: isOnline ? "#16A34A" : "#5C7196",
-                      border: "2px solid #0E1830",
-                    }} />
+                    <div style={{ position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, background: isOnline ? "#16A34A" : "#5C7196", border: "2px solid #0E1830" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#A78BFA" : "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
                     </p>
-                    <p style={{ fontSize: 9, color: isOnline ? "#16A34A" : "#5C7196", margin: 0 }}>
-                      {isAgent ? (isOnline ? t({ ar: "ذكاء اصطناعي", en: "AI Agent" }) : t({ ar: "غير متاح", en: "Offline" })) : (isOnline ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" }))}
-                    </p>
                   </div>
-                  {unread > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#FFF", background: "#7C3AED", borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>
-                      {unread}
-                    </span>
-                  )}
                 </button>
               );
             })}
           </div>
         )}
 
-        {/* ── Messages Area ─────────────────────────── */}
+        {/* Messages */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* Search + Archive toggle */}
           <div style={{ padding: "8px 12px", borderBottom: "1px solid #16213A", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#16213A" }}>
             <div style={{ flex: 1, position: "relative" }}>
               <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
@@ -695,32 +541,12 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}
-                style={{
-                  width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8,
-                  border: "1px solid #233152", fontSize: 11, outline: "none", background: "#0E1830", color: "#E6EDF6",
-                  [isRTL ? "paddingRight" : "paddingLeft"]: 28,
-                  [isRTL ? "paddingLeft" : "paddingRight"]: 10,
-                }}
+                style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8, border: "1px solid #233152", fontSize: 11, outline: "none", background: "#0E1830", color: "#E6EDF6" }}
               />
             </div>
-            <button onClick={() => setShowArchive(!showArchive)}
-              title={showArchive ? t({ ar: "العودة للشات", en: "Back to chat" }) : t({ ar: "الأرشيف", en: "Archive" })}
-              style={{
-                width: 28, height: 28, borderRadius: 8, border: "none",
-                background: showArchive ? "#2D2410" : "#16213A",
-                color: showArchive ? "#FBBF24" : "#8CA3C1",
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-              {showArchive ? <Eye size={12} /> : <Archive size={12} />}
-            </button>
           </div>
 
-          {/* Messages */}
-          <div
-            ref={messagesContainerRef}
-            onScroll={handleScroll}
-            style={{ flex: 1, overflow: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 4, position: "relative" }}
-          >
+          <div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 4 }}>
             {loading ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: 24, height: 24, border: "3px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -728,138 +554,47 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             ) : filteredMessages.length === 0 ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
                 <MessageCircle size={32} color="#5C7196" />
-                <p style={{ fontSize: 13, color: "#5C7196", margin: 0 }}>
-                  {showArchive
-                    ? t({ ar: "لا رسائلمؤرشفة", en: "No archived messages" })
-                    : t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}
-                </p>
+                <p style={{ fontSize: 13, color: "#5C7196", margin: 0 }}>{t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}</p>
               </div>
             ) : (
               filteredMessages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  msg={msg}
-                  isOwn={msg.sender_email === currentUser}
-                  isRTL={isRTL}
-                  lang={lang}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  onArchive={handleArchive}
-                  isArchivedView={showArchive}
-                  onDownload={handleDownload}
-                />
+                <MessageBubble key={msg.id} msg={msg} isOwn={msg.sender_email === currentUser} isRTL={isRTL} lang={lang} onEdit={handleEdit} onDelete={handleDelete} onArchive={handleArchive} isArchivedView={showArchive} onDownload={handleDownload} />
               ))
             )}
-            {/* AI Agent Typing Indicator */}
+
             {agentTyping && (
               <div className="flex w-full" style={{ justifyContent: isRTL ? "flex-end" : "flex-start", marginBottom: 4 }}>
-                <div style={{
-                  background: "linear-gradient(135deg, #7C3AED22, #4A90D922)",
-                  border: "1px solid #7C3AED33",
-                  borderRadius: "16px 16px 16px 4px",
-                  padding: "10px 16px",
-                  display: "flex", alignItems: "center", gap: 8,
-                }}>
+                <div style={{ background: "linear-gradient(135deg, #7C3AED22, #4A90D922)", border: "1px solid #7C3AED33", borderRadius: "16px 16px 16px 4px", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
                   <Bot size={14} color="#7C3AED" />
-                  <div style={{ display: "flex", gap: 3 }}>
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} style={{
-                        width: 6, height: 6, borderRadius: 3, background: "#7C3AED",
-                        animation: `bounce 1.2s ${i * 0.2}s infinite`,
-                      }} />
-                    ))}
-                  </div>
-                  <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 500 }}>
-                    {t({ ar: "المساعد يكتب...", en: "Assistant typing..." })}
-                  </span>
+                  <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 500 }}>{t({ ar: "المساعد يكتب...", en: "Assistant typing..." })}</span>
                 </div>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Scroll to bottom */}
-          {showScrollBtn && (
-            <button
-              onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
-              style={{
-                position: "absolute", bottom: 60, [isRTL ? "left" : "right"]: 16,
-                width: 32, height: 32, borderRadius: 16, background: "#162560", color: "#FFF",
-                border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 4px 12px rgba(22,37,96,0.3)", zIndex: 10,
-              }}
-            >
-              <ArrowDown size={14} />
+          {/* Input */}
+          <div style={{ padding: "10px 12px", borderTop: "1px solid #16213A", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, background: "#16213A" }}>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSend} style={{ display: "none" }} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#16213A", color: "#8CA3C1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {uploading ? <div style={{ width: 14, height: 14, border: "2px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Paperclip size={16} />}
             </button>
-          )}
-
-          {/* ── Input Area ──────────────────────────── */}
-          {!showArchive && (
-            <div style={{
-              padding: "10px 12px",
-              borderTop: "1px solid #16213A",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexShrink: 0,
-              background: "#16213A",
-            }}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt"
-                onChange={handleFileSend}
-                style={{ display: "none" }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                style={{
-                  width: 34, height: 34, borderRadius: 10, border: "none",
-                  background: "#16213A", color: "#8CA3C1", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
-                {uploading ? <div style={{ width: 14, height: 14, border: "2px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Paperclip size={16} />}
-              </button>
-              <input
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder={t({ ar: "اكتب رسالة...", en: "Type a message..." })}
-                style={{
-                  flex: 1, padding: "8px 14px", borderRadius: 12,
-                  border: "1px solid #233152", fontSize: 13,
-                  outline: "none", background: "#0E1830", color: "#E6EDF6",
-                  fontFamily: "Cairo, sans-serif",
-                  transition: "border-color 0.2s",
-                }}
-                onFocus={(e) => e.target.style.borderColor = "#12B886"}
-                onBlur={(e) => e.target.style.borderColor = "#233152"}
-              />
-              <button
-                onClick={handleSend}
-                disabled={!inputText.trim()}
-                style={{
-                  width: 34, height: 34, borderRadius: 10, border: "none",
-                  background: inputText.trim() ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152",
-                  color: inputText.trim() ? "#FFF" : "#5C7196",
-                  cursor: inputText.trim() ? "pointer" : "default",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  transition: "all 0.2s",
-                }}
-              >
-                <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />
-              </button>
-            </div>
-          )}
+            <input
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder={t({ ar: "اكتب رسالة...", en: "Type a message..." })}
+              style={{ flex: 1, padding: "8px 14px", borderRadius: 12, border: "1px solid #233152", fontSize: 13, outline: "none", background: "#0E1830", color: "#E6EDF6" }}
+            />
+            <button onClick={handleSend} disabled={!inputText.trim()} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: inputText.trim() ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152", color: inputText.trim() ? "#FFF" : "#5C7196", cursor: inputText.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
-// ─── Chat Toggle Button ─────────────────────────────────────────────
 
 export function ChatToggle({ onClick, isRTL, unreadCount }) {
   return (
@@ -878,36 +613,12 @@ export function ChatToggle({ onClick, isRTL, unreadCount }) {
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
+        justify: "center",
         boxShadow: "0 6px 24px rgba(22, 37, 96, 0.35)",
         zIndex: 999,
-        transition: "transform 0.2s, box-shadow 0.2s",
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
     >
       <MessageCircle size={24} />
-      {unreadCount > 0 && (
-        <span style={{
-          position: "absolute",
-          top: -2,
-          [isRTL ? "left" : "right"]: -2,
-          minWidth: 20,
-          height: 20,
-          borderRadius: 10,
-          background: "#DC2626",
-          color: "#FFF",
-          fontSize: 10,
-          fontWeight: 700,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "0 4px",
-          border: "2px solid #FFF",
-        }}>
-          {unreadCount > 99 ? "99+" : unreadCount}
-        </span>
-      )}
     </button>
   );
 }
