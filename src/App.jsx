@@ -140,6 +140,7 @@ function AppShell() {
   const { currentUser, isAdmin, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
 
   if (loading || !currentUser) return <LoginScreen />;
 
@@ -308,8 +309,8 @@ function AppShell() {
       </main>
 
       {/* Chat */}
-      {!chatOpen && <ChatToggle onClick={() => setChatOpen(true)} isRTL={dir === "rtl"} />}
-      <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} />
+      {!chatOpen && <ChatToggle onClick={() => { setChatOpen(true); setChatUnread(0); }} isRTL={dir === "rtl"} unreadCount={chatUnread} />}
+      <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} onUnreadChange={setChatUnread} />
     </div>
   );
 }

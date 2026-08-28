@@ -241,7 +241,7 @@ async function uploadChatFile(file, senderEmail) {
 
 // ─── Main Chat Panel ────────────────────────────────────────────────
 
-export function ChatPanel({ isOpen, onClose, isRTL }) {
+export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const { lang, t } = useLanguage();
   const { currentUser, whitelist } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -256,6 +256,7 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
   const [unreadCounts, setUnreadCounts] = useState({});
   const [uploading, setUploading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [popup, setPopup] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -322,8 +323,6 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
   // ── Realtime Subscription ─────────────────────────────────
 
   useEffect(() => {
-    if (!isOpen) return;
-
     const channel = supabase
       .channel("chat-room")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
@@ -349,6 +348,8 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
           }
           if (ch !== activeChannel) {
             setUnreadCounts((prev) => ({ ...prev, [ch]: (prev[ch] || 0) + 1 }));
+            setPopup({ sender: emailToName(msg.sender_email), text: msg.content || "" });
+            onUnreadChange?.((count) => count + 1);
           }
         }
       })
@@ -528,7 +529,12 @@ export function ChatPanel({ isOpen, onClose, isRTL }) {
     ? messages.filter((m) => (m.content || "").toLowerCase().includes(searchQuery.toLowerCase()) || (m.file_name || "").toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
-  if (!isOpen) return null;
+  if (!isOpen) return popup ? (
+    <button onClick={() => { setPopup(null); onUnreadChange?.(0); }} style={{ position: "fixed", bottom: 84, [isRTL ? "left" : "right"]: 16, zIndex: 1000, width: 300, maxWidth: "calc(100vw - 32px)", padding: "12px 14px", borderRadius: 12, border: "1px solid #2E4068", background: "#111A2E", color: "#E6EDF6", textAlign: isRTL ? "right" : "left", cursor: "pointer", boxShadow: "0 10px 30px rgba(0,0,0,.35)" }}>
+      <strong style={{ display: "block", color: "#20D9A0", fontSize: 12 }}>{popup.sender}</strong>
+      <span style={{ display: "block", marginTop: 4, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{popup.text || t({ ar: "رسالة جديدة", en: "New message" })}</span>
+    </button>
+  ) : null;
 
   return (
     <div

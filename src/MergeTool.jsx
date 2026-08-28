@@ -2367,6 +2367,9 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
 
   const bucketEntries = Object.entries(buckets).filter(([, b]) => b.items.length > 0);
   const [fullView, setFullView] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const treeViewportRef = useRef(null);
+  const panRef = useRef(null);
   const [activeRootKey, setActiveRootKey] = useState(null);
   useEffect(() => { if ((!activeRootKey || !buckets[activeRootKey] || buckets[activeRootKey].items.length === 0) && bucketEntries.length > 0) setActiveRootKey(bucketEntries[0][0]); }, [bucketEntries.map(([k]) => k).join(","), rows]);
   const activeBucket = activeRootKey ? buckets[activeRootKey] : null;
@@ -2425,16 +2428,38 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     const el = treeScrollRef.current;
     if (!el) return;
     const handler = (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current + (e.deltaY < 0 ? 0.1 : -0.1)));
-        zoomRef.current = z;
-        setZoom(z);
-      }
+      e.preventDefault();
+      const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current + (e.deltaY < 0 ? 0.1 : -0.1)));
+      zoomRef.current = z;
+      setZoom(z);
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
   }, []);
+
+  useEffect(() => {
+    const handleFullscreen = () => setIsFullscreen(document.fullscreenElement === treeViewportRef.current);
+    document.addEventListener("fullscreenchange", handleFullscreen);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreen);
+  }, []);
+  const toggleFullscreen = useCallback(async () => {
+    if (!treeViewportRef.current) return;
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await treeViewportRef.current.requestFullscreen();
+  }, []);
+  const handlePanStart = (event) => {
+    if (event.button !== 0) return;
+    const element = treeViewportRef.current;
+    panRef.current = { x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop };
+    element.setPointerCapture(event.pointerId);
+  };
+  const handlePanMove = (event) => {
+    if (!panRef.current) return;
+    const element = treeViewportRef.current;
+    element.scrollLeft = panRef.current.left - (event.clientX - panRef.current.x);
+    element.scrollTop = panRef.current.top - (event.clientY - panRef.current.y);
+  };
+  const handlePanEnd = () => { panRef.current = null; };
 
   return (
     <div className="mt-5" dir={dir}>
@@ -2451,13 +2476,13 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
             {bucketEntries.length > 1 && (
               <button onClick={() => setFullView((v) => !v)} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${fullView ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#2E4068] bg-[#16213A] text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0]"}`}>{t({ ar: "☰ العرض الكامل للشجرة", en: "☰ View Entire Tree" })}</button>
             )}
-            <button onClick={fitToPage} className="rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-1.5 text-xs font-semibold text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0] transition">{t({ ar: "ملء الشاشة", en: "Fit on Screen" })}</button>
+              <button onClick={toggleFullscreen} className="rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-1.5 text-xs font-semibold text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0] transition">{isFullscreen ? t({ ar: "إلغاء ملء الشاشة", en: "Exit full screen" }) : t({ ar: "ملء الشاشة", en: "Full screen" })}</button>
             <button onClick={resetZoom} className="rounded-lg border border-[#233152] bg-[#111A2E] px-3 py-1.5 text-xs font-semibold text-[#8CA3C1] hover:border-[#12B886] hover:text-[#20D9A0] transition">{t({ ar: "100%", en: "100%" })}</button>
             <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-[#233152] bg-[#111A2E] px-2 py-1.5 text-xs font-bold text-[#8CA3C1] hover:border-[#12B886]">+</button>
             <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-[#233152] bg-[#111A2E] px-2 py-1.5 text-xs font-bold text-[#8CA3C1] hover:border-[#12B886]">−</button>
             <span className="text-xs text-[#5C7196]">{Math.round(zoom * 100)}%</span>
           </div>
-          <div ref={treeScrollRef} className="overflow-auto rounded-xl border border-[#233152] bg-[#16213A]" style={{ maxHeight: 640 }}>
+          <div ref={(element) => { treeScrollRef.current = element; treeViewportRef.current = element; }} className="overflow-auto rounded-xl border border-[#233152] bg-[#16213A]" style={{ maxHeight: isFullscreen ? "100vh" : 640, cursor: panRef.current ? "grabbing" : "grab" }} onPointerDown={handlePanStart} onPointerMove={handlePanMove} onPointerUp={handlePanEnd} onPointerCancel={handlePanEnd}>
             <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}>
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>

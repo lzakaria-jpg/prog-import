@@ -277,6 +277,7 @@ export default function JournalTool() {
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [exportSort, setExportSort] = useState("number");
   const [auditVersion, setAuditVersion] = useState(0);
   const searchInputRef = useRef(null);
   const suggestionCacheRef = useRef(new Map());
@@ -524,7 +525,14 @@ export default function JournalTool() {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const blob = await buildImportFile(entries);
+      const sortedEntries = [...entries].sort((left, right) => {
+        if (exportSort === "date") {
+          const parseDate = (value) => { const match = String(value || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return match ? new Date(`${match[3]}-${match[2]}-${match[1]}`).getTime() : Number.MAX_SAFE_INTEGER; };
+          return parseDate(left.date) - parseDate(right.date) || String(left.seq).localeCompare(String(right.seq), undefined, { numeric: true });
+        }
+        return String(left.seq).localeCompare(String(right.seq), undefined, { numeric: true });
+      });
+      const blob = await buildImportFile(sortedEntries);
       downloadBlob(blob, t({ ar: "قيود_جاهزة_للاستيراد.xlsx", en: "journal_entries_ready.xlsx" }));
       if (currentUser) trackJournalExport(currentUser, { entries_count: entries.length });
     } catch (err) {
@@ -690,6 +698,13 @@ export default function JournalTool() {
                 </p>
               )}
               <div className="flex flex-wrap items-center justify-center gap-3">
+                <label className="flex items-center gap-2 text-xs" style={{ color: "#8CA3C1" }}>
+                  {t({ ar: "ترتيب التصدير:", en: "Export order:" })}
+                  <select value={exportSort} onChange={(event) => setExportSort(event.target.value)} className="rounded border px-2 py-1" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }}>
+                    <option value="number">{t({ ar: "رقم القيد", en: "Entry number" })}</option>
+                    <option value="date">{t({ ar: "التاريخ", en: "Date" })}</option>
+                  </select>
+                </label>
                 <button onClick={handleDownload} disabled={downloading}
                    className="btn-primary flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
                   {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {t({ ar: "تنزيل الملف الجاهز", en: "Download prepared file" })}
