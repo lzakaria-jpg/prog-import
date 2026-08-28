@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { MergeTool } from "./MergeTool";
 import JournalTool from "./JournalTool";
 import { LanguageProvider, useLanguage } from "./language";
-import { AuthProvider, useAuth, LoginScreen, AdminPanel, UserSettings } from "./auth";
+import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
 import { Watermark } from "./Watermark";
@@ -139,7 +139,6 @@ function AppShell() {
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
-  const [showUserSettings, setShowUserSettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
 
   if (loading || !currentUser) return <LoginScreen />;
@@ -153,7 +152,6 @@ function AppShell() {
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
       {showAdmin && isAdmin && <AdminPanel />}
-      {showUserSettings && <UserSettings onClose={() => setShowUserSettings(false)} />}
       {showAISettings && <AISettings onClose={() => setShowAISettings(false)} />}
 
       {/* Sidebar */}
@@ -264,9 +262,6 @@ function AppShell() {
               </div>
               <button onClick={logout} className="text-slate-500 hover:text-red-400 transition-colors" title={t({ ar: "خروج", en: "Logout" })}>
                 <LogOut size={14} />
-              </button>
-              <button onClick={() => setShowUserSettings(true)} className="text-slate-500 hover:text-blue-300 transition-colors" title={t({ ar: "إعدادات المستخدم", en: "User settings" })}>
-                <Settings size={14} />
               </button>
             </div>
           </div>
