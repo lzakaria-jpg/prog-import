@@ -357,3 +357,43 @@ label.field > span { display: block; font-size: 12.5px; color: var(--qii-ink-2);
   .qii-step { min-width: 190px; }
   .qii-recon { overflow-x: auto; }
 }
+
+/* Final dark-theme override: kept after the original component rules so the
+   imported light palette cannot override the host application's theme. */
+.qii-app {
+  background: #0B1120 !important;
+  color: #E6EDF6 !important;
+  font-family: "Cairo", "Segoe UI", Tahoma, sans-serif !important;
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+.qii-app .qii-sidebar, .qii-app .qii-card, .qii-app .qii-panel, .qii-app .qii-box, .qii-app .qii-table-wrap { background: #111A2E !important; border-color: #233152 !important; }
+.qii-app .qii-sidebar { background: linear-gradient(180deg, #0F1F3E, #0A1328) !important; }
+.qii-app .qii-topbar, .qii-app .qii-recon { background: linear-gradient(135deg, #0F1F3E, #0A1328) !important; border-color: #12B886 !important; }
+.qii-app .qii-card-head, .qii-app .qii-tabs { background: #16213A !important; border-color: #233152 !important; }
+.qii-app .qii-step { background: #0E1830 !important; color: #8CA3C1 !important; border-color: #233152 !important; gap: 12px; }
+.qii-app .qii-step.active { background: #162560 !important; color: #E6EDF6 !important; }
+.qii-app .qii-step-num { background: #16213A !important; color: #8CA3C1 !important; }
+.qii-app .qii-step.active .qii-step-num, .qii-app .qii-step.done .qii-step-num { background: #12B886 !important; color: #04120C !important; }
+.qii-app .qii-step-label, .qii-app .qii-step-hint { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.55; letter-spacing: 0; }
+.qii-app .qii-step-label { font-weight: 600; margin-bottom: 2px; }
+.qii-app .qii-step-hint, .qii-app .qii-page-sub, .qii-app .qii-drop-hint, .qii-app .qii-recon-note { color: #8CA3C1 !important; }
+.qii-app input, .qii-app select, .qii-app textarea { background: #0E1830 !important; color: #E6EDF6 !important; border-color: #233152 !important; }
+.qii-app input::placeholder, .qii-app textarea::placeholder { color: #5C7196 !important; }
+.qii-app .qii-btn { background: #12B886 !important; border-color: #12B886 !important; color: #04120C !important; }
+.qii-app .qii-btn.ghost { background: #0E1830 !important; border-color: #233152 !important; color: #E6EDF6 !important; }
+.qii-app .qii-btn.dark { background: #162560 !important; border-color: #2E4068 !important; color: #E6EDF6 !important; }
+.qii-app .qii-drop, .qii-app .qii-pick, .qii-app .qii-list { background: #0E1830 !important; border-color: #2E4068 !important; color: #8CA3C1 !important; }
+.qii-app .qii-msg.info, .qii-app .qii-note { background: rgba(56,189,248,0.1) !important; border-color: #2E4068 !important; color: #7DD3FC !important; }
+.qii-app .qii-msg.warn, .qii-app .qii-note.warn { background: rgba(251,191,36,0.12) !important; border-color: rgba(251,191,36,0.35) !important; color: #FBBF24 !important; }
+.qii-app .qii-msg.err, .qii-app .qii-note.stop { background: rgba(251,113,133,0.12) !important; border-color: rgba(251,113,133,0.35) !important; color: #FB7185 !important; }
+.qii-app .qii-msg.ok, .qii-app .qii-note.ok { background: rgba(52,224,160,0.1) !important; border-color: rgba(52,224,160,0.35) !important; color: #34E0A0 !important; }
+.qii-app table { background: #0E1830 !important; color: #E6EDF6 !important; }
+.qii-app thead th { background: #16213A !important; color: #E6EDF6 !important; border-color: #233152 !important; }
+.qii-app tbody td { border-color: #233152 !important; }
+.qii-app tbody tr:nth-child(even) { background: rgba(22,33,58,0.45) !important; }
+.qii-app tbody tr.row-stop { background: rgba(251,113,133,0.12) !important; }
+.qii-app tbody tr.row-warn { background: rgba(251,191,36,0.12) !important; }
+.qii-app tbody tr.row-ok { background: rgba(52,224,160,0.1) !important; }
+.qii-app .qii-page-title, .qii-app .qii-card-head h2 { line-height: 1.5; letter-spacing: 0; }
+.qii-app .qii-actions, .qii-app .qii-grid-2, .qii-app .qii-grid-3 { gap: 16px; }
