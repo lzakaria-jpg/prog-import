@@ -9,7 +9,7 @@ import { Watermark } from "./Watermark";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { id: "journal", label: { ar: "استيراد القيود", en: "Journal Import" }, icon: BookOpen, desc: { ar: "فحص وتجهيز ملفات القيود", en: "Review & prepare journal entries" } },
+  { id: "journal", label: { ar: "أدوات الاستيراد", en: "Import Tools" }, icon: BookOpen, desc: { ar: "فحص وتجهيز ملفات القيود", en: "Review & prepare journal entries" } },
   { id: "merge", label: { ar: "مطابقة الشجرة", en: "Chart Merge" }, icon: GitBranch, desc: { ar: "دمج شجرة الحسابات", en: "Merge chart of accounts" } },
 ];
 
@@ -147,7 +147,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.2.8";
+  const currentVersion = "1.2.9";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>

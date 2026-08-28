@@ -13,7 +13,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: "مدقق استيراد القيود - قيود",
+    title: "أدوات الاستيراد",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

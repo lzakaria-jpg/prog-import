@@ -181,6 +181,17 @@ export function SmartAnalysisPanel({ entries, chartOfAccounts, onApplyFixes }) {
                         <span style={{ color: "#166534", fontWeight: 600, direction: "ltr" }}>{fix.new_account_code}</span>
                         <span style={{ color: "#64748B" }}>- {fix.new_account_name}</span>
                       </div>
+                      {fix.reason && <p style={{ fontSize: 11, color: "#92400E", margin: "6px 0 0", lineHeight: 1.5 }}>{fix.reason}</p>}
+                      {fix.alternatives && fix.alternatives.length > 1 && (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #FDE68A" }}>
+                          <p style={{ fontSize: 10, fontWeight: 700, color: "#854D0E", margin: "0 0 4px" }}>{t({ ar: "حسابات بديلة مقترحة:", en: "Alternative suggestions:" })}</p>
+                          {fix.alternatives.map((alt, ai) => (
+                            <span key={ai} style={{ display: "inline-block", margin: "0 4px 4px 0", padding: "2px 8px", borderRadius: 8, fontSize: 10, direction: "ltr", background: alt.score >= 0.7 ? "#DCFCE7" : alt.score >= 0.4 ? "#FEF9C3" : "#F1F5F9", color: alt.score >= 0.7 ? "#166534" : alt.score >= 0.4 ? "#854D0E" : "#64748B" }}>
+                              {alt.code} · {alt.name} ({Math.round(alt.score * 100)}%)
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -172,21 +172,63 @@ export function autoFixEntries(entries, chartOfAccounts) {
   const fixes = [];
   const skipped = [];
 
+  const flat = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const code = String(entry.code || entry.account_code || "").trim();
-    if (!code) { skipped.push({ index: i, reason: "No account code" }); continue; }
+    if (entry && Array.isArray(entry.rows) && entry.rows.length > 0) {
+      for (const r of entry.rows) {
+        flat.push({
+          entryIndex: i,
+          rowIndex: r._rowIndex != null ? r._rowIndex : flat.length,
+          code: (r.code || "").trim(),
+          desc: entry.desc || r.comment || "",
+        });
+      }
+    } else {
+      flat.push({
+        entryIndex: i,
+        rowIndex: i,
+        code: String(entry.code || entry.account_code || "").trim(),
+        desc: entry.description || entry.name || entry.desc || "",
+      });
+    }
+  }
+
+  flat.forEach((row) => {
+    const code = row.code;
+    if (!code) { skipped.push({ index: row.entryIndex, reason: "No account code" }); return; }
 
     const account = map.get(code);
-    if (!account) { skipped.push({ index: i, reason: `Account "${code}" not found in chart` }); continue; }
+
+    // Unknown account -> suggest nearest matching accounts by code + name
+    if (!account) {
+      const similar = findSimilarAccounts(code, chartOfAccounts, 4);
+      const best = similar && similar[0];
+      if (best && best.score >= 0.45) {
+        fixes.push({
+          original_index: row.entryIndex,
+          row_index: row.rowIndex,
+          original_account_code: code,
+          original_account_name: "",
+          new_account_code: best.code,
+          new_account_name: best.name,
+          confidence: best.score >= 0.7 ? "high" : "medium",
+          score: best.score,
+          reason: `الحساب "${code}" غير موجود في شجرة العميل. أقرب تطابق: "${best.code} - ${best.name}" (${Math.round(best.score * 100)}%)`,
+          alternatives: similar.map((s) => ({ code: s.code, name: s.name, score: s.score })),
+        });
+      } else {
+        skipped.push({ index: row.entryIndex, reason: `Account "${code}" not found in chart, no confident suggestion` });
+      }
+      return;
+    }
 
     if (account.children && account.children.length > 0) {
-      const description = entry.description || entry.name || entry.desc || "";
-      const suggestion = findBestChildAccount(account, description, map);
-
+      const suggestion = findBestChildAccount(account, row.desc, map);
       if (suggestion && suggestion.confidence !== "low") {
         fixes.push({
-          original_index: i,
+          original_index: row.entryIndex,
+          row_index: row.rowIndex,
           original_account_code: code,
           original_account_name: account.name || account.account_name || code,
           new_account_code: suggestion.account_code,
@@ -197,12 +239,12 @@ export function autoFixEntries(entries, chartOfAccounts) {
         });
       } else {
         skipped.push({
-          index: i,
+          index: row.entryIndex,
           reason: `Parent account "${code}" but no confident child match found (best: ${suggestion?.account_code || "none"} at ${suggestion?.score || 0})`,
         });
       }
     }
-  }
+  });
 
   return { fixes, skipped };
 }
@@ -241,47 +283,97 @@ export function validateAccountTypes(entries, chartOfAccounts) {
 
 // ─── Find Similar Accounts ──────────────────────────────────────────────────
 
-export function findSimilarAccounts(searchTerm, chartOfAccounts, maxResults = 5) {
+export function findSimilarAccounts(searchTerm, chartOfAccounts, maxResults = 5, leafCodes = null) {
   const normalizedSearch = normalizeArabic(searchTerm);
+  const numericSearch = normalizedSearch.replace(/[^0-9]/g, "");
   const results = [];
+
+  // Build the set of posting leaves ONCE (reused across calls for performance).
+  // Posting targets are LEAVES (no children). Parent/root accounts are NOT
+  // valid posting targets, so they are excluded from suggestions entirely.
+  if (!leafCodes) {
+    leafCodes = new Set();
+    const { map } = buildAccountTree(chartOfAccounts);
+    map.forEach((node, code) => {
+      if (!node.children || node.children.length === 0) leafCodes.add(code);
+    });
+  }
+  const isLeaf = (code) => leafCodes.has(code);
 
   for (const acc of chartOfAccounts) {
     const code = String(acc.code || acc.account_code || "").trim();
+    const codeNum = code.replace(/[^0-9]/g, "");
     const name = normalizeArabic(acc.name || acc.account_name || "");
 
-    let score = 0;
+    // EXCLUDE parent/root accounts (not valid posting targets)
+    if (code && !isLeaf(code)) continue;
+    if (!code) continue;
 
-    // Exact code match
-    if (code === normalizedSearch || code.includes(normalizedSearch)) {
-      score += 1.0;
+    let score = 0;
+    let matchedBy = null;
+
+    // 1) Exact code / exact numeric key — strongest match
+    if (code === normalizedSearch || code === String(searchTerm).trim()) {
+      score += 1.6;
+      matchedBy = "code-exact";
+    } else if (numericSearch && codeNum && numericSearch === codeNum) {
+      score += 1.5;
+      matchedBy = "num-exact";
     }
 
-    // Name similarity
-    const sim = similarity(normalizedSearch, name);
-    score += sim * 0.7;
+    // 2) Numeric proximity: shared prefix or close numeric strings
+    if (score === 0 && numericSearch && codeNum) {
+      let prefixLen = 0;
+      const minLen = Math.min(codeNum.length, numericSearch.length);
+      for (let k = 0; k < minLen; k++) {
+        if (codeNum[k] === numericSearch[k]) prefixLen++;
+        else break;
+      }
+      if (codeNum.startsWith(numericSearch) || numericSearch.startsWith(codeNum)) {
+        score += 0.95;
+        matchedBy = "num-prefix";
+      } else if (prefixLen >= Math.max(1, Math.floor(minLen * 0.5))) {
+        // Near-match codes sharing a strong leading run (e.g. 1100 vs 1101)
+        const ratio = codeNum.length === numericSearch.length
+          ? similarity(numericSearch, codeNum)
+          : prefixLen / Math.max(codeNum.length, numericSearch.length);
+        score += 0.75 * ratio;
+        matchedBy = "num-near";
+      }
+    }
 
-    // Substring match
+    // 3) Name similarity (Levenshtein) — captures typo'd/mis-typed account names
+    const sim = similarity(normalizedSearch, name);
+    if (sim > 0.45) {
+      score += sim * 0.95;
+      matchedBy = matchedBy || "name";
+    }
+
+    // 4) Substring / containment on the name
     if (name.includes(normalizedSearch) || normalizedSearch.includes(name)) {
       score += 0.6;
+      matchedBy = matchedBy || "name-substr";
     }
 
-    // Word overlap
+    // 5) Word overlap on the name
     const searchWords = normalizedSearch.split(/\s+/);
     const nameWords = name.split(/\s+/);
     for (const sw of searchWords) {
       for (const nw of nameWords) {
         if (sw.length > 2 && nw.length > 2 && (sw.includes(nw) || nw.includes(sw))) {
-          score += 0.3;
+          score += 0.25;
+          matchedBy = matchedBy || "word";
         }
       }
     }
 
-    if (score > 0.2) {
+    if (score > 0.25) {
       results.push({
         code,
         name: acc.name || acc.account_name || code,
         type: acc.type || acc.account_type || "",
         score: Math.round(score * 100) / 100,
+        matchedBy,
       });
     }
   }

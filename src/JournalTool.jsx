@@ -58,13 +58,21 @@ function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept
   );
 }
 
-function SummaryStat({ label, value, color }) {
+function SummaryStat({ label, value, color, onClick, active }) {
   const { t } = useLanguage();
   return (
-    <div className="card rounded-lg border px-4 py-3 text-center" style={{ borderColor: COLORS.line, background: "white" }}>
-      <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-      <p className="text-xs" style={{ color: "#64748B" }}>{t(label)}</p>
-    </div>
+    <button onClick={onClick} style={{ cursor: onClick ? "pointer" : "default", display: "block", width: "100%", textAlign: "center" }}>
+      <div
+        className="card rounded-lg border px-4 py-3 text-center transition"
+        style={{
+          borderColor: active ? COLORS.teal : COLORS.line,
+          background: active ? "#E6FFFA" : "white",
+          boxShadow: active ? "0 0 0 2px rgba(45,212,191,.35)" : "none",
+        }}>
+        <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+        <p className="text-xs" style={{ color: "#64748B" }}>{t(label)}</p>
+      </div>
+    </button>
   );
 }
 
@@ -269,6 +277,11 @@ export default function JournalTool() {
 
   const parentInfo = useMemo(() => (chartAccounts ? buildParentInfo(chartAccounts) : { parentCodes: new Set(), childrenByParent: {} }), [chartAccounts]);
 
+  const leafCodes = useMemo(() => {
+    if (!chartAccounts) return null;
+    return buildLeafCodes(chartAccounts);
+  }, [chartAccounts]);
+
   const structuralIssuesBySeq = useMemo(() => {
     if (!entries || !chartAccounts) return {};
     const out = {};
@@ -276,7 +289,7 @@ export default function JournalTool() {
       const issues = validateEntryStructure(entry, chartMap, parentInfo);
       issues.forEach((iss) => {
         if (iss.type === "unknown_code" && iss.code) {
-          const similar = findSimilarAccounts(iss.code, chartAccounts, 4);
+          const similar = findSimilarAccounts(iss.code, chartAccounts, 4, leafCodes);
           if (similar.length > 0) {
             iss.suggestions = similar.map((s) => ({
               code: s.code,
@@ -516,7 +529,7 @@ export default function JournalTool() {
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8">
         <div className="mb-6 flex items-center justify-between border-b pb-4" style={{ borderColor: COLORS.line }}>
           <div>
-            <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "مدقّق استيراد القيود", en: "Journal Entries Import Auditor" })}</h1>
+            <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "أدوات الاستيراد", en: "Import Tools" })}</h1>
             <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
           </div>
           {(chartAccounts || entries) && (
@@ -572,9 +585,9 @@ export default function JournalTool() {
             )}
 
             <div className="mb-4 grid grid-cols-3 gap-3">
-              <SummaryStat label={{ ar: "إجمالي القيود", en: "Total Entries" }} value={totalEntries} color={COLORS.teal} />
-              <SummaryStat label={{ ar: "قيود سليمة", en: "Valid Entries" }} value={totalEntries - entriesWithIssues} color={COLORS.green} />
-              <SummaryStat label={{ ar: "قيود بها مشاكل", en: "Entries with Issues" }} value={entriesWithIssues} color={totalOpenIssues > 0 ? COLORS.red : COLORS.green} />
+              <SummaryStat label={{ ar: "إجمالي القيود", en: "Total Entries" }} value={totalEntries} color={COLORS.teal} active={filter === "all"} onClick={() => { setFilter("all"); setPage(0); }} />
+              <SummaryStat label={{ ar: "قيود سليمة", en: "Valid Entries" }} value={totalEntries - entriesWithIssues} color={COLORS.green} active={filter === "ok"} onClick={() => { setFilter("ok"); setPage(0); }} />
+              <SummaryStat label={{ ar: "قيود بها مشاكل", en: "Entries with Issues" }} value={entriesWithIssues} color={totalOpenIssues > 0 ? COLORS.red : COLORS.green} active={filter === "error"} onClick={() => { setFilter("error"); setPage(0); }} />
             </div>
 
             <div className="mb-3">
