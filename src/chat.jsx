@@ -364,28 +364,35 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
     const isDMWithAgent = activeChannel === AI_AGENT_EMAIL;
 
-    // حفظ رسالة المستخدم
-    const userMsg = {
-      sender_email: currentUser,
-      recipient_email: activeChannel === "public" ? null : activeChannel,
-      content: text,
-      message_type: "text",
-    };
-    await supabase.from("chat_messages").insert(userMsg);
-
-    // إذا كانت المحادثة موجهة للـ Ai Agent
-    if (isDMWithAgent || activeChannel === "public" && text.includes("@AI")) {
-      setAgentTyping(true);
-      const replyText = await generateAIResponse(text);
-      setAgentTyping(false);
-
+    // 1. إذا كان الشات عادي بين الموظفين (ليس مع الذكاء الاصطناعي)
+    if (!isDMWithAgent && !text.includes("@AI")) {
       await supabase.from("chat_messages").insert({
-        sender_email: AI_AGENT_EMAIL,
-        recipient_email: isDMWithAgent ? currentUser : null,
-        content: replyText,
+        sender_email: currentUser,
+        recipient_email: activeChannel === "public" ? null : activeChannel,
+        content: text,
         message_type: "text",
       });
+      return;
     }
+
+    // 2. إذا كانت الرسالة موجهة للذكاء الاصطناعي حصراً
+    await supabase.from("chat_messages").insert({
+      sender_email: currentUser,
+      recipient_email: isDMWithAgent ? AI_AGENT_EMAIL : null,
+      content: text,
+      message_type: "text",
+    });
+
+    setAgentTyping(true);
+    const replyText = await generateAIResponse(text);
+    setAgentTyping(false);
+
+    await supabase.from("chat_messages").insert({
+      sender_email: AI_AGENT_EMAIL,
+      recipient_email: isDMWithAgent ? currentUser : null,
+      content: replyText,
+      message_type: "text",
+    });
   };
 
   const handleFileSend = async (e) => {
@@ -613,7 +620,7 @@ export function ChatToggle({ onClick, isRTL, unreadCount }) {
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
-        justify: "center",
+        justifyContent: "center",
         boxShadow: "0 6px 24px rgba(22, 37, 96, 0.35)",
         zIndex: 999,
       }}
