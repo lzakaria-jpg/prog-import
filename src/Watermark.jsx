@@ -46,10 +46,29 @@ const TREE_PATTERN_EN = encodeURIComponent(`
   <text x='32' y='292' font-family='Cairo, Segoe UI, sans-serif' font-size='28' font-weight='700' fill='#4A90D9' opacity='0.2'>Chart of Accounts</text>
 </svg>`);
 
+const BILL_PATTERN_AR = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#12B886' stroke-width='2' opacity='0.22'>
+    <rect x='74' y='38' width='172' height='218' rx='10'/><path d='M104 76h112M104 108h112M104 140h112M104 172h74'/>
+    <path d='M104 210h50M172 210h44'/><path d='M112 256v18M208 256v18'/>
+    <circle cx='228' cy='70' r='18'/><path d='M218 70h20M228 60v20'/>
+  </g><text x='90' y='310' font-family='Cairo, Segoe UI, sans-serif' font-size='27' font-weight='700' fill='#7DD3FC' opacity='0.18'>فاتورة مشتريات</text>
+</svg>`);
+
+const BILL_PATTERN_EN = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#12B886' stroke-width='2' opacity='0.22'>
+    <rect x='74' y='38' width='172' height='218' rx='10'/><path d='M104 76h112M104 108h112M104 140h112M104 172h74M104 210h50M172 210h44M112 256v18M208 256v18'/>
+    <circle cx='228' cy='70' r='18'/><path d='M218 70h20M228 60v20'/>
+  </g><text x='86' y='310' font-family='Cairo, Segoe UI, sans-serif' font-size='25' font-weight='700' fill='#7DD3FC' opacity='0.18'>PURCHASE BILL</text>
+</svg>`);
+
 export function Watermark({ type = "journal", lang = "ar" }) {
   const pattern = type === "tree"
     ? (lang === "en" ? TREE_PATTERN_EN : TREE_PATTERN_AR)
-    : (lang === "en" ? JOURNAL_PATTERN_EN : JOURNAL_PATTERN_AR);
+    : type === "bill"
+      ? (lang === "en" ? BILL_PATTERN_EN : BILL_PATTERN_AR)
+      : (lang === "en" ? JOURNAL_PATTERN_EN : JOURNAL_PATTERN_AR);
   return (
     <div
       aria-hidden="true"
@@ -68,7 +87,7 @@ export function Watermark({ type = "journal", lang = "ar" }) {
           backgroundImage: `url("data:image/svg+xml,${pattern}")`,
           backgroundRepeat: "repeat",
           backgroundSize: "320px 320px",
-          opacity: type === "tree" ? 0.52 : 0.08,
+          opacity: type === "tree" ? 0.52 : type === "bill" ? 0.2 : 0.08,
         }}
       />
       {type === "tree" && <svg

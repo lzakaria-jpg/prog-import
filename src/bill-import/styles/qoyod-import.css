@@ -1,0 +1,150 @@
+/* qoyod-import.css — كل تنسيقات الأداة مسبوقة بـ .qbi حتى لا تتعارض مع تنسيقات التطبيق المضيف */
+
+.qbi {
+  --qbi-paper: #F2F3EF;
+  --qbi-card: #FFFFFF;
+  --qbi-ink: #16211E;
+  --qbi-ink-2: #4B5A55;
+  --qbi-line: #D8DDD6;
+  --qbi-accent: #0E6E63;
+  --qbi-accent-soft: #E3F0EC;
+  --qbi-warn: #B26205;
+  --qbi-warn-soft: #FBF0DF;
+  --qbi-err: #A32020;
+  --qbi-err-soft: #FBE9E7;
+  --qbi-ok: #177245;
+  --qbi-r: 4px;
+
+  background: var(--qbi-paper);
+  color: var(--qbi-ink);
+  font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100%;
+}
+
+.qbi *, .qbi *::before, .qbi *::after { box-sizing: border-box; }
+.qbi h1, .qbi h2, .qbi h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.qbi button, .qbi input, .qbi select, .qbi textarea { font-family: inherit; font-size: inherit; color: inherit; }
+.qbi .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; direction: ltr; unicode-bidi: plaintext; }
+.qbi .err-text { color: var(--qbi-err); }
+
+.qbi-header { background: var(--qbi-ink); color: #EAEFEA; padding: 18px 24px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.qbi-header h1 { font-size: 18px; color: #fff; }
+.qbi-header .sub { font-size: 12.5px; color: #9FB0AA; }
+.qbi-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 24px 80px; }
+
+/* شريط الخطوات */
+.qbi-steps { display: flex; gap: 2px; margin: 18px 0 22px; flex-wrap: wrap; }
+.qbi-steps button {
+  flex: 1 1 180px; text-align: right; background: #E6E9E3; border: 1px solid var(--qbi-line);
+  border-left: none; padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0;
+}
+.qbi-steps button:first-child { border-left: 1px solid var(--qbi-line); border-radius: 0 var(--qbi-r) var(--qbi-r) 0; }
+.qbi-steps button:last-child { border-radius: var(--qbi-r) 0 0 var(--qbi-r); }
+.qbi-steps button .n {
+  width: 22px; height: 22px; flex: none; border-radius: 50%; background: #fff;
+  border: 1px solid var(--qbi-line); display: grid; place-items: center; font-size: 12px; font-weight: 600;
+}
+.qbi-steps button .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qbi-steps button[aria-selected="true"] { background: var(--qbi-ink); color: #fff; border-color: var(--qbi-ink); }
+.qbi-steps button[aria-selected="true"] .n { background: var(--qbi-accent); border-color: var(--qbi-accent); color: #fff; }
+.qbi-steps button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.qbi-steps button.done .n { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); color: var(--qbi-accent); }
+
+/* البطاقات والحقول */
+.qbi-card { background: var(--qbi-card); border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 18px 20px; margin-bottom: 16px; }
+.qbi-card > h2 { font-size: 15px; margin-bottom: 4px; }
+.qbi-card > .hint { color: var(--qbi-ink-2); font-size: 12.5px; margin: 0 0 14px; }
+.qbi label.f { display: block; margin-bottom: 12px; }
+.qbi label.f > span { display: block; font-size: 12.5px; color: var(--qbi-ink-2); margin-bottom: 4px; }
+.qbi label.inline { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.qbi input[type=text], .qbi input[type=password], .qbi input[type=number], .qbi select, .qbi textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff;
+}
+.qbi input:focus, .qbi select:focus, .qbi textarea:focus { outline: 2px solid var(--qbi-accent); outline-offset: -1px; border-color: var(--qbi-accent); }
+.qbi-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.qbi-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
+
+/* الأزرار */
+.qbi-btn { background: var(--qbi-accent); color: #fff; border: 1px solid var(--qbi-accent); padding: 9px 16px; border-radius: var(--qbi-r); cursor: pointer; font-weight: 500; }
+.qbi-btn:hover { background: #0b5a51; }
+.qbi-btn.ghost { background: #fff; color: var(--qbi-ink); border-color: var(--qbi-line); }
+.qbi-btn.ghost:hover { background: #F0F2EE; }
+.qbi-btn.dark { background: var(--qbi-ink); border-color: var(--qbi-ink); }
+.qbi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.qbi-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+
+/* منطقة الإفلات */
+.qbi-drop { border: 1.5px dashed var(--qbi-line); border-radius: var(--qbi-r); background: #FAFBF9; padding: 26px; text-align: center; cursor: pointer; color: var(--qbi-ink-2); }
+.qbi-drop:hover, .qbi-drop.over { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); color: var(--qbi-ink); }
+
+/* الشارات والرسائل */
+.qbi-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.qbi-chips .chip { background: #fff; border: 1px solid var(--qbi-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+.qbi-chips .chip.ok { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); }
+.qbi-chips .chip.warn { border-color: var(--qbi-warn); color: var(--qbi-warn); }
+.qbi-msg { padding: 10px 12px; border-radius: var(--qbi-r); font-size: 13px; margin: 10px 0; border: 1px solid; }
+.qbi-msg.info { background: var(--qbi-accent-soft); border-color: #BBD9D2; }
+.qbi-msg.warn { background: var(--qbi-warn-soft); border-color: #EBD3A8; }
+.qbi-msg.err { background: var(--qbi-err-soft); border-color: #EFC4BF; }
+.qbi-msg.ok { background: #E7F3EB; border-color: #B7DCC3; }
+.qbi .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; margin: 1px 0; }
+.qbi .b-err { color: var(--qbi-err); border-color: var(--qbi-err); background: #fff; }
+.qbi .b-warn { color: var(--qbi-warn); border-color: var(--qbi-warn); background: #fff; }
+.qbi .b-ok { color: var(--qbi-ok); border-color: #B7DCC3; background: #E7F3EB; }
+.qbi .count { font-size: 12.5px; color: var(--qbi-ink-2); }
+
+/* الجداول */
+.qbi-scroll { overflow: auto; max-height: 65vh; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff; }
+.qbi table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.qbi th, .qbi td { border: 1px solid var(--qbi-line); padding: 5px 7px; text-align: right; vertical-align: top; }
+.qbi th { background: #EDF0EA; font-weight: 600; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.qbi tbody tr:nth-child(even) td { background: #FBFCFA; }
+.qbi tr.r-err td { background: var(--qbi-err-soft) !important; }
+.qbi tr.r-warn td { background: var(--qbi-warn-soft) !important; }
+.qbi td input, .qbi td select { padding: 4px 6px; min-width: 90px; font-size: 12.5px; border-radius: 2px; }
+.qbi td.num input { min-width: 70px; text-align: left; direction: ltr; }
+.qbi td input.derived { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); }
+.qbi .issue-list { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
+.qbi-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.qbi-toolbar .f { margin: 0; }
+.qbi-toolbar .sp { flex: 1; }
+
+/* شريط الحقول وشبكة الربط */
+.qbi-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #FAFBF9; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); }
+.qbi-pick .pick-sec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.qbi-pick .fld { background: #fff; border: 1px solid var(--qbi-line); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+.qbi-pick .fld:hover { border-color: var(--qbi-accent); }
+.qbi-pick .fld .col { font-size: 11px; color: var(--qbi-accent); background: var(--qbi-accent-soft); border-radius: 999px; padding: 0 7px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qbi-pick .fld.req { border-color: var(--qbi-err); color: var(--qbi-err); }
+.qbi-pick .fld.mapped { border-color: #C3CDBF; color: var(--qbi-ink-2); background: #F4F6F2; }
+.qbi-pick .fld.armed { background: var(--qbi-ink); color: #fff; border-color: var(--qbi-ink); }
+.qbi-pick .fld.armed .col { background: #ffffff22; color: #fff; }
+.qbi-pick .fld .x { opacity: 0.55; font-weight: 700; }
+.qbi-pick .fld .x:hover { opacity: 1; }
+.qbi-pick-help { font-size: 12.5px; color: var(--qbi-ink-2); margin: 8px 2px 12px; }
+
+.qbi-scroll.arming .qbi-grid th.h-col { cursor: crosshair; }
+.qbi-scroll.arming .qbi-grid th.h-col:hover { background: var(--qbi-accent); color: #fff; }
+.qbi-grid th.h-col { background: #EDF0EA; padding: 0; }
+.qbi-grid th.h-col.assigned { background: var(--qbi-accent-soft); }
+.qbi-grid th.h-col select { border: none; background: transparent; border-radius: 0; padding: 6px 8px; font-size: 12px; font-weight: 600; width: 100%; min-width: 130px; }
+.qbi-grid th.h-col .orig { padding: 3px 8px 6px; font-size: 11.5px; color: var(--qbi-ink-2); font-weight: 400; border-top: 1px solid var(--qbi-line); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.qbi-grid th.h-col .orig .unmap { color: var(--qbi-err); cursor: pointer; white-space: nowrap; font-size: 11px; }
+.qbi-grid th.h-col .orig .unmap:hover { text-decoration: underline; }
+.qbi-grid td { white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.qbi-grid td.c-assigned { background: #F3F8F6 !important; }
+
+/* اللوحات القابلة للطي */
+.qbi-box { border: 1px solid var(--qbi-line); background: #fff; border-radius: var(--qbi-r); padding: 10px 14px; margin-bottom: 14px; }
+.qbi-box.need { border-color: var(--qbi-warn); background: var(--qbi-warn-soft); }
+.qbi-box summary { cursor: pointer; font-weight: 600; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.qbi-list { max-height: 170px; overflow: auto; margin: 10px 0; background: #fff; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 6px 10px; }
+.qbi-list label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
+.qbi-list label b { font-weight: 600; }
+
+.qbi-guide { border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff; padding: 10px 14px; margin-bottom: 16px; }
+.qbi-guide summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.qbi-guide ul { margin: 10px 0 2px; padding-inline-start: 20px; font-size: 13px; color: var(--qbi-ink-2); }
+.qbi-guide li { margin-bottom: 6px; }

@@ -16,6 +16,7 @@
     "d3": "^7.9.0",
     "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.31.0",
     "mammoth": "^1.12.1",
     "pdfjs-dist": "^6.2.108",

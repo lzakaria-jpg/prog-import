@@ -6,11 +6,13 @@ import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
 import { Watermark } from "./Watermark";
+import QoyodBillImport from "./bill-import";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز واستيراد القيود", en: "Review, prepare & import journal entries" } },
   { id: "merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
+  { id: "bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
 ];
 
 function LanguageToggle({ compact }) {
@@ -298,13 +300,14 @@ function AppShell() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto relative" style={{ background: "var(--qoyod-bg)" }}>
-        <Watermark type={tab === "merge" ? "tree" : "journal"} lang={lang} />
+        <Watermark type={tab === "merge" ? "tree" : tab === "bills" ? "bill" : "journal"} lang={lang} />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
           <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
             <JournalTool />
           </div>
           <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
+          <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport showHeader={false} /></div>
         </div>
       </main>
 
