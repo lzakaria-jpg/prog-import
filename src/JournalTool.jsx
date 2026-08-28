@@ -10,7 +10,7 @@ import { callClaude, parseJsonResponse } from "./lib/claudeProxy";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
-import { findSimilarAccounts } from "./ruleEngine";
+import { findSimilarAccounts, buildLeafCodes } from "./ruleEngine";
 import { SmartAnalysisPanel } from "./SmartPanel";
 
 const COLORS = {

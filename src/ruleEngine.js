@@ -72,6 +72,18 @@ export function buildAccountTree(chartOfAccounts) {
   return { map, roots };
 }
 
+// Returns a Set of the codes that are posting leaves (accounts with no children).
+// Parent/root accounts are not valid posting targets, so this is the set of codes
+// that may appear in journal entries. Computed once and reused for performance.
+export function buildLeafCodes(chartOfAccounts) {
+  const leafCodes = new Set();
+  const { map } = buildAccountTree(chartOfAccounts);
+  map.forEach((node, code) => {
+    if (!node.children || node.children.length === 0) leafCodes.add(code);
+  });
+  return leafCodes;
+}
+
 // ─── Detect Parent Account Entries ──────────────────────────────────────────
 
 export function detectParentAccountEntries(entries, chartOfAccounts) {
@@ -292,11 +304,7 @@ export function findSimilarAccounts(searchTerm, chartOfAccounts, maxResults = 5,
   // Posting targets are LEAVES (no children). Parent/root accounts are NOT
   // valid posting targets, so they are excluded from suggestions entirely.
   if (!leafCodes) {
-    leafCodes = new Set();
-    const { map } = buildAccountTree(chartOfAccounts);
-    map.forEach((node, code) => {
-      if (!node.children || node.children.length === 0) leafCodes.add(code);
-    });
+    leafCodes = buildLeafCodes(chartOfAccounts);
   }
   const isLeaf = (code) => leafCodes.has(code);
 
