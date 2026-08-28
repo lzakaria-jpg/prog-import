@@ -227,8 +227,18 @@ export function extractParentCode(raw) {
 export function buildParentInfo(chartAccounts) {
   const parentCodes = new Set();
   const childrenByParent = {};
+  const knownCodes = new Set(chartAccounts.map((account) => account.code));
   chartAccounts.forEach((a) => {
-    const pc = extractParentCode(a.parentCode);
+    let pc = extractParentCode(a.parentCode);
+    if (!pc) {
+      for (let length = a.code.length - 1; length > 0; length -= 1) {
+        const candidate = a.code.slice(0, length);
+        if (knownCodes.has(candidate)) {
+          pc = candidate;
+          break;
+        }
+      }
+    }
     if (!pc) return;
     parentCodes.add(pc);
     if (!childrenByParent[pc]) childrenByParent[pc] = [];
@@ -243,6 +253,104 @@ export function buildParentInfo(chartAccounts) {
   return { parentCodes, childrenByParent };
 }
 
+function normalizeAccountName(value) {
+  return String(value || "").trim().toLowerCase()
+    .replace(/[\u064B-\u0652]/g, "")
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ");
+}
+
+function accountNameSimilarity(left, right) {
+  const a = normalizeAccountName(left);
+  const b = normalizeAccountName(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.9;
+  const aWords = new Set(a.split(" "));
+  const bWords = new Set(b.split(" "));
+  const intersection = [...aWords].filter((word) => bWords.has(word)).length;
+  const wordScore = intersection / Math.max(aWords.size, bWords.size);
+  const width = Math.max(a.length, b.length);
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = previous[j];
+      previous[j] = a[i - 1] === b[j - 1]
+        ? diagonal
+        : 1 + Math.min(previous[j], previous[j - 1], diagonal);
+      diagonal = above;
+    }
+  }
+  return Math.max(wordScore, 1 - previous[b.length] / width);
+}
+
+export function getPostingSuggestions(code, accountName, chartAccounts, parentInfo, limit = 5) {
+  const accounts = (chartAccounts || [])
+    .filter((account) => !parentInfo.parentCodes.has(account.code))
+    .slice()
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  if (!accounts.length) return [];
+  const nameMatches = accounts
+    .map((account) => ({ account, score: accountNameSimilarity(accountName, account.name) }))
+    .filter(({ score }) => score >= 0.5)
+    .sort((a, b) => b.score - a.score || a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
+  const rawCode = normalizeCode(code);
+  for (let end = rawCode.length - 1; end > 0; end -= 1) {
+    const parentCode = rawCode.slice(0, end);
+    const exactParent = (chartAccounts || []).find((account) => account.code === parentCode);
+    if (!exactParent) continue;
+    const children = getPostingDescendants(parentCode, accounts, parentInfo.childrenByParent);
+    const prefixedPostingAccounts = accounts.filter((account) => account.code.startsWith(parentCode));
+    const postingChildren = children.length ? children : prefixedPostingAccounts;
+    if (postingChildren.length) {
+      const rankedChildren = postingChildren
+        .map((account) => ({ account, nameScore: accountNameSimilarity(accountName, account.name) }))
+        .sort((left, right) => right.nameScore - left.nameScore || left.account.code.localeCompare(right.account.code, undefined, { numeric: true }));
+      return rankedChildren.slice(0, limit).map(({ account, nameScore }, index) => ({
+        ...account,
+        confidence: index === 0 && nameScore >= 0.5 ? "high" : "medium",
+        score: Math.max(0.75, nameScore),
+      }));
+    }
+    if (accounts.some((account) => account.code === parentCode)) return [exactParent];
+  }
+
+  if (nameMatches.length) return nameMatches.slice(0, limit).map(({ account, score }) => ({ ...account, confidence: score >= 0.8 ? "high" : "medium", score }));
+
+  return accounts
+    .map((account) => ({ account, distance: numericCodeDistance(rawCode, account.code) }))
+    .sort((a, b) => a.distance - b.distance || a.account.code.localeCompare(b.account.code, undefined, { numeric: true }))
+    .slice(0, limit)
+    .map(({ account }) => account);
+}
+
+export function getPostingDescendants(parentCode, postingAccounts, childrenByParent) {
+  const result = [];
+  const postingCodes = new Set(postingAccounts.map((account) => account.code));
+  const visit = (code) => {
+    (childrenByParent[code] || []).forEach((child) => {
+      if (postingCodes.has(child.code)) result.push(child);
+      visit(child.code);
+    });
+  };
+  visit(parentCode);
+  return result;
+}
+
+function numericCodeDistance(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  const lengthPenalty = Math.abs(a.length - b.length) * 10;
+  const width = Math.max(a.length, b.length);
+  let differences = 0;
+  for (let i = 0; i < width; i += 1) if (a[i] !== b[i]) differences += 1;
+  return lengthPenalty + differences;
+}
+
 // ---------- journal entries: two supported input schemas ----------
 function parseTemplateSchema(rows, hIdx) {
   const header = rows[hIdx].map(cellText);
@@ -251,6 +359,7 @@ function parseTemplateSchema(rows, hIdx) {
   const cDesc = colIndex(header, "وصف القيد");
   const cAccType = colIndex(header, "نوع الحساب");
   const cCode = colIndex(header, "رمز الحساب");
+  const cName = colIndex(header, "اسم الحساب", "اسم", "AccountName", "Account Name");
   const cContact = colIndex(header, "جهة اتصال");
   const cDebit = colIndex(header, "مدين");
   const cCredit = colIndex(header, "دائن");
@@ -265,6 +374,7 @@ function parseTemplateSchema(rows, hIdx) {
       desc: cDesc !== -1 ? cellText(r[cDesc]).trim() : "",
       accType: cAccType !== -1 ? cellText(r[cAccType]).trim() : "حسابات دفتر الاستاذ",
       code: cCode !== -1 ? normalizeCode(r[cCode]) : "",
+      name: cName !== -1 ? cellText(r[cName]).trim() : "",
       contact: cContact !== -1 ? cellText(r[cContact]).trim() : "",
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
@@ -793,21 +903,23 @@ export function validateEntryStructure(entry, chartMap, parentInfo) {
   const totalCredit = entry.rows.reduce((s, r) => s + (parseFloat(r.credit) || 0), 0);
 
   if (Math.abs(totalDebit - totalCredit) > 0.005) {
+    const difference = Math.abs(totalDebit - totalCredit);
+    const side = totalDebit > totalCredit ? "المدين" : "الدائن";
     issues.push({
       id: `${entry.seq}-balance`,
       type: "unbalanced",
       severity: "error",
-      message: `القيد غير متزن: مجموع المدين ${totalDebit.toLocaleString()} لا يساوي مجموع الدائن ${totalCredit.toLocaleString()}`,
+      message: `القيد غير متزن: مجموع المدين ${totalDebit.toLocaleString()} ومجموع الدائن ${totalCredit.toLocaleString()}، الفرق ${difference.toLocaleString()} لصالح ${side}`,
     });
   }
-  // A balanced-at-zero entry (total debit = total credit = 0) carries no financial value and is
-  // rejected by Qoyod. Individual lines may legitimately be 0, but the entry total cannot be.
-  if (Math.abs(totalDebit) < 0.005 && Math.abs(totalCredit) < 0.005) {
+  // Both sides of a journal entry must have a non-zero total. Individual lines may legitimately
+  // be 0, but an entry with either side totaling 0 cannot be imported.
+  if (Math.abs(totalDebit) < 0.005 || Math.abs(totalCredit) < 0.005) {
     issues.push({
       id: `${entry.seq}-zero-total`,
       type: "zero_total",
       severity: "error",
-      message: "إجمالي المدين وإجمالي الدائن للقيد كلاهما صفر — لا يمكن ترحيل قيد بقيمة إجمالية صفرية في قيود (يُسمح بسطر قيمته صفر، لكن ليس بإجمالي القيد)",
+      message: `القيد غير صالح: إجمالي المدين ${totalDebit.toLocaleString()} وإجمالي الدائن ${totalCredit.toLocaleString()} — يجب ألا يكون مجموع أي طرف صفراً (يُسمح بسطر قيمته صفر داخل قيد ذي إجماليين غير صفريين)`,
     });
   }
   if (!entry.date || !/^\d{2}\/\d{2}\/\d{4}$/.test(entry.date)) {

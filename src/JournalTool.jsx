@@ -1,17 +1,14 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect, memo } from "react";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, XCircle, Loader2,
-  Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy, Sparkles,
-  ChevronLeft, ChevronRight, Languages, Wand2, Search, X,
+  Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
+  ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, buildSemanticsPrompt, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
-import { callClaude, parseJsonResponse } from "./lib/claudeProxy";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
-import { findSimilarAccounts, buildLeafCodes } from "./ruleEngine";
-import { SmartAnalysisPanel } from "./SmartPanel";
 
 const COLORS = {
   paper: "#0B1120", ink: "#E6EDF6", teal: "#12B886", tealLight: "#20D9A0",
@@ -19,8 +16,6 @@ const COLORS = {
 };
 
 const PAGE_SIZE = 50;
-const AI_BATCH_SIZE = 50;
-const AI_PARALLEL = 3;
 
 function localizeError(msg, lang) {
   if (lang !== "en") return msg;
@@ -28,8 +23,7 @@ function localizeError(msg, lang) {
     .replace("خطأ في قراءة ملف شجرة الحسابات: ", "Chart of accounts read error: ")
     .replace("خطأ في قراءة ملف القيود: ", "Journal entries read error: ")
     .replace("تم التعرف على تنسيق الملف لكن لم يتم العثور على أي قيود بداخله", "File format was recognized, but no journal entries were found inside it")
-    .replace("تعذر إنشاء الملف: ", "Could not generate file: ")
-    .replace("تعذر إتمام المراجعة الذكية: ", "Could not complete AI review: ");
+    .replace("تعذر إنشاء الملف: ", "Could not generate file: ");
 }
 
 function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept }) {
@@ -89,8 +83,8 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   const effectiveQuery = query !== "" ? query : value || "";
   const filtered = useMemo(() => {
     const q = effectiveQuery.trim().toLowerCase();
-    if (!q) return selectable.slice(0, 50);
-    return selectable.filter((a) => a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)).slice(0, 50);
+    if (!q) return selectable;
+    return selectable.filter((a) => a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
   }, [effectiveQuery, selectable]);
   return (
     <div className="relative">
@@ -117,8 +111,9 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   );
 }
 
-const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, chartAccountsList, onUpdateRow, onUpdateMeta, parentCodes, onApplySuggestion, onDismiss }) {
+const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, chartAccountsList, onUpdateRow, onUpdateMeta, parentCodes, onApplySuggestion, onApplyDateSuggestion, onApplyAllSuggestions, onDismiss }) {
   const { t } = useLanguage();
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const hasErrors = issues.length > 0;
   const statusColor = hasErrors ? COLORS.red : COLORS.green;
   const T = { ar: "قيد", en: "Entry" };
@@ -186,6 +181,11 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
               })}
             </tbody>
           </table>
+          {issues.some((issue) => (issue.type === "unknown_code" && issue.suggestions?.length) || (issue.type === "parent_account" && issue.suggestions?.length) || (issue.type === "date_format" && issue.suggestedDate)) && (
+            <button onClick={() => onApplyAllSuggestions(entry.seq, issues)} className="mb-3 rounded-md px-3 py-1.5 text-xs font-semibold text-white" style={{ background: "#B98227" }}>
+              {t({ ar: "تطبيق مقترحات القيد", en: "Apply entry suggestions" })}
+            </button>
+          )}
           {issues.map((issue) => (
             <div key={issue.id} className="mb-2 flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-xs"
               style={{ borderColor: issue.severity === "warning" ? COLORS.amber : COLORS.red, background: issue.severity === "warning" ? "rgba(251,191,36,0.12)" : "rgba(251,113,133,0.12)" }}>
@@ -193,9 +193,15 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" style={{ color: issue.severity === "warning" ? COLORS.amber : COLORS.red }} />
                 <p>{issue.message}</p>
               </div>
+              {issue.type === "date_format" && issue.suggestedDate && (
+                <button onClick={() => onApplyDateSuggestion(entry.seq, issue.suggestedDate, issue.id)}
+                  className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-white text-xs font-semibold" style={{ background: COLORS.green }}>
+                  <CheckCircle2 size={13} /> {t({ ar: `تطبيق ${issue.suggestedDate}`, en: `Apply ${issue.suggestedDate}` })}
+                </button>
+              )}
               {issue.type === "semantic_mismatch" && (
                 <div className="flex shrink-0 gap-1">
-                  {issue.suggestedCode && (
+                  {issue.type === "semantic_mismatch" && issue.suggestedCode && (
                     <button onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, issue.suggestedCode, issue.id)}
                       className="rounded px-2 py-1 text-white text-xs font-semibold" style={{ background: COLORS.green }}>{t({ ar: "تطبيق", en: "Apply" })}</button>
                   )}
@@ -206,22 +212,44 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                 <div className="flex flex-col items-end gap-1.5">
                   <div className="flex flex-wrap items-center gap-1.5" style={{ maxWidth: 280 }}>
                     {issue.suggestions.map((s) => (
-                      <button key={s.code} onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)}
-                        title={`${s.code} — ${s.name} (${Math.round(s.score * 100)}%)`}
-                        className="rounded px-2 py-1 text-left text-[11px] font-semibold transition"
-                        style={{
-                          direction: "ltr",
-                          background: s.confidence === "high" ? "rgba(34,211,138,0.12)" : s.confidence === "medium" ? "rgba(251,191,36,0.12)" : "#16213A",
-                          color: s.confidence === "high" ? "#34E0A0" : s.confidence === "medium" ? "#FBBF24" : "#8CA3C1",
-                          border: "1px solid " + (s.confidence === "high" ? "#2F8F5B" : s.confidence === "medium" ? "#A16207" : "#233152"),
-                          cursor: "pointer",
-                        }}>
-                        {s.code} · {s.name}
-                      </button>
+                      <div key={s.code} className="flex items-center gap-2 rounded border px-2 py-1.5" style={{ borderColor: s.confidence === "high" ? "#2F8F5B" : "#A16207", background: s.confidence === "high" ? "rgba(34,211,138,0.12)" : "rgba(251,191,36,0.12)" }}>
+                        <span className="text-left text-[11px] font-semibold" style={{ direction: "ltr", color: s.confidence === "high" ? "#34E0A0" : "#FBBF24" }}>{s.code} — {s.name}</span>
+                        <button onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)} className="rounded px-2 py-1 text-[11px] font-semibold text-white" style={{ background: "#287653" }}>
+                          {t({ ar: "تنفيذ المقترح", en: "Apply suggestion" })}
+                        </button>
+                      </div>
                     ))}
                   </div>
                   <button onClick={() => onDismiss(issue.id)} className="rounded border px-2 py-0.5 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
                 </div>
+              )}
+              {issue.type === "parent_account" && issue.suggestions && issue.suggestions.length > 0 && (
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5" style={{ maxWidth: 420 }}>
+                    {issue.suggestions.slice(0, showAllSuggestions ? issue.suggestions.length : 8).map((s) => (
+                      <div key={s.code} className="flex items-center gap-2 rounded border px-2 py-1.5" style={{ direction: "ltr", background: "rgba(34,211,138,0.12)", borderColor: "#2F8F5B" }}>
+                        <span className="text-left text-[11px] font-semibold" style={{ color: "#34E0A0" }}>{s.code} — {s.name}</span>
+                        <button onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)} className="rounded px-2 py-1 text-[11px] font-semibold text-white" style={{ background: "#287653" }}>
+                          {t({ ar: "تنفيذ المقترح", en: "Apply suggestion" })}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {issue.suggestions.length > 8 && (
+                    <button onClick={() => setShowAllSuggestions((visible) => !visible)} className="text-[11px] underline" style={{ color: COLORS.tealLight }}>
+                      {showAllSuggestions ? t({ ar: "إخفاء الباقي", en: "Show fewer" }) : t({ ar: `عرض جميع الحسابات (${issue.suggestions.length})`, en: `Show all accounts (${issue.suggestions.length})` })}
+                    </button>
+                  )}
+                  <button onClick={() => onDismiss(issue.id)} className="rounded border px-2 py-0.5 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
+                </div>
+              )}
+              {issue.type === "parent_account" && (!issue.suggestions || issue.suggestions.length === 0) && (
+                <button onClick={() => onDismiss(issue.id)} className="shrink-0 rounded border px-2 py-1 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
+              )}
+              {((issue.type === "unknown_code" && (!issue.suggestions || issue.suggestions.length === 0)) ||
+                (issue.type === "date_format" && !issue.suggestedDate) ||
+                !["unknown_code", "date_format", "parent_account", "semantic_mismatch"].includes(issue.type)) && (
+                <button onClick={() => onDismiss(issue.id)} className="shrink-0 rounded border px-2 py-1 text-xs" style={{ borderColor: COLORS.line }}>{t({ ar: "تجاهل", en: "Dismiss" })}</button>
               )}
             </div>
           ))}
@@ -245,17 +273,13 @@ export default function JournalTool() {
   const [copyStatus, setCopyStatus] = useState("");
   const [showManualCopy, setShowManualCopy] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [includeAI, setIncludeAI] = useState(false);
-  const [analyzingAI, setAnalyzingAI] = useState(false);
-  const [aiProgress, setAiProgress] = useState({ done: 0, total: 0 });
-  const [semanticIssues, setSemanticIssues] = useState({});
   const [resolvedIds, setResolvedIds] = useState({});
-  const [aiError, setAiError] = useState("");
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [auditVersion, setAuditVersion] = useState(0);
   const searchInputRef = useRef(null);
-  const [showSmartAnalysis, setShowSmartAnalysis] = useState(false);
+  const suggestionCacheRef = useRef(new Map());
 
   useEffect(() => {
     const handler = (e) => {
@@ -277,43 +301,80 @@ export default function JournalTool() {
 
   const parentInfo = useMemo(() => (chartAccounts ? buildParentInfo(chartAccounts) : { parentCodes: new Set(), childrenByParent: {} }), [chartAccounts]);
 
-  const leafCodes = useMemo(() => {
-    if (!chartAccounts) return null;
-    return buildLeafCodes(chartAccounts);
-  }, [chartAccounts]);
-
-  const structuralIssuesBySeq = useMemo(() => {
-    if (!entries || !chartAccounts) return {};
-    const out = {};
-    entries.forEach((entry) => {
-      const issues = validateEntryStructure(entry, chartMap, parentInfo);
-      issues.forEach((iss) => {
-        if (iss.type === "unknown_code" && iss.code) {
-          const similar = findSimilarAccounts(iss.code, chartAccounts, 4, leafCodes);
-          if (similar.length > 0) {
-            iss.suggestions = similar.map((s) => ({
-              code: s.code,
-              name: s.name,
-              score: s.score,
-              confidence: s.score > 0.7 ? "high" : s.score > 0.5 ? "medium" : "low",
-            }));
-          }
+  const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
+  const postingAccounts = useMemo(
+    () => (chartAccounts || []).filter((account) => !parentInfo.parentCodes.has(account.code)),
+    [chartAccounts, parentInfo]
+  );
+  const buildStructuralIssues = useCallback((entry) => {
+    const issues = validateEntryStructure(entry, chartMap, parentInfo);
+    issues.forEach((iss) => {
+      if (iss.type === "unknown_code" && iss.code) {
+        const row = entry.rows.find((r) => r._rowIndex === iss.rowIndex);
+        const cacheKey = `unknown:${iss.code}:${row?.name || ""}`;
+        let suggestions = suggestionCacheRef.current.get(cacheKey);
+        if (!suggestions) {
+          suggestions = getPostingSuggestions(iss.code, row?.name, chartAccounts, parentInfo, 5)
+            .map((account) => ({ code: account.code, name: account.name }));
+          suggestionCacheRef.current.set(cacheKey, suggestions);
         }
-      });
-      out[entry.seq] = issues;
+        iss.suggestions = suggestions;
+      } else if (iss.type === "parent_account") {
+        const cacheKey = `parent:${iss.code}`;
+        let suggestions = suggestionCacheRef.current.get(cacheKey);
+        if (!suggestions) {
+          suggestions = getPostingDescendants(iss.code, postingAccounts, parentInfo.childrenByParent)
+            .map((account) => ({ code: account.code, name: account.name }));
+          suggestionCacheRef.current.set(cacheKey, suggestions);
+        }
+        iss.suggestions = suggestions;
+      } else if (iss.type === "date_format" && entry.date) {
+        const normalized = normalizeDateGuess(entry.date);
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) iss.suggestedDate = normalized;
+      }
     });
-    return out;
-  }, [entries, chartMap, parentInfo, chartAccounts]);
+    return issues;
+  }, [chartAccounts, chartMap, parentInfo, postingAccounts]);
+
+  useEffect(() => {
+    if (!entries || !chartAccounts) return;
+    let cancelled = false;
+    let index = 0;
+    setStructuralIssuesBySeq({});
+    const processBatch = () => {
+      if (cancelled) return;
+      const batch = {};
+      const end = Math.min(index + 250, entries.length);
+      for (; index < end; index += 1) {
+        const entry = entries[index];
+        batch[entry.seq] = buildStructuralIssues(entry);
+      }
+      setStructuralIssuesBySeq((previous) => ({ ...previous, ...batch }));
+      if (index < entries.length) setTimeout(processBatch, 0);
+    };
+    processBatch();
+    return () => { cancelled = true; };
+  }, [auditVersion, chartAccounts, buildStructuralIssues]);
+
+  useEffect(() => {
+    if (!entries || !chartAccounts) return;
+    setExpanded((previous) => {
+      const next = { ...previous };
+      entries.forEach((entry) => {
+        if (next[entry.seq] === undefined) next[entry.seq] = (structuralIssuesBySeq[entry.seq] || []).length > 0;
+      });
+      return next;
+    });
+  }, [entries, chartAccounts, structuralIssuesBySeq]);
 
   const issuesBySeq = useMemo(() => {
     const out = {};
     (entries || []).forEach((entry) => {
       const struct = structuralIssuesBySeq[entry.seq] || [];
-      const sem = semanticIssues[entry.seq] || [];
-      out[entry.seq] = [...struct, ...sem].filter((i) => !resolvedIds[i.id]);
+      out[entry.seq] = struct.filter((i) => !resolvedIds[i.id]);
     });
     return out;
-  }, [entries, structuralIssuesBySeq, semanticIssues, resolvedIds]);
+  }, [entries, structuralIssuesBySeq, resolvedIds]);
 
   const filteredEntries = useMemo(() => {
     if (!entries) return [];
@@ -342,7 +403,9 @@ export default function JournalTool() {
     setParseError(""); setChartFileName(file.name); setChartBusy(true);
     try {
       const rows = await readWorkbookRows(file);
+      suggestionCacheRef.current.clear();
       setChartAccounts(parseChartFile(rows));
+      setAuditVersion((version) => version + 1);
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف شجرة الحسابات: " + err.message, lang));
       setChartAccounts(null);
@@ -356,9 +419,11 @@ export default function JournalTool() {
       const grouped = parseEntriesFile(rows);
       if (grouped.length === 0) throw new Error("تم التعرف على تنسيق الملف لكن لم يتم العثور على أي قيود بداخله\n\nتفاصيل الفحص:\n" + (_parseDebug.info || ""));
       setEntries(grouped);
-      setSemanticIssues({});
+      setExpanded({});
       setResolvedIds({});
-      setAiError("");
+      setStructuralIssuesBySeq({});
+      suggestionCacheRef.current.clear();
+      setAuditVersion((version) => version + 1);
       setPage(0);
       setFilter("all");
       if (currentUser) trackJournalImport(currentUser, { filename: file.name, entries_count: grouped.length });
@@ -369,75 +434,75 @@ export default function JournalTool() {
     } finally { setEntriesBusy(false); }
   };
 
-  const runAIReview = useCallback(async () => {
-    if (!entries || !chartAccounts || !includeAI) return;
-    setAnalyzingAI(true);
-    setAiError("");
-    const batches = [];
-    for (let i = 0; i < entries.length; i += AI_BATCH_SIZE) {
-      batches.push(entries.slice(i, i + AI_BATCH_SIZE));
-    }
-    setAiProgress({ done: 0, total: batches.length });
-    const merged = {};
-    try {
-      const processBatch = async (batch, batchIdx) => {
-        try {
-          const prompt = buildSemanticsPrompt(batch, chartAccounts, parentInfo.parentCodes);
-          const data = await callClaude({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content: prompt }] });
-          const result = parseJsonResponse(data);
-          return { batchIdx, result: result || [] };
-        } catch (batchErr) {
-          console.error(`batch ${batchIdx} failed`, batchErr);
-          return { batchIdx, result: [] };
-        }
-      };
-      for (let i = 0; i < batches.length; i += AI_PARALLEL) {
-        const chunk = batches.slice(i, i + AI_PARALLEL);
-        const results = await Promise.all(chunk.map((batch, j) => processBatch(batch, i + j)));
-        results.forEach(({ result }) => {
-          result.forEach((item) => {
-            if (!item.hasIssue) return;
-            const entry = entries.find((e) => String(e.seq) === String(item.seq));
-            if (!entry) return;
-            const row = entry.rows[item.rowIndex];
-            if (!row) return;
-            if (!merged[entry.seq]) merged[entry.seq] = [];
-            merged[entry.seq].push({
-              id: `${entry.seq}-row${item.rowIndex}-semantic`,
-              type: "semantic_mismatch",
-              severity: "warning",
-              rowIndex: row._rowIndex,
-              suggestedCode: item.suggestedCode,
-              suggestedName: item.suggestedName,
-              message: lang === "en"
-                ? `Row ${item.rowIndex + 1}: the account used does not logically match the entry description — ${item.reason || ""}`
-                : `السطر ${item.rowIndex + 1}: الحساب المستخدم لا يتوافق منطقياً مع وصف القيد — ${item.reason || ""}`,
-            });
-          });
-        });
-        setAiProgress((p) => ({ ...p, done: Math.min(i + AI_PARALLEL, batches.length) }));
-      }
-      setSemanticIssues(merged);
-    } catch (err) {
-      setAiError(localizeError("تعذر إتمام المراجعة الذكية: " + err.message, lang));
-    } finally {
-      setAnalyzingAI(false);
-    }
-  }, [entries, chartAccounts, includeAI, parentInfo, lang]);
-
   const updateRow = useCallback((seq, rowIndex, field, value) => {
+    const currentEntry = entries?.find((entry) => entry.seq === seq);
+    if (currentEntry) {
+      const updatedEntry = {
+        ...currentEntry,
+        rows: currentEntry.rows.map((row) => row._rowIndex === rowIndex ? { ...row, [field]: value } : row),
+      };
+      setStructuralIssuesBySeq((previous) => ({ ...previous, [seq]: buildStructuralIssues(updatedEntry) }));
+    }
+    setResolvedIds((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !id.startsWith(`${seq}-`))));
     setEntries((prev) => prev.map((entry) => entry.seq !== seq ? entry :
       { ...entry, rows: entry.rows.map((r) => r._rowIndex === rowIndex ? { ...r, [field]: value } : r) }));
-  }, []);
+  }, [buildStructuralIssues, entries]);
 
   const updateEntryMeta = useCallback((seq, field, value) => {
+    const currentEntry = entries?.find((entry) => entry.seq === seq);
+    if (currentEntry) {
+      setStructuralIssuesBySeq((previous) => ({
+        ...previous,
+        [seq]: buildStructuralIssues({ ...currentEntry, [field]: value }),
+      }));
+    }
+    setResolvedIds((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !id.startsWith(`${seq}-`))));
     setEntries((prev) => prev.map((entry) => (entry.seq === seq ? { ...entry, [field]: value } : entry)));
-  }, []);
+  }, [buildStructuralIssues, entries]);
 
   const applySuggestion = useCallback((seq, rowIndex, suggestedCode, issueId) => {
     updateRow(seq, rowIndex, "code", suggestedCode);
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
   }, [updateRow]);
+
+  const applyDateSuggestion = useCallback((seq, suggestedDate, issueId) => {
+    updateEntryMeta(seq, "date", suggestedDate);
+    setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
+  }, [updateEntryMeta]);
+
+  const applyAllSuggestions = useCallback((targetSeq = null, targetIssues = null) => {
+    const selected = targetSeq
+      ? [{ entry: entries.find((item) => item.seq === targetSeq), issues: targetIssues || issuesBySeq[targetSeq] || [] }]
+      : entries.map((entry) => ({ entry, issues: issuesBySeq[entry.seq] || [] }));
+    const selectedBySeq = new Map(selected.filter(({ entry }) => entry).map((item) => [item.entry.seq, item]));
+    const resolved = {};
+    const updated = entries.map((entry) => {
+      const item = selectedBySeq.get(entry.seq);
+      if (!item) return entry;
+      let nextEntry = { ...entry, rows: entry.rows.map((row) => ({ ...row })) };
+      item.issues.forEach((issue) => {
+        if (issue.type === "date_format" && issue.suggestedDate) {
+          nextEntry.date = issue.suggestedDate;
+          resolved[issue.id] = true;
+        } else if (issue.rowIndex !== undefined) {
+          const suggestion = issue.type === "unknown_code" ? issue.suggestions?.[0] : issue.type === "parent_account" ? issue.suggestions?.[0] : null;
+          if (suggestion) {
+            nextEntry.rows = nextEntry.rows.map((row) => row._rowIndex === issue.rowIndex ? { ...row, code: suggestion.code } : row);
+            resolved[issue.id] = true;
+          }
+        }
+      });
+      return nextEntry;
+    });
+    setEntries(updated);
+    setResolvedIds((previous) => ({ ...previous, ...resolved }));
+    const nextIssues = { ...structuralIssuesBySeq };
+    selectedBySeq.forEach(({ entry: entryBefore }) => {
+      const entryAfter = updated.find((entry) => entry.seq === entryBefore?.seq);
+      if (entryAfter) nextIssues[entryAfter.seq] = buildStructuralIssues(entryAfter);
+    });
+    setStructuralIssuesBySeq(nextIssues);
+  }, [buildStructuralIssues, entries, issuesBySeq, structuralIssuesBySeq]);
 
   const dismissIssue = useCallback((issueId) => {
     setResolvedIds((prev) => ({ ...prev, [issueId]: true }));
@@ -451,7 +516,7 @@ export default function JournalTool() {
   const entriesWithIssues = entries ? entries.filter((e) => (issuesBySeq[e.seq] || []).length > 0).length : 0;
   const totalOpenIssues = Object.values(issuesBySeq).reduce((s, arr) => s + arr.length, 0);
   const applicableCount = Object.values(issuesBySeq).reduce(
-    (s, arr) => s + arr.filter((i) => (i.type === "unknown_code" || i.type === "semantic_mismatch") && i.suggestions && i.suggestions[0] && i.suggestions[0].confidence !== "low").length,
+    (s, arr) => s + arr.filter((i) => (i.type === "unknown_code" && i.suggestions?.length) || (i.type === "parent_account" && i.suggestions?.length) || (i.type === "date_format" && i.suggestedDate)).length,
     0
   );
   const ready = chartAccounts && entries;
@@ -488,8 +553,10 @@ export default function JournalTool() {
 
   const resetAll = () => {
     setChartAccounts(null); setChartFileName(""); setEntries(null); setEntriesFileName("");
-    setParseError(""); setExpanded({}); setSemanticIssues({}); setResolvedIds({}); setAiError("");
+    setParseError(""); setExpanded({}); setResolvedIds({});
+    setStructuralIssuesBySeq({});
     setPage(0); setFilter("all");
+    suggestionCacheRef.current.clear();
   };
 
   const filters = [
@@ -517,7 +584,6 @@ export default function JournalTool() {
           <Info size={16} className="mt-0.5 shrink-0" style={{ color: "#7DD3FC" }} />
           <div style={{ color: "#8CA3C1" }}>
             {t({ ar: "المعايير المعتمدة: صيغة التاريخ dd/mm/yyyy · مدين = دائن لكل قيد · إجمالي القيد لا يجوز أن يكون صفراً · لا يجوز الترحيل على حساب رئيسي له حسابات فرعية.", en: "Accepted rules: date format dd/mm/yyyy · debit = credit per entry · entry total may not be zero · posting to a parent account with children is not allowed." })}
-            {" "}<b>{t({ ar: "المراجعة الذكية", en: "AI Review" })}</b> {t({ ar: "ميزة اختيارية تحتاج مفتاح Anthropic API.", en: "is an optional feature that requires an Anthropic API key." })}
           </div>
         </div>
 
@@ -536,33 +602,16 @@ export default function JournalTool() {
 
         {ready && (
           <>
-            <div className="mb-6 flex flex-wrap items-center gap-3">
-              <button onClick={runAIReview} disabled={analyzingAI || !includeAI}
-                className="btn-primary flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
-                {analyzingAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {analyzingAI ? t({ ar: `جاري المراجعة... (${aiProgress.done}/${aiProgress.total})`, en: `Reviewing... (${aiProgress.done}/${aiProgress.total})` }) : t({ ar: "المراجعة الذكية", en: "AI Review" })}
-              </button>
-              <button onClick={() => setShowSmartAnalysis(!showSmartAnalysis)}
-                className="flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium border"
-                style={{ borderColor: showSmartAnalysis ? "#12B886" : COLORS.line, background: showSmartAnalysis ? "rgba(18,184,134,0.12)" : "#111A2E", color: "#20D9A0" }}>
-                <Wand2 size={16} /> {t({ ar: "تحليل ذكي", en: "Smart Analysis" })}
-              </button>
-              <label className="flex items-center gap-2 text-xs" style={{ color: "#8CA3C1" }}>
-                <input type="checkbox" checked={includeAI} onChange={(e) => setIncludeAI(e.target.checked)} className="rounded" />
-                {t({ ar: "تضمين المراجعة الذكية", en: "Include AI review" })}
-              </label>
-            </div>
-            {aiError && (
-              <div className="mb-6 flex items-center gap-2 rounded-md border px-4 py-2 text-sm" style={{ borderColor: COLORS.amber, color: COLORS.amber }}>
-                <AlertTriangle size={16} /> {aiError}
-              </div>
-            )}
-
             <div className="mb-4 grid grid-cols-3 gap-3">
               <SummaryStat label={{ ar: "إجمالي القيود", en: "Total Entries" }} value={totalEntries} color={COLORS.teal} active={filter === "all"} onClick={() => { setFilter("all"); setPage(0); }} />
               <SummaryStat label={{ ar: "قيود سليمة", en: "Valid Entries" }} value={totalEntries - entriesWithIssues} color={COLORS.green} active={filter === "ok"} onClick={() => { setFilter("ok"); setPage(0); }} />
               <SummaryStat label={{ ar: "قيود بها مشاكل", en: "Entries with Issues" }} value={entriesWithIssues} color={totalOpenIssues > 0 ? COLORS.red : COLORS.green} active={filter === "error"} onClick={() => { setFilter("error"); setPage(0); }} />
             </div>
+            {applicableCount > 0 && (
+              <button onClick={() => applyAllSuggestions()} className="mb-4 rounded-md px-4 py-2 text-sm font-semibold text-white" style={{ background: "#B98227" }}>
+                {t({ ar: `تطبيق جميع المقترحات (${applicableCount})`, en: `Apply all suggestions (${applicableCount})` })}
+              </button>
+            )}
 
             <div className="mb-3">
               <div className="relative">
@@ -605,34 +654,15 @@ export default function JournalTool() {
               )}
             </div>
 
-            {showSmartAnalysis && chartAccounts && entries && (
-              <div className="mb-6">
-                <SmartAnalysisPanel
-                  entries={entries}
-                  chartOfAccounts={chartAccounts}
-                  onApplyFixes={(fixes) => {
-                    const updated = [...entries];
-                    for (const fix of fixes) {
-                      const idx = fix.original_index;
-                      if (idx >= 0 && idx < updated.length) {
-                        updated[idx] = { ...updated[idx], code: fix.new_account_code, account_name: fix.new_account_name };
-                      }
-                    }
-                    setEntries(updated);
-                  }}
-                />
-              </div>
-            )}
-
             <div className="space-y-3">
               {pagedEntries.map((entry) => {
                 const issues = issuesBySeq[entry.seq] || [];
-                const isOpen = expanded[entry.seq] ?? false;
+                const isOpen = expanded[entry.seq] ?? issues.length > 0;
                 return (
                   <EntryCard key={entry.seq} entry={entry} issues={issues} isOpen={isOpen} parentCodes={parentInfo.parentCodes}
                     onToggle={() => toggleExpand(entry.seq)}
                     chartAccountsList={chartAccounts} onUpdateRow={updateRow} onUpdateMeta={updateEntryMeta}
-                    onApplySuggestion={applySuggestion} onDismiss={dismissIssue} />
+                    onApplySuggestion={applySuggestion} onApplyDateSuggestion={applyDateSuggestion} onApplyAllSuggestions={applyAllSuggestions} onDismiss={dismissIssue} />
                 );
               })}
             </div>
