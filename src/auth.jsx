@@ -2,10 +2,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useLanguage } from "./language";
 import { supabase } from "./supabase";
 import { trackLogin, trackLogout, getUserStats, getRecentActivity } from "./activityTracker";
-import { Shield, Mail, UserPlus, UserX, Users, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity } from "lucide-react";
+import { Shield, Mail, UserPlus, UserX, Users, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity, Lock, Eye, EyeOff, Key } from "lucide-react";
 
 const AuthContext = createContext(null);
 const SESSION_KEY = "qoyod_session";
+const DEFAULT_ADMIN_SALT = "1d8ad81d942f86fac5b7b368ee149314";
+const DEFAULT_ADMIN_HASH = "41b8952f2790c6419afdd5e6d7e9d5666fd2d4bc001d1d5ab58b44d0b709fb52"; // 2244470599
 
 function loadSession() {
   try { return localStorage.getItem(SESSION_KEY); } catch { return null; }
@@ -17,8 +19,55 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+function generateSalt(length = 16) {
+  const arr = new Uint8Array(length);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(arr);
+  } else {
+    for (let i = 0; i < length; i++) arr[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashPassword(password, saltHex = DEFAULT_ADMIN_SALT) {
+  if (!password || !window.crypto?.subtle) return null;
+  try {
+    const bytes = await window.crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+    const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map((part) => parseInt(part, 16)));
+    const bits = await window.crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes, iterations: 210000, hash: "SHA-256" }, bytes, 256);
+    return Array.from(new Uint8Array(bits), (value) => value.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    console.error("Hash calculation failed:", e);
+    return null;
+  }
+}
+
+async function verifyAdminPassword(password) {
+  if (!password) return false;
+  try {
+    let targetHash = DEFAULT_ADMIN_HASH;
+    let targetSalt = DEFAULT_ADMIN_SALT;
+
+    if (supabase && supabase.supabaseUrl && !supabase.supabaseUrl.includes("YOUR_")) {
+      const { data: hashData } = await supabase.from("app_settings").select("value").eq("key", "admin_password_hash").maybeSingle();
+      const { data: saltData } = await supabase.from("app_settings").select("value").eq("key", "admin_password_salt").maybeSingle();
+      if (hashData?.value && saltData?.value) {
+        targetHash = hashData.value;
+        targetSalt = saltData.value;
+      }
+    }
+
+    const calculated = await hashPassword(password, targetSalt);
+    return calculated === targetHash;
+  } catch (err) {
+    console.error("Error verifying admin password:", err);
+    const calculated = await hashPassword(password, DEFAULT_ADMIN_SALT);
+    return calculated === DEFAULT_ADMIN_HASH;
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(() => loadSession());
+  const [currentUser, setCurrentUser] = useState(null);
   const [adminEmail, setAdminEmail] = useState(null);
   const [whitelist, setWhitelist] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,12 +86,10 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  // Check if Supabase is configured
   const isConfigured = useCallback(() => {
     return supabase && supabase.supabaseUrl && !supabase.supabaseUrl.includes("YOUR_");
   }, []);
 
-  // Load admin email from Supabase
   const loadAdminEmail = useCallback(async () => {
     if (!isConfigured()) { setLoading(false); return; }
     try {
@@ -52,7 +99,6 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, [isConfigured]);
 
-  // Load whitelist from Supabase
   const loadWhitelist = useCallback(async () => {
     if (!isConfigured()) return;
     try {
@@ -66,7 +112,19 @@ export function AuthProvider({ children }) {
     loadWhitelist();
   }, [loadAdminEmail, loadWhitelist]);
 
-  // Check DB connection
+  useEffect(() => {
+    const stored = loadSession();
+    if (!stored || loading) return;
+    const normalized = stored.toLowerCase();
+    if (normalized === adminEmail?.toLowerCase()) {
+      clearSession();
+      return;
+    }
+    const allowed = normalized === adminEmail?.toLowerCase() || whitelist.includes(normalized);
+    if (allowed) setCurrentUser(normalized);
+    else clearSession();
+  }, [adminEmail, loading, whitelist]);
+
   useEffect(() => {
     if (!isConfigured()) { setDbReady(false); return; }
     supabase.from("allowed_users").select("email").limit(1).then(({ error }) => {
@@ -76,10 +134,10 @@ export function AuthProvider({ children }) {
 
   const isAdmin = currentUser && adminEmail && currentUser.toLowerCase() === adminEmail.toLowerCase();
 
-  // Setup admin (first time)
-  const setupAdmin = useCallback(async (email) => {
+  const setupAdmin = useCallback(async (email, password) => {
     const trimmed = (email || "").trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return { ok: false };
+    if (!(await verifyAdminPassword(password))) return { ok: false };
 
     if (!isConfigured()) {
       alert("Supabase not configured. Please set up your database first.");
@@ -87,11 +145,9 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      // Set admin email in settings
       const { error: e1 } = await supabase.from("app_settings").upsert({ key: "admin_email", value: trimmed }, { onConflict: "key" });
       if (e1) throw e1;
 
-      // Add admin to allowed users
       const { error: e2 } = await supabase.from("allowed_users").upsert({ email: trimmed }, { onConflict: "email" });
       if (e2) throw e2;
 
@@ -110,8 +166,7 @@ export function AuthProvider({ children }) {
     }
   }, [isConfigured]);
 
-  // Login
-  const login = useCallback(async (email) => {
+  const login = useCallback(async (email, password) => {
     const trimmed = (email || "").trim().toLowerCase();
     if (!trimmed) return { ok: false, msg: { ar: "الرجاء كتابة الإيميل", en: "Please enter your email" } };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return { ok: false, msg: { ar: "الرجاء كتابة إيميل صحيح", en: "Please enter a valid email" } };
@@ -120,7 +175,6 @@ export function AuthProvider({ children }) {
       return { ok: false, msg: { ar: "التطبيق غير مربوط بقاعدة البيانات. تواصل مع المدير.", en: "App not connected to database. Contact the admin." } };
     }
 
-    // Reload whitelist fresh from DB
     await loadWhitelist();
     if (!adminEmail) {
       await loadAdminEmail();
@@ -129,13 +183,13 @@ export function AuthProvider({ children }) {
     if (!adminEmail) return { ok: false, msg: { ar: "لم يتم تعيين مدير النظام بعد", en: "Admin not set up yet" } };
 
     if (trimmed === adminEmail.toLowerCase()) {
+      if (!(await verifyAdminPassword(password))) return { ok: false, msg: { ar: "كلمة مرور المدير غير صحيحة", en: "Incorrect administrator password" } };
       setCurrentUser(trimmed);
       saveSession(trimmed);
       trackLogin(trimmed);
       return { ok: true, admin: true };
     }
 
-    // Check the whitelist before creating an Auth session.
     try {
       const { data, error } = await supabase.from("allowed_users").select("email").eq("email", trimmed).single();
       if (data) {
@@ -149,14 +203,12 @@ export function AuthProvider({ children }) {
     return { ok: false, msg: { ar: "هذا الإيميل غير مسموح. تواصل مع المدير للحصول على صلاحية", en: "This email is not authorized. Contact the admin for access" } };
   }, [adminEmail, isConfigured, loadWhitelist, loadAdminEmail]);
 
-  // Logout
   const logout = useCallback(() => {
     if (currentUser) trackLogout(currentUser);
     setCurrentUser(null);
     clearSession();
   }, [currentUser]);
 
-  // Add email (admin only)
   const addEmail = useCallback(async (email) => {
     const trimmed = (email || "").trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return false;
@@ -175,7 +227,6 @@ export function AuthProvider({ children }) {
     }
   }, [whitelist, isConfigured]);
 
-  // Remove email (admin only)
   const removeEmail = useCallback(async (email) => {
     const trimmed = (email || "").trim().toLowerCase();
     if (!isConfigured()) return;
@@ -189,7 +240,6 @@ export function AuthProvider({ children }) {
     }
   }, [isConfigured]);
 
-  // Refresh whitelist
   const refreshWhitelist = useCallback(async () => {
     await loadWhitelist();
   }, [loadWhitelist]);
@@ -213,6 +263,7 @@ export function LoginScreen() {
   const { t } = useLanguage();
   const { setupAdmin, login, adminEmail, loading, online, dbReady, isConfigured } = useAuth();
   const [email, setEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -226,13 +277,13 @@ export function LoginScreen() {
 
     try {
       if (needsSetup) {
-        const result = await setupAdmin(email);
+        const result = await setupAdmin(email, adminPassword);
         if (!result.ok) setError(t({ ar: "فشل التعيين. تحقق من الإيميل واتصالك بالإنترنت", en: "Setup failed. Check your email and connection" }));
         else {
           setSuccess(true);
         }
       } else {
-        const result = await login(email);
+        const result = await login(email, adminPassword);
         if (!result.ok) setError(t(result.msg));
         else setSuccess(true);
       }
@@ -256,12 +307,26 @@ export function LoginScreen() {
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #162560 0%, #0F1A47 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Cairo, Segoe UI, sans-serif" }}>
       <div style={{ width: 440, maxWidth: "95vw", background: "#111A2E", borderRadius: 20, padding: "40px 36px", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}>
-        {/* Status indicators */}
         <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: online ? "#0D2818" : "#2D1215", fontSize: 11, fontWeight: 600, color: online ? "#16A34A" : "#EF4444" }}>
             {online ? <Wifi size={12} /> : <WifiOff size={12} />}
             {online ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" })}
           </div>
+
+          {(needsSetup || email.trim().toLowerCase() === adminEmail?.toLowerCase()) && (
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <Shield size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => { setAdminPassword(e.target.value); setError(null); setSuccess(false); }}
+                placeholder={t({ ar: "كلمة مرور المدير", en: "Administrator password" })}
+                autoComplete="current-password"
+                disabled={submitting}
+                style={{ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${error ? "#EF4444" : "#233152"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#0E1830", color: "#E6EDF6" }}
+              />
+            </div>
+          )}
           {isConfigured && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: dbReady ? "#0D2818" : "#2D1215", fontSize: 11, fontWeight: 600, color: dbReady ? "#16A34A" : "#EF4444" }}>
               {dbReady ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
@@ -329,11 +394,6 @@ export function LoginScreen() {
           </button>
         </form>
 
-        {adminEmail && !needsSetup && (
-          <p style={{ textAlign: "center", fontSize: 11, color: "#5C7196", marginTop: 16 }}>
-            {t({ ar: "مدير النظام:", en: "Admin:" })} {adminEmail}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -343,6 +403,9 @@ export function AdminPanel() {
   const { t } = useLanguage();
   const { adminEmail, whitelist, addEmail, removeEmail, setShowAdmin, refreshWhitelist, online, dbReady } = useAuth();
   const [newEmail, setNewEmail] = useState("");
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminPass, setNewAdminPass] = useState("");
+  const [adminSecMsg, setAdminSecMsg] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -354,7 +417,6 @@ export function AdminPanel() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [loadingStats, setLoadingStats] = useState(false);
 
-  // Load Gemini key + stats on mount
   useEffect(() => {
     import("./aiAgent").then(({ getGeminiKey }) => {
       getGeminiKey().then((key) => { if (key) setGeminiKey(key); });
@@ -558,6 +620,65 @@ export function AdminPanel() {
               {t({ ar: "← احصل على مفتاح مجاني من هنا", en: "← Get free key from here" })}
             </a>
           </div>
+
+          {/* Admin Security Settings Section */}
+          <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#0E1830", border: "1px solid #233152" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Lock size={16} color="#12B886" />
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#12B886", margin: 0 }}>
+                {t({ ar: "حماية وتعديل بيانات المدير", en: "Admin Security Settings" })}
+              </p>
+            </div>
+            {adminSecMsg && (
+              <div style={{ padding: "8px 12px", borderRadius: 8, background: "#0D2818", color: "#16A34A", fontSize: 12, marginBottom: 10 }}>
+                {adminSecMsg}
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <input
+                type="email"
+                placeholder={t({ ar: "تغيير بريد المدير الإلكتروني...", en: "Change Admin Email..." })}
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #233152", fontSize: 13, outline: "none", direction: "ltr", background: "#14213B", color: "#E6EDF6" }}
+              />
+              <input
+                type="password"
+                placeholder={t({ ar: "تغيير كلمة مرور المدير...", en: "Change Admin Password..." })}
+                value={newAdminPass}
+                onChange={(e) => setNewAdminPass(e.target.value)}
+                style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #233152", fontSize: 13, outline: "none", direction: "ltr", background: "#14213B", color: "#E6EDF6" }}
+              />
+              <button
+                onClick={async () => {
+                  let updated = false;
+                  if (newAdminEmail.trim()) {
+                    await supabase.from("app_settings").upsert({ key: "admin_email", value: newAdminEmail.trim() }, { onConflict: "key" });
+                    updated = true;
+                  }
+                  if (newAdminPass.trim()) {
+                    const salt = generateSalt();
+                    const hash = await hashPassword(newAdminPass.trim(), salt);
+                    if (hash) {
+                      await supabase.from("app_settings").upsert({ key: "admin_password_hash", value: hash }, { onConflict: "key" });
+                      await supabase.from("app_settings").upsert({ key: "admin_password_salt", value: salt }, { onConflict: "key" });
+                      updated = true;
+                    }
+                  }
+                  if (updated) {
+                    setAdminSecMsg(t({ ar: "تم تحديث بيانات الحماية بنجاح!", en: "Security settings updated!" }));
+                    setNewAdminEmail("");
+                    setNewAdminPass("");
+                  }
+                }}
+                disabled={!newAdminEmail.trim() && !newAdminPass.trim()}
+                style={{ padding: "10px", borderRadius: 8, background: "#12B886", color: "#FFF", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", opacity: (!newAdminEmail.trim() && !newAdminPass.trim()) ? 0.5 : 1 }}
+              >
+                {t({ ar: "تحديث البيانات", en: "Update Credentials" })}
+              </button>
+            </div>
+          </div>
+
           </>) : (
           /* ── Analytics Tab ──────────────────────────── */
           <div>
@@ -632,4 +753,3 @@ export function AdminPanel() {
     </div>
   );
 }
-
