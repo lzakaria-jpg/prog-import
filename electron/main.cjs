@@ -44,7 +44,7 @@ app.whenReady().then(() => {
 
   // ── Auto-Update Logic ──────────────────────────────────────────────
   if (app.isPackaged) {
-    autoUpdater.autoDownload = false;
+    autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.forceDevUpdateConfig = false;
     autoUpdater.setFeedURL({
@@ -66,6 +66,16 @@ app.whenReady().then(() => {
         console.log("[update] Check failed:", err.message);
       });
     }, 3000);
+
+    // Re-check periodically (every 60 min) so running clients pick up
+    // newly published releases without needing to reopen the app.
+    setInterval(() => {
+      if (updateDownloaded) return;
+      console.log("[update] Periodic check...");
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.log("[update] Periodic check failed:", err.message);
+      });
+    }, 60 * 60 * 1000);
 
     autoUpdater.on("update-available", (info) => {
       updateAvailable = info;

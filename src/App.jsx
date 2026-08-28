@@ -71,18 +71,13 @@ function UpdateBanner() {
               {t({ ar: `تحديث جديد متاح: ${updateState.version}`, en: `New update available: ${updateState.version}` })}
             </p>
             <p style={{ fontSize: 11, color: "#3B82F6", margin: 0 }}>
-              {t({ ar: "تحديث ofApp للحصول على أحدث المميزات والإصلاحات", en: "Update app for latest features & fixes" })}
+              {t({ ar: "جاري التنزيل تلقائياً...", en: "Downloading automatically..." })}
             </p>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => api.updateDownload()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "#2563EB", color: "#FFF", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer" }}>
-            <ArrowDownToLine size={14} /> {t({ ar: "تنزيل الآن", en: "Download Now" })}
-          </button>
-          <button onClick={() => setDismissed(true)} style={{ padding: "8px", borderRadius: 8, background: "transparent", color: "#94A3B8", border: "none", cursor: "pointer" }}>
-            <X size={14} />
-          </button>
-        </div>
+        <button onClick={() => setDismissed(true)} style={{ padding: "8px", borderRadius: 8, background: "transparent", color: "#94A3B8", border: "none", cursor: "pointer" }}>
+          <X size={14} />
+        </button>
       </div>
     );
   }
@@ -152,7 +147,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.2.7";
+  const currentVersion = "1.2.8";
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
