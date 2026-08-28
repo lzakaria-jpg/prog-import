@@ -114,7 +114,11 @@ export function AuthProvider({ children }) {
         return prev;
       });
       const { data: authData, error: authError } = await supabase.auth.signUp({ email: trimmed, password });
-      if (authError) throw authError;
+      if (authError) {
+        const { error: loginError } = await supabase.auth.signInWithPassword({ email: trimmed, password });
+        if (loginError) throw authError;
+        return true;
+      }
       if (!authData.session) return false;
       return true;
     } catch (e) {
@@ -131,7 +135,14 @@ export function AuthProvider({ children }) {
     const isAdminUser = adminEmail && trimmed === adminEmail.toLowerCase();
     if (!allowed && !isAdminUser) return { ok: false, msg: { ar: "هذا الإيميل غير مضاف من المدير", en: "This email was not added by the administrator" } };
     const { data, error } = await supabase.auth.signUp({ email: trimmed, password });
-    if (error) return { ok: false, msg: { ar: error.message, en: error.message } };
+    if (error) {
+      const { error: loginError } = await supabase.auth.signInWithPassword({ email: trimmed, password });
+      if (!loginError) return { ok: true };
+      if (error.message.toLowerCase().includes("25 seconds") || error.message.toLowerCase().includes("rate limit")) {
+        return { ok: false, msg: { ar: "تم تفعيل حماية مؤقتة. انتظر 25 ثانية ثم اضغط مرة واحدة فقط.", en: "Temporary protection is active. Wait 25 seconds, then click once." } };
+      }
+      return { ok: false, msg: { ar: "تعذر إنشاء الحساب. تحقق من الإيميل أو جرّب تسجيل الدخول.", en: "Could not create the account. Check the email or try signing in." } };
+    }
     if (!data.session) return { ok: false, msg: { ar: "تم إنشاء الحساب. افحص بريدك لتأكيد الحساب ثم سجّل الدخول.", en: "Account created. Confirm your email, then sign in." } };
     return { ok: true };
   }, [adminEmail, isConfigured]);
