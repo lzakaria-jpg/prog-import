@@ -43,7 +43,7 @@ async function callGemini(prompt) {
   const apiKey = await getGeminiKey();
   if (!apiKey) throw new Error("يرجى إدخال مفتاح Gemini API من الإعدادات أولاً");
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
