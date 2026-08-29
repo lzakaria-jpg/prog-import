@@ -51,6 +51,7 @@ export async function chatWithAgent(userPrompt) {
   }
 
   try {
+    // Direct call to Gemini's API using the locally stored key — no Supabase Edge Function involved.
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -61,8 +62,19 @@ export async function chatWithAgent(userPrompt) {
     if (data.error) {
       return { text: `⚠️ خطأ في المفتاح: ${data.error.message}`, error: true };
     }
-    return { text: data.candidates[0].content.parts[0].text, error: false };
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!reply) {
+      return { text: "⚠️ لم يصل رد من Gemini. حاول مرة أخرى.", error: true };
+    }
+    return { text: reply, error: false };
   } catch (err) {
     return { text: "⚠️ تعذر الاتصال بسيرفر Gemini.", error: true };
   }
+}
+
+// Used directly by the chat UI (src/chat.jsx): sends the user's message straight to Gemini
+// with the locally configured API key and returns plain reply text.
+export async function generateAIResponse(userPrompt) {
+  const { text } = await chatWithAgent(userPrompt);
+  return text;
 }
