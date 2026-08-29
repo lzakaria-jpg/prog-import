@@ -182,7 +182,45 @@ const RETURN_MARKERS = ['return', 'refund', 'مرتجع', 'ارتجاع'];
  * ثم يُخصَّص كل عمود لحقل واحد فقط، بدءاً من أعلى النقاط، فلا يتنازع حقلان
  * على نفس العمود ولا يُخصَّص عمودان لحقل واحد.
  */
-export function detectMapping(headers) {
+/**
+ * القيم الثلاث الوحيدة التي يفهمها parseSource لعمود «نوع السطر» (LINE_TYPE أعلاه).
+ * تُستخدم أيضاً للكشف الاحتياطي بالمحتوى أدناه.
+ */
+const LINE_TYPE_KNOWN_VALUES = new Set(['sale', 'sale line', 'payment']);
+
+/**
+ * كشف احتياطي بمحتوى العمود لعمود «نوع السطر» — لا باسمه.
+ *
+ * إن فشلت مطابقة الاسم (تسمية العمود في ملف المصدر لا تشبه أي مرادف معروف، مثل
+ * «Sale Type» بدل «Line Type»)، فمرور الملف كله إلى «النمط المسطَّط» بصمت يجعل
+ * صف الرأس نفسه — الذي غالباً ما يحمل قيماً وهمية في أعمدة الكمية والسعر
+ * والضريبة لأسباب تخص نظام المصدر — يُعامَل كبند منتج فعلي، فيُضاف إلى إجمالي
+ * الفاتورة ويُفسد المطابقة الحسابية كلياً (فاتورة حقيقية شوهدت: صف رأس بكمية 1
+ * وسعر وهميين رفع الإجمالي المحسوب من 8.26 إلى 9.84 مقابل مصدر 7.9 بدل 6.18).
+ *
+ * القيم الثلاث التي يفهمها المحرك لهذا العمود (Sale / Sale Line / Payment) قاموس
+ * صغير ومغلق، فالتحقق آمن: عمود غير مخصَّص لأي حقل آخر، وكل قيمه المعبَّأة تقع
+ * ضمن هذا القاموس تحديداً، وتتضمن Sale أو Sale Line فعلياً — لا تخمين عند التباس
+ * عمودين مؤهَّلين معاً.
+ */
+function contentGuessLineType(headers, records, usedCols) {
+  let foundIdx = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (usedCols.has(i)) continue;
+    const h = headers[i];
+    const sample = records.slice(0, 200).map(r => toStr(r[h]).toLowerCase()).filter(Boolean);
+    if (!sample.length) continue;
+    const distinct = new Set(sample);
+    const allKnown = [...distinct].every(v => LINE_TYPE_KNOWN_VALUES.has(v));
+    const hasHeaderOrLine = distinct.has('sale') || distinct.has('sale line');
+    if (!allKnown || !hasHeaderOrLine) continue;
+    if (foundIdx !== -1) return -1; // أكثر من عمود مرشّح: لا يُحسم شيء
+    foundIdx = i;
+  }
+  return foundIdx;
+}
+
+export function detectMapping(headers, records = []) {
   const norm = headers.map(h => normalizeSourceHeader(h));
   const candidates = [];
 
@@ -206,6 +244,11 @@ export function detectMapping(headers) {
     if (mapping[c.field] || usedCols.has(c.idx)) continue;
     mapping[c.field] = c.col;
     usedCols.add(c.idx);
+  }
+
+  if (!mapping.lineType && records.length) {
+    const idx = contentGuessLineType(headers, records, usedCols);
+    if (idx !== -1) mapping.lineType = headers[idx];
   }
 
   return mapping;

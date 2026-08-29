@@ -39,6 +39,41 @@ describe('parseSource — structured (lineType) files keep working exactly as be
   });
 });
 
+describe('detectMapping — content-based fallback for an unrecognized "line type" column name', () => {
+  // عمود «نوع السطر» مسمى «Row Kind» — لا يطابق أي مرادف اسمي معروف حتى بالمطابقة
+  // الجزئية الفضفاضة (بخلاف «Sale Type» التي تُكتشف أصلاً عبر مرادف «type» العام)،
+  // فيجب اكتشافه من قيمه (Sale / Sale Line حصراً) بدل السقوط الصامت إلى النمط
+  // المسطَّط الذي يُحوِّل صف الرأس نفسه إلى بند منتج ويُفسد الإجمالي (bug واقعي)
+  const headers = ['Invoice Number', 'Row Kind', 'Date', 'Customer Name', 'Quantity',
+    'Subtotal (Tax Exclusive)', 'Discount', 'Total Tax', 'Total (Tax Inclusive)'];
+  const records = [
+    { 'Invoice Number': 'INV-1', 'Row Kind': 'Sale', 'Date': '2026-01-01', 'Customer Name': 'أحمد',
+      'Quantity': 1, 'Subtotal (Tax Exclusive)': 1.5, 'Discount': 0.15, 'Total Tax': 0.225, 'Total (Tax Inclusive)': 1.725 },
+    { 'Invoice Number': 'INV-1', 'Row Kind': 'Sale Line', 'Quantity': 1.2,
+      'Subtotal (Tax Exclusive)': 1.92, 'Discount': 0, 'Total Tax': 0.288, 'Total (Tax Inclusive)': 1.888 },
+    { 'Invoice Number': 'INV-1', 'Row Kind': 'Sale Line', 'Quantity': 1.4,
+      'Subtotal (Tax Exclusive)': 2.38, 'Discount': 0, 'Total Tax': 0.357, 'Total (Tax Inclusive)': 2.057 },
+  ];
+
+  it('finds the column by its values and keeps the header row out of the line-item total', () => {
+    const mapping = detectMapping(headers, records);
+    expect(mapping.lineType).toBe('Row Kind');
+
+    const result = parseSource(records, mapping);
+    expect(result.sales).toHaveLength(1);
+    // فقط بندا «Sale Line» يُحسبان — صف الرأس («Sale») مستبعد رغم قيمه المعبّأة
+    expect(result.sales[0].lines).toHaveLength(2);
+    expect(result.sales[0].sourceTotalInclusive).toBe(3.95); // 1.888 + 2.057
+  });
+
+  it('does not guess when two unassigned columns are equally plausible', () => {
+    const headers2 = [...headers, 'Entry Kind'];
+    const records2 = records.map(r => ({ ...r, 'Entry Kind': r['Row Kind'] }));
+    const mapping = detectMapping(headers2, records2);
+    expect(mapping.lineType).toBeUndefined();
+  });
+});
+
 describe('parseSource — flat mode (no lineType column, one row per product line)', () => {
   const headers = ['Invoice Number', 'Date', 'Customer Name', 'Customer ID', 'Location', 'Payment Method',
     'SKU', 'Details', 'Quantity', 'Subtotal (Tax Exclusive)', 'Discount', 'Total Tax', 'Total (Tax Inclusive)'];
