@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { AI_SYSTEM_PROMPT } from "./lib/aiSystemPrompt";
+import { buildSystemPrompt, buildContentParts } from "./lib/aiSystemPrompt";
 
 export const AI_AGENT_EMAIL = "ai-agent@system.local";
 export const AI_AGENT_NAME_AR = "مساعد قيود (ذكاء اصطناعي)";
@@ -41,7 +41,12 @@ export function cleanMessageForAgent(text) {
   return text;
 }
 
-export async function chatWithAgent(userPrompt) {
+// options.attachments: [{ name, mimeType, base64 }] — images/files pasted or attached in
+// chat.jsx, sent as inlineData parts for Gemini's multimodal analysis.
+// options.user: { id, email, name, role } — the logged-in user, folded into the system
+// prompt so the assistant knows who it's replying to.
+export async function chatWithAgent(userPrompt, options = {}) {
+  const { attachments = [], user = null } = options;
   const apiKey = await getGeminiKey();
 
   if (!apiKey) {
@@ -57,8 +62,8 @@ export async function chatWithAgent(userPrompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
-        contents: [{ parts: [{ text: userPrompt }] }]
+        systemInstruction: { parts: [{ text: buildSystemPrompt(user) }] },
+        contents: [{ parts: buildContentParts(userPrompt, attachments) }]
       })
     });
 
@@ -76,9 +81,10 @@ export async function chatWithAgent(userPrompt) {
   }
 }
 
-// Used directly by the chat UI (src/chat.jsx): sends the user's message straight to Gemini
-// with the locally configured API key and returns plain reply text.
-export async function generateAIResponse(userPrompt) {
-  const { text } = await chatWithAgent(userPrompt);
+// Used directly by the chat UI (src/chat.jsx): sends the user's message (plus any pasted/
+// attached images or files, and the current user's profile) straight to Gemini with the
+// locally configured API key, and returns plain reply text.
+export async function generateAIResponse(userPrompt, options = {}) {
+  const { text } = await chatWithAgent(userPrompt, options);
   return text;
 }

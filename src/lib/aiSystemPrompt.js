@@ -37,4 +37,38 @@ export const AI_SYSTEM_PROMPT = `أنت "مساعد قيود" — مساعد ذ�
 ## أسلوب الرد
 - ردودك مختصرة، مباشرة، ومهنية بلغة محاسبية دقيقة — لا حشو ولا مقدمات عامة.
 - أجب بنفس لغة رسالة المستخدم (عربي أو إنجليزي).
-- إن كان السؤال خارج نطاق قيود/المحاسبة/هذا التطبيق تماماً، أجب بإيجاز عادي دون التظاهر بأنه متعلق بالمشروع.`;
+- إن كان السؤال خارج نطاق قيود/المحاسبة/هذا التطبيق تماماً، أجب بإيجاز عادي دون التظاهر بأنه متعلق بالمشروع.
+
+## عند استلام صور أو ملفات مرفقة
+قد تصلك صور (لقطات شاشة لقيود، فواتير، شجرة حسابات) أو ملفات (Excel/PDF) كبيانات مرفقة مباشرة مع الرسالة.
+اقرأها فعلياً وحلّل محتواها (استخرج الأرقام، الحسابات، التواريخ)، ولا تكتفِ بوصفها عموماً أو الاعتذار بعدم
+القدرة على رؤيتها. طبّق عليها نفس منطق الفحص والتصنيف الموضح أعلاه.`;
+
+// Appends the logged-in user's profile to the base system prompt so the model knows who
+// it's actually talking to in this turn (name/email/role), instead of an anonymous user.
+// user: { id, email, name, role } — any field may be missing; falls back to AI_SYSTEM_PROMPT as-is.
+export function buildSystemPrompt(user) {
+  if (!user || (!user.name && !user.email && !user.id)) return AI_SYSTEM_PROMPT;
+  const userBlock = `
+
+## المستخدم الحالي الذي تتحدث معه الآن
+- الاسم: ${user.name || "غير معروف"}
+- البريد الإلكتروني/المعرّف: ${user.email || user.id || "غير معروف"}
+- الصلاحية: ${user.role || "مستخدم"}
+خاطبه باسمه عند المناسبة. تذكّر صلاحيته عند سؤال إداري (مثل إدارة المستخدمين أو مفاتيح API) يخص المدير فقط.`;
+  return AI_SYSTEM_PROMPT + userBlock;
+}
+
+// Builds a Gemini `contents[].parts` array from plain text plus optional attachments
+// ({ mimeType, base64 } — base64 with no "data:...;base64," prefix), so the same request
+// shape supports pure text and multimodal (image/file) messages alike.
+export function buildContentParts(text, attachments) {
+  const parts = [];
+  if (text) parts.push({ text });
+  for (const att of attachments || []) {
+    if (!att || !att.base64) continue;
+    parts.push({ inlineData: { mimeType: att.mimeType || "application/octet-stream", data: att.base64 } });
+  }
+  if (parts.length === 0) parts.push({ text: "" });
+  return parts;
+}

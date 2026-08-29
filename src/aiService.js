@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { AI_SYSTEM_PROMPT } from "./lib/aiSystemPrompt";
+import { buildSystemPrompt, buildContentParts } from "./lib/aiSystemPrompt";
 
 export async function getGeminiKey() {
   try {
@@ -40,7 +40,11 @@ export function hasClaudeKey() {
   return !!getClaudeKey();
 }
 
-async function callGemini(prompt) {
+// options.attachments: [{ name, mimeType, base64 }] — images/files sent as inlineData parts
+// for Gemini's multimodal analysis. options.user: { id, email, name, role } — the logged-in
+// user, folded into the system prompt so the assistant knows who it's replying to.
+async function callGemini(prompt, options = {}) {
+  const { attachments = [], user = null } = options;
   const apiKey = await getGeminiKey();
   if (!apiKey) throw new Error("يرجى إدخال مفتاح Gemini API من الإعدادات أولاً");
 
@@ -48,8 +52,8 @@ async function callGemini(prompt) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: prompt }] }]
+      systemInstruction: { parts: [{ text: buildSystemPrompt(user) }] },
+      contents: [{ parts: buildContentParts(prompt, attachments) }]
     })
   });
 
@@ -71,9 +75,9 @@ function parseJSONReply(text) {
   return JSON.parse(jsonSlice);
 }
 
-export async function askAI(prompt) {
+export async function askAI(prompt, options = {}) {
   try {
-    return await callGemini(prompt);
+    return await callGemini(prompt, options);
   } catch (err) {
     return `⚠️ ${err.message || "تعذر الاتصال بسيرفر الذكاء الاصطناعي."}`;
   }

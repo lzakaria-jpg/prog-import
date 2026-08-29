@@ -234,11 +234,41 @@ async function uploadChatFile(file, senderEmail) {
   return { url: data.publicUrl, path };
 }
 
+// ─── Pending Attachments (paste / file picker → preview → Send) ────────────
+
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024; // keep inline base64 payloads to Gemini reasonable
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Reads a File/Blob (from <input type="file"> or a paste event) into an attachment the
+// input area can preview, and that carries Base64 data ready for a multimodal Gemini call.
+async function fileToAttachment(file) {
+  const dataUrl = await readFileAsDataURL(file);
+  const base64 = (dataUrl.split(",")[1]) || "";
+  return {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    file,
+    name: file.name || (file.type?.startsWith("image/") ? "pasted-image.png" : "attachment"),
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    dataUrl,
+    base64,
+    isImage: (file.type || "").startsWith("image/"),
+  };
+}
+
 // ─── Main Chat Panel ────────────────────────────────────────────────
 
 export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const { lang, t } = useLanguage();
-  const { currentUser, whitelist } = useAuth();
+  const { currentUser, whitelist, isAdmin } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -249,7 +279,9 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [unreadCounts, setUnreadCounts] = useState({});
-  const [uploading, setUploading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [attachError, setAttachError] = useState(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [popup, setPopup] = useState(null);
   const messagesEndRef = useRef(null);
@@ -262,6 +294,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     if (activeChannel === AI_AGENT_EMAIL) return { ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN };
     return { ar: `خاص مع ${emailToName(activeChannel)}`, en: `Chat with ${emailToName(activeChannel)}` };
   }, [activeChannel]);
+
+  // The logged-in user's profile, passed into the AI's system prompt on every agent call so
+  // it knows who it's talking to (name, email/ID, and whether they're an admin).
+  const userContext = useMemo(() => ({
+    id: currentUser,
+    email: currentUser,
+    name: emailToName(currentUser),
+    role: isAdmin ? "Admin" : "User",
+  }), [currentUser, isAdmin]);
 
   const loadMessages = useCallback(async () => {
     setLoading(true);
@@ -357,64 +398,109 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
   const [agentTyping, setAgentTyping] = useState(false);
 
-  const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text) return;
-    setInputText("");
-
-    const isDMWithAgent = activeChannel === AI_AGENT_EMAIL;
-
-    // 1. إذا كان الشات عادي بين الموظفين (ليس مع الذكاء الاصطناعي)
-    if (!isDMWithAgent && !text.includes("@AI")) {
-      await supabase.from("chat_messages").insert({
-        sender_email: currentUser,
-        recipient_email: activeChannel === "public" ? null : activeChannel,
-        content: text,
-        message_type: "text",
-      });
+  // Reads a File (from the file picker or a paste event) and queues it as a pending
+  // attachment shown in the preview strip — nothing is uploaded or sent until handleSend.
+  const queueAttachment = async (file) => {
+    if (!file) return;
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError(t({ ar: `الملف "${file.name}" أكبر من الحد المسموح (15MB)`, en: `"${file.name}" is larger than the 15MB limit` }));
       return;
     }
-
-    // 2. إذا كانت الرسالة موجهة للذكاء الاصطناعي حصراً
-    await supabase.from("chat_messages").insert({
-      sender_email: currentUser,
-      recipient_email: isDMWithAgent ? AI_AGENT_EMAIL : null,
-      content: text,
-      message_type: "text",
-    });
-
-    setAgentTyping(true);
-    const replyText = await generateAIResponse(text);
-    setAgentTyping(false);
-
-    await supabase.from("chat_messages").insert({
-      sender_email: AI_AGENT_EMAIL,
-      recipient_email: isDMWithAgent ? currentUser : null,
-      content: replyText,
-      message_type: "text",
-    });
+    try {
+      const attachment = await fileToAttachment(file);
+      setPendingAttachments((prev) => [...prev, attachment]);
+      setAttachError(null);
+    } catch (err) {
+      console.error("Attach error:", err);
+      setAttachError(t({ ar: "تعذر قراءة الملف", en: "Could not read the file" }));
+    }
   };
 
-  const handleFileSend = async (e) => {
+  const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const { url } = await uploadChatFile(file, currentUser);
-      const recipientForDB = activeChannel === "public" ? null : activeChannel;
-      await supabase.from("chat_messages").insert({
-        sender_email: currentUser,
-        recipient_email: recipientForDB,
-        message_type: "file",
-        file_name: file.name,
-        file_url: url,
-        file_size: file.size,
-      });
-    } catch (err) {
-      console.error("Upload error:", err);
-    }
-    setUploading(false);
+    await queueAttachment(file);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // Ctrl+V into the message input: images/files go to the pending attachments preview
+  // instead of being sent immediately; plain text falls through to the normal paste behavior.
+  const handlePaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const fileItems = Array.from(items).filter((it) => it.kind === "file");
+    if (fileItems.length === 0) return;
+    e.preventDefault();
+    for (const item of fileItems) {
+      await queueAttachment(item.getAsFile());
+    }
+  };
+
+  const removeAttachment = (id) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleSend = async () => {
+    const text = inputText.trim();
+    const attachments = pendingAttachments;
+    if (!text && attachments.length === 0) return;
+    setInputText("");
+    setPendingAttachments([]);
+    setAttachError(null);
+
+    const isDMWithAgent = activeChannel === AI_AGENT_EMAIL;
+    const mentionsAgent = !isDMWithAgent && text.includes("@AI");
+    const isForAgent = isDMWithAgent || mentionsAgent;
+    const recipientForDB = isDMWithAgent ? AI_AGENT_EMAIL : (mentionsAgent ? null : (activeChannel === "public" ? null : activeChannel));
+
+    setSending(true);
+    try {
+      // Persist the message: one row per attachment (first one carries the typed caption),
+      // or a single text row when there are no attachments.
+      if (attachments.length > 0) {
+        for (let i = 0; i < attachments.length; i++) {
+          const att = attachments[i];
+          try {
+            const { url } = await uploadChatFile(att.file, currentUser);
+            await supabase.from("chat_messages").insert({
+              sender_email: currentUser,
+              recipient_email: recipientForDB,
+              content: i === 0 ? (text || null) : null,
+              message_type: "file",
+              file_name: att.name,
+              file_url: url,
+              file_size: att.size,
+            });
+          } catch (err) {
+            console.error("Upload error:", err);
+          }
+        }
+      } else {
+        await supabase.from("chat_messages").insert({
+          sender_email: currentUser,
+          recipient_email: recipientForDB,
+          content: text,
+          message_type: "text",
+        });
+      }
+
+      if (!isForAgent) return;
+
+      // Multimodal call to the AI agent: send the images/files as inline Base64 data
+      // alongside the text so Gemini can actually analyze them, plus who's asking.
+      setAgentTyping(true);
+      const attachmentsPayload = attachments.map((a) => ({ name: a.name, mimeType: a.mimeType, base64: a.base64 }));
+      const replyText = await generateAIResponse(text, { attachments: attachmentsPayload, user: userContext });
+      setAgentTyping(false);
+
+      await supabase.from("chat_messages").insert({
+        sender_email: AI_AGENT_EMAIL,
+        recipient_email: isDMWithAgent ? currentUser : null,
+        content: replyText,
+        message_type: "text",
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleEdit = async (id, newContent) => {
@@ -580,21 +666,54 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Pending attachments preview (paste or file picker) — not sent until Send is clicked */}
+          {(pendingAttachments.length > 0 || attachError) && (
+            <div style={{ padding: "8px 12px 0", flexShrink: 0, background: "#16213A" }}>
+              {attachError && (
+                <p style={{ fontSize: 11, color: "#FB7185", margin: "0 0 6px" }}>{attachError}</p>
+              )}
+              {pendingAttachments.length > 0 && (
+                <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
+                  {pendingAttachments.map((att) => (
+                    <div key={att.id} style={{ position: "relative", flexShrink: 0 }}>
+                      {att.isImage ? (
+                        <img src={att.dataUrl} alt={att.name} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", border: "1px solid #233152", display: "block" }} />
+                      ) : (
+                        <div style={{ width: 48, height: 48, borderRadius: 8, background: "#0E1830", border: "1px solid #233152", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 4, gap: 2 }}>
+                          {fileIcon(att.name)}
+                          <span style={{ fontSize: 8, color: "#8CA3C1", maxWidth: 44, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => removeAttachment(att.id)}
+                        title={t({ ar: "إزالة", en: "Remove" })}
+                        style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 9, background: "#DC2626", border: "2px solid #16213A", color: "#FFF", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Input */}
           <div style={{ padding: "10px 12px", borderTop: "1px solid #16213A", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, background: "#16213A" }}>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSend} style={{ display: "none" }} />
-            <button onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#16213A", color: "#8CA3C1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {uploading ? <div style={{ width: 14, height: 14, border: "2px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Paperclip size={16} />}
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSelect} style={{ display: "none" }} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={sending} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#16213A", color: "#8CA3C1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Paperclip size={16} />
             </button>
             <input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder={t({ ar: "اكتب رسالة...", en: "Type a message..." })}
+              placeholder={t({ ar: "اكتب رسالة، أو الصق صورة/ملف...", en: "Type a message, or paste an image/file..." })}
               style={{ flex: 1, padding: "8px 14px", borderRadius: 12, border: "1px solid #233152", fontSize: 13, outline: "none", background: "#0E1830", color: "#E6EDF6" }}
             />
-            <button onClick={handleSend} disabled={!inputText.trim()} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: inputText.trim() ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152", color: inputText.trim() ? "#FFF" : "#5C7196", cursor: inputText.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />
+            <button onClick={handleSend} disabled={sending || (!inputText.trim() && pendingAttachments.length === 0)} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: (inputText.trim() || pendingAttachments.length > 0) ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152", color: (inputText.trim() || pendingAttachments.length > 0) ? "#FFF" : "#5C7196", cursor: sending ? "wait" : (inputText.trim() || pendingAttachments.length > 0) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {sending ? <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#FFF", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />}
             </button>
           </div>
         </div>
