@@ -65,8 +65,10 @@ export function similarity(a, b) {
  */
 export const FIELD_SYNONYMS = {
   customerName: {
-    ar: ['اسم العميل', 'العميل', 'الاسم', 'اسم الزبون', 'الزبون', 'اسم المشتري', 'اسم العميل بالعربي'],
-    en: ['customer name', 'customer', 'client', 'client name', 'name', 'buyer', 'account name', 'cust', 'cs'],
+    // «اسم الجهة» / «الجهة» هو نص عمود اسم العميل الفعلي في ملفات تصدير قيود نفسها
+    ar: ['اسم العميل', 'العميل', 'الاسم', 'اسم الزبون', 'الزبون', 'اسم المشتري', 'اسم العميل بالعربي',
+         'اسم الجهة', 'الجهة'],
+    en: ['customer name', 'customer', 'client', 'client name', 'name', 'buyer', 'account name', 'cust', 'cs', 'entity name'],
   },
   customerRef: {
     ar: ['الرقم المرجعي', 'رقم العميل', 'كود العميل', 'معرف العميل', 'الرقم المرجعي للعميل', 'رقم مرجعي'],
