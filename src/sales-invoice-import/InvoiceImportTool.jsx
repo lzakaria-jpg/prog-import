@@ -212,7 +212,7 @@ export default function InvoiceImportTool({
       const wbk = await readWorkbook(file, { findHeader: findSourceHeaderRow });
       setSourceRaw(wbk);
       setSourceHeaders(wbk.headers);
-      setSourceMapping(detectMapping(wbk.headers, wbk.records));
+      setSourceMapping(detectMapping(wbk.headers));
       setSourceFile(file.name);
     } catch (e) {
       raise(`تعذّرت قراءة الملف: ${e.message}`);

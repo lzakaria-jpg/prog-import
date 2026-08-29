@@ -4,7 +4,6 @@ import { SOURCE_FIELD_ALIASES } from '../engine/parseSource.js';
 
 const FIELD_LABELS = {
   invoiceNumber: 'رقم الفاتورة / المرجع',
-  lineType:      'نوع السطر (اختياري)',
   date:          'تاريخ الإصدار',
   sellType:      'نوع العملية (بيع / مرتجع)',
   customerName:  'اسم العميل',
@@ -19,7 +18,6 @@ const FIELD_LABELS = {
   totalTax:      'إجمالي الضريبة',
   totalInc:      'الإجمالي شامل الضريبة',
   paymentMethod: 'طريقة الدفع',
-  paidAmount:    'المبلغ المدفوع',
   vat:           'ضريبة القيمة المضافة',
   otherTaxes:    'ضرائب أخرى',
   dueDate:       'تاريخ الاستحقاق',
@@ -33,12 +31,12 @@ const FIELD_LABELS = {
   taxInclusiveFlag: 'شامل الضريبة؟ (كما ورد في ملف العميل)',
 };
 
-// «نوع السطر» لم يعد إلزامياً: بوجوده تُعامَل الملف كملف منظَّم (رأس/بند/دفع)
-// كما كان دائماً؛ بغيابه تُعامَل كل صفوفه كبنود منتجات وتُجمَّع بالمرجع وحده
+// كل صف في الملف بند منتج فعلي بلا استثناء — لا يوجد عمود «نوع سطر» يُبحث عنه
+// أو يُميَّز به صف رأس عن صف بند؛ رقم الفاتورة وحده أساس التجميع
 const REQUIRED = ['invoiceNumber', 'quantity', 'subtotalEx', 'totalInc', 'totalTax', 'date'];
-const IMPORTANT = ['lineType', 'sellType', 'customerName', 'customerRef', 'location', 'sku', 'details', 'discount', 'paymentMethod'];
+const IMPORTANT = ['sellType', 'customerName', 'customerRef', 'location', 'sku', 'details', 'discount', 'paymentMethod'];
 const OPTIONAL = [
-  'channel', 'paidAmount', 'vat', 'otherTaxes', 'dueDate', 'supplyDate', 'terms', 'notes',
+  'channel', 'vat', 'otherTaxes', 'dueDate', 'supplyDate', 'terms', 'notes',
   'docDiscountValue', 'unit', 'unitPriceExplicit', 'discountPctExplicit', 'taxInclusiveFlag',
 ];
 
@@ -91,11 +89,10 @@ export default function Step2Source({ state, actions }) {
             : <Badge tone="ok">الحقول الأساسية مكتملة</Badge>}
         >
           <Note>
-            <strong>رقم الفاتورة</strong> هو أساس تجميع الصفوف: كل الصفوف التي تحمل نفس الرقم فاتورة واحدة.
-            إن وُجد عمود <strong>نوع السطر</strong> (رأس/بند/دفع) يُستخدم لتمييز صف الرأس عن صفوف البنود كما
-            في ملفات نقاط البيع المنظَّمة. إن غاب، تُعامَل كل الصفوف كبنود منتجات، وبيانات الفاتورة (العميل
-            والتاريخ والموقع...) تُقرأ من كل صف وتُوفَّق تلقائياً — مناسب لملفات العملاء غير المنظَّمة.
-            الربط الذكي مبدئي دائماً — راجعه أدناه وصحّح أي عمود غير صحيح قبل المتابعة.
+            <strong>رقم الفاتورة</strong> هو أساس تجميع الصفوف: كل الصفوف التي تحمل نفس الرقم فاتورة واحدة،
+            وكل صف بلا استثناء بند منتج فعلي يُحتسب ضمنها. لا يوجد أي تصنيف لـ«نوع الصف» (رأس/بند/دفع) —
+            بيانات الفاتورة (العميل والتاريخ والموقع...) تُقرأ من كل صف وتُوفَّق تلقائياً، وإجمالي الفاتورة
+            هو مجموع كل صفوفها دائماً. الربط الذكي مبدئي دائماً — راجعه أدناه وصحّح أي عمود غير صحيح قبل المتابعة.
           </Note>
 
           <div className="qii-tabs" style={{ margin: '0 0 14px', padding: 0, border: 0, background: 'transparent' }}>

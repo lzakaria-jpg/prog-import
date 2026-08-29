@@ -1,8 +1,12 @@
 /**
  * تفكيك ملف مصدر نقاط البيع/سلة إلى فواتير مهيكلة.
  *
- * البنية المتوقعة: كل فاتورة = صف رأس (Sale) + صفوف بنود (Sale Line) + صفوف دفع (Payment)،
- * مربوطة بعمود رقم الفاتورة. المرتجعات تُفصل ولا تُستورد كفواتير مبيعات.
+ * كل صف في الملف، بلا استثناء، بند منتج فعلي تابع للفاتورة التي يحملها رقمها
+ * المرجعي — رقم الفاتورة وحده هو أساس التجميع. لا يوجد أي تصنيف لـ«نوع الصف»
+ * (رأس/بند/دفع): لا يُبحث عن عمود كهذا ولا يُطابَق ولا يُخمَّن، ولا يُعتمد أي
+ * إجمالي مُجمَّع من صف مخصَّص؛ إجمالي كل فاتورة هو مجموع كل صفوفها دائماً.
+ * بيانات الفاتورة (العميل والتاريخ والموقع...) تُقرأ من كل صف وتُوفَّق بينها.
+ * المرتجعات تُفصل عبر عمود «نوع العملية» إن وُجد، ولا تُستورد كفواتير مبيعات.
  */
 
 import { toNum, toStr, round, parseDate, dateKey } from './num.js';
@@ -23,10 +27,6 @@ export const SOURCE_FIELD_ALIASES = {
     exact: ['invoicenumber', 'invoiceno', 'invoice', 'invoiceid', 'orderno', 'ordernumber', 'ordreid',
             'رقمالفاتوره', 'الفاتوره', 'رقمالطلب', 'رقمالمستند', 'مرجعالفاتوره', 'no', 'num', '#'],
     partial: ['invoicenumber', 'invoiceno', 'ordernumber', 'رقمالفاتوره', 'رقمالطلب', 'مرجعالفاتوره', 'مرجع'],
-  },
-  lineType: {
-    exact: ['linetype', 'rowtype', 'type', 'recordtype', 'نوعالسطر', 'نوعالصف', 'النوع', 'نوعالسجل'],
-    partial: ['linetype', 'rowtype', 'نوعالسطر', 'نوعالصف'],
   },
   sellType: {
     exact: ['selltype', 'transactiontype', 'doctype', 'documenttype', 'نوعالبيع', 'نوعالعمليه',
@@ -106,12 +106,7 @@ export const SOURCE_FIELD_ALIASES = {
             'طريقهالدفع', 'وسيلهالدفع', 'نوعالدفع', 'الدفع'],
     partial: ['paymentmethod', 'paymenttype', 'طريقهالدفع', 'وسيلهالدفع'],
   },
-  paidAmount: {
-    exact: ['paidamount', 'paid', 'amountpaid', 'payment', 'المبلغالمدفوع', 'المدفوع'],
-    partial: ['paidamount', 'amountpaid', 'المبلغالمدفوع'],
-  },
 
-  // ── حقول ملفات الفواتير غير المنظّمة (بلا عمود «نوع السطر») ──
   dueDate: {
     exact: ['duedate', 'تاريخالاستحقاق', 'الاستحقاق'],
     partial: ['duedate', 'تاريخالاستحقاق'],
@@ -146,7 +141,7 @@ export const SOURCE_FIELD_ALIASES = {
     partial: ['discountpercent', 'discountrate', 'نسبهالخصم'],
   },
   // مرادفات ضيّقة أيضاً كي لا تتنازع مع «totalInc» — يُتحقق من محتواها (نعم/لا)
-  // عند الاستهلاك في buildInvoiceFlat، فأي عمود مطابَق خطأً يُتجاهَل بأمان
+  // عند الاستهلاك في buildInvoice، فأي عمود مطابَق خطأً يُتجاهَل بأمان
   taxInclusiveFlag: {
     exact: ['taxinclusiveflag', 'priceincludestax', 'شاملالضريبه؟', 'شاملالضريبهامال'],
     partial: ['priceincludestax', 'isinclusive'],
@@ -170,8 +165,6 @@ export function normalizeSourceHeader(v) {
     .toLowerCase();
 }
 
-/** قيم عمود نوع السطر */
-const LINE_TYPE = { HEADER: 'sale', LINE: 'sale line', PAYMENT: 'payment' };
 const RETURN_MARKERS = ['return', 'refund', 'مرتجع', 'ارتجاع'];
 
 /**
@@ -182,45 +175,7 @@ const RETURN_MARKERS = ['return', 'refund', 'مرتجع', 'ارتجاع'];
  * ثم يُخصَّص كل عمود لحقل واحد فقط، بدءاً من أعلى النقاط، فلا يتنازع حقلان
  * على نفس العمود ولا يُخصَّص عمودان لحقل واحد.
  */
-/**
- * القيم الثلاث الوحيدة التي يفهمها parseSource لعمود «نوع السطر» (LINE_TYPE أعلاه).
- * تُستخدم أيضاً للكشف الاحتياطي بالمحتوى أدناه.
- */
-const LINE_TYPE_KNOWN_VALUES = new Set(['sale', 'sale line', 'payment']);
-
-/**
- * كشف احتياطي بمحتوى العمود لعمود «نوع السطر» — لا باسمه.
- *
- * إن فشلت مطابقة الاسم (تسمية العمود في ملف المصدر لا تشبه أي مرادف معروف، مثل
- * «Sale Type» بدل «Line Type»)، فمرور الملف كله إلى «النمط المسطَّط» بصمت يجعل
- * صف الرأس نفسه — الذي غالباً ما يحمل قيماً وهمية في أعمدة الكمية والسعر
- * والضريبة لأسباب تخص نظام المصدر — يُعامَل كبند منتج فعلي، فيُضاف إلى إجمالي
- * الفاتورة ويُفسد المطابقة الحسابية كلياً (فاتورة حقيقية شوهدت: صف رأس بكمية 1
- * وسعر وهميين رفع الإجمالي المحسوب من 8.26 إلى 9.84 مقابل مصدر 7.9 بدل 6.18).
- *
- * القيم الثلاث التي يفهمها المحرك لهذا العمود (Sale / Sale Line / Payment) قاموس
- * صغير ومغلق، فالتحقق آمن: عمود غير مخصَّص لأي حقل آخر، وكل قيمه المعبَّأة تقع
- * ضمن هذا القاموس تحديداً، وتتضمن Sale أو Sale Line فعلياً — لا تخمين عند التباس
- * عمودين مؤهَّلين معاً.
- */
-function contentGuessLineType(headers, records, usedCols) {
-  let foundIdx = -1;
-  for (let i = 0; i < headers.length; i++) {
-    if (usedCols.has(i)) continue;
-    const h = headers[i];
-    const sample = records.slice(0, 200).map(r => toStr(r[h]).toLowerCase()).filter(Boolean);
-    if (!sample.length) continue;
-    const distinct = new Set(sample);
-    const allKnown = [...distinct].every(v => LINE_TYPE_KNOWN_VALUES.has(v));
-    const hasHeaderOrLine = distinct.has('sale') || distinct.has('sale line');
-    if (!allKnown || !hasHeaderOrLine) continue;
-    if (foundIdx !== -1) return -1; // أكثر من عمود مرشّح: لا يُحسم شيء
-    foundIdx = i;
-  }
-  return foundIdx;
-}
-
-export function detectMapping(headers, records = []) {
+export function detectMapping(headers) {
   const norm = headers.map(h => normalizeSourceHeader(h));
   const candidates = [];
 
@@ -244,11 +199,6 @@ export function detectMapping(headers, records = []) {
     if (mapping[c.field] || usedCols.has(c.idx)) continue;
     mapping[c.field] = c.col;
     usedCols.add(c.idx);
-  }
-
-  if (!mapping.lineType && records.length) {
-    const idx = contentGuessLineType(headers, records, usedCols);
-    if (idx !== -1) mapping.lineType = headers[idx];
   }
 
   return mapping;
@@ -280,7 +230,7 @@ function parseYesNo(v) {
   return null;
 }
 
-/** الحقول على مستوى الفاتورة — تُقرأ من صف الرأس (نمط نوع السطر) أو من أي صف (النمط المسطّح) */
+/** حقول الفاتورة العامة — تُقرأ من كل صف على حدة، ثم تُوفَّق بين صفوف الفاتورة الواحدة لاحقاً */
 function extractHeaderFields(rec, get) {
   return {
     date: parseDate(get(rec, 'date')),
@@ -340,15 +290,7 @@ export function parseSource(records, mapping, opts = {}) {
   const issues = [];
   const groups = new Map();
 
-  /*
-   * نمطان: ملفات نقاط البيع المنظَّمة تحمل عمود «نوع السطر» (رأس/بند/دفع) —
-   * نمطها الأصلي المثبَت لا يتغيّر هنا حرفياً. ملفات العملاء غير المنظَّمة
-   * (لا عمود نوع سطر) تصل بصف واحد لكل بند منتج، وبيانات الفاتورة (العميل
-   * والتاريخ والموقع...) مكرَّرة أو موجودة في صفها الأول فقط؛ المرجع وحده هو
-   * أساس التجميع، لا عدد الصفوف ولا ترتيبها.
-   */
-  const flatMode = !mapping.lineType;
-
+  // رقم الفاتورة وحده أساس التجميع — كل صف بند منتج فعلي بلا استثناء
   records.forEach((rec, i) => {
     const sourceRow = i + 2; // صف 1 رؤوس
     const invNo = toStr(get(rec, 'invoiceNumber'));
@@ -362,52 +304,20 @@ export function parseSource(records, mapping, opts = {}) {
     }
 
     if (!groups.has(invNo)) {
-      groups.set(invNo, { invoiceNumber: invNo, header: null, headerCandidates: [], lines: [], payments: [], rows: [] });
+      groups.set(invNo, { invoiceNumber: invNo, headerCandidates: [], lines: [], rows: [] });
     }
     const g = groups.get(invNo);
     g.rows.push(sourceRow);
-
-    if (flatMode) {
-      // كل صف بند منتج، وبيانات الفاتورة تُقرأ من كل صف للتوفيق بينها لاحقاً
-      g.headerCandidates.push({ sourceRow, ...extractHeaderFields(rec, get) });
-      g.lines.push(extractLineFields(rec, get, sourceRow));
-      return;
-    }
-
-    const lt = toStr(get(rec, 'lineType')).toLowerCase();
-
-    if (lt === LINE_TYPE.HEADER) {
-      if (g.header) {
-        issues.push({
-          severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow,
-          code: 'DUPLICATE_HEADER',
-          message: `رقم الفاتورة ${invNo} له أكثر من صف رأس — تعارض في المصدر`,
-        });
-        return;
-      }
-      g.header = { sourceRow, isReturn: isReturn(get(rec, 'sellType')), ...extractHeaderFields(rec, get) };
-    } else if (lt === LINE_TYPE.LINE) {
-      g.lines.push(extractLineFields(rec, get, sourceRow));
-    } else if (lt === LINE_TYPE.PAYMENT) {
-      g.payments.push({
-        sourceRow,
-        method: toStr(get(rec, 'paymentMethod')),
-        amount: toNum(get(rec, 'paidAmount')),
-      });
-    } else {
-      issues.push({
-        severity: 'warn', scope: 'row', sourceRow, invoiceRef: invNo,
-        code: 'UNKNOWN_LINE_TYPE',
-        message: `نوع سطر غير معروف: «${lt || 'فارغ'}» — تم تجاهل الصف`,
-      });
-    }
+    // بيانات الفاتورة تُقرأ من كل صف للتوفيق بينها لاحقاً، والصف نفسه بند منتج
+    g.headerCandidates.push({ sourceRow, ...extractHeaderFields(rec, get) });
+    g.lines.push(extractLineFields(rec, get, sourceRow));
   });
 
   const sales = [];
   const returns = [];
 
   for (const g of groups.values()) {
-    const built = flatMode ? buildInvoiceFlat(g, issues) : buildInvoice(g, issues);
+    const built = buildInvoice(g, issues);
     if (!built) continue;
     (built.isReturn ? returns : sales).push(built);
   }
@@ -429,99 +339,6 @@ export function parseSource(records, mapping, opts = {}) {
       salesLines: sales.reduce((s, i) => s + i.lines.length, 0),
       returnLines: returns.reduce((s, i) => s + i.lines.length, 0),
     },
-  };
-}
-
-function buildInvoice(g, issues) {
-  const invNo = g.invoiceNumber;
-
-  if (!g.header) {
-    issues.push({
-      severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow: g.rows[0],
-      code: 'NO_HEADER_ROW',
-      message: `الفاتورة ${invNo} بلا صف رأس — لا يمكن استخراج العميل والتاريخ والموقع`,
-    });
-    return null;
-  }
-  if (g.lines.length === 0) {
-    issues.push({
-      severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow: g.header.sourceRow,
-      code: 'NO_LINES',
-      message: `الفاتورة ${invNo} بلا بنود`,
-    });
-    return null;
-  }
-
-  const isReturn = g.header.isReturn || g.lines.every(l => l.isReturn);
-
-  // تناسق: هل جميع البنود من نفس النوع
-  const mixed = g.lines.some(l => l.isReturn) && g.lines.some(l => !l.isReturn);
-  if (mixed) {
-    issues.push({
-      severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow: g.header.sourceRow,
-      code: 'MIXED_SELL_RETURN',
-      message: `الفاتورة ${invNo} تخلط بنود بيع وبنود مرتجع`,
-    });
-  }
-
-  const lines = toOutputLines(g.lines);
-
-  /*
-   * إجمالي الفاتورة = مجموع كل بنودها الصالحة دائماً — لا يوجد مفهوم «إجمالي رأس
-   * الفاتورة» يُعتمَد بدلاً منه. صف الرأس في الملفات المنظَّمة قد يحمل عمود إجمالي
-   * خاصاً به (headerTotal)، لكنه لا يُستخدم أبداً كإجمالي الفاتورة الفعلي — فقط
-   * كمرجع تشخيصي لمقارنته بمجموع البنود واكتشاف تضارب في بيانات المصدر نفسها.
-   */
-  const linesSum = round(lines.reduce((s, l) => s + l.sourceTotalInclusive, 0), 2);
-  const headerTotal = round(g.header.totalInc ?? 0, 2);
-
-  const headerDiff = round(headerTotal - linesSum, 2);
-  if (Math.abs(headerDiff) > 0.011) {
-    // تنبيه تشخيصي فقط: إجمالي الفاتورة المعتمد فعلياً هو linesSum دوماً، فهذا
-    // التضارب لا يمنع الاستيراد، لكنه يستحق الإبلاغ لأنه يكشف عطباً في ملف المصدر
-    const isRounding = Math.abs(headerDiff) <= 0.05;
-    issues.push({
-      severity: 'warn',
-      scope: 'invoice', invoiceRef: invNo, sourceRow: g.header.sourceRow,
-      code: isRounding ? 'HEADER_LINES_ROUNDING' : 'HEADER_LINES_MISMATCH',
-      message: isRounding
-        ? `فرق تقريب ${headerDiff} بين إجمالي رأس الفاتورة في المصدر ${headerTotal} ومجموع بنودها ${linesSum} — اعتُمد مجموع البنود ${linesSum} كإجمالي الفاتورة الفعلي`
-        : `إجمالي رأس الفاتورة في المصدر ${headerTotal} يختلف عن مجموع بنودها ${linesSum} بفارق ${headerDiff} — اعتُمد مجموع البنود ${linesSum} كإجمالي الفاتورة الفعلي`,
-    });
-  }
-
-  const paidSum = round(g.payments.reduce((s, p) => s + (p.amount ?? 0), 0), 2);
-  const methods = [...new Set(g.payments.map(p => p.method).filter(Boolean))];
-
-  if (g.payments.length > 1 && Math.abs(paidSum - headerTotal * g.payments.length) < 0.011) {
-    issues.push({
-      severity: 'warn', scope: 'invoice', invoiceRef: invNo, sourceRow: g.header.sourceRow,
-      code: 'DUPLICATE_PAYMENT_ROWS',
-      message: `صفوف الدفع مكررة (${g.payments.length} صفوف بنفس المبلغ) — لا يؤثر على الاستيراد`,
-    });
-  }
-
-  return {
-    invoiceRef: invNo,
-    isReturn,
-    issueDateParts: g.header.date,
-    rawDate: g.header.rawDate,
-    dueDateParts: g.header.dueDate,
-    supplyDateParts: g.header.supplyDate,
-    sourceCustomerName: g.header.customerName,
-    sourceCustomerRef: g.header.customerRef,
-    sourceLocation: g.header.location,
-    channel: g.header.channel,
-    sourcePaymentMethods: methods.length ? methods : [g.header.paymentMethod].filter(Boolean),
-    terms: g.header.terms,
-    notes: g.header.notes,
-    docDiscountValue: g.header.docDiscountValue,
-    paidAmount: paidSum,
-    // الإجمالي الفعلي دوماً = مجموع البنود، لا قيمة رأس الفاتورة ولا صف بعينه
-    sourceTotalInclusive: linesSum,
-    lines,
-    headerRow: g.header.sourceRow,
-    rows: g.rows,
   };
 }
 
@@ -551,13 +368,13 @@ function toOutputLines(rawLines) {
 }
 
 /**
- * يبني فاتورة من مجموعة صفوف بلا عمود «نوع سطر» — كل صف بند منتج، وبيانات
- * الفاتورة تُقرأ من كل صف وتُوفَّق بينها: قيمة الصف الأول تُعتمد، وأي اختلاف
- * لاحق يُبلَّغ عنه بدل أن يُختار عشوائياً أو يُسقَط بصمت.
+ * يبني فاتورة من مجموعة صفوف تحمل نفس رقم الفاتورة — كل صف بند منتج فعلي بلا
+ * استثناء، وبيانات الفاتورة تُقرأ من كل صف وتُوفَّق بينها: القيمة الأولى غير
+ * الفارغة تُعتمد، وأي اختلاف لاحق يُبلَّغ عنه بدل أن يُختار عشوائياً أو يُسقَط بصمت.
  * الموقع وحده يُفشل الفاتورة عند الاختلاف — فاتورة واحدة لا يجوز أن تحمل أكثر
  * من موقع، ولا معنى لاختيار أحدهما عشوائياً.
  */
-function buildInvoiceFlat(g, issues) {
+function buildInvoice(g, issues) {
   const invNo = g.invoiceNumber;
 
   if (g.lines.length === 0) {
@@ -637,8 +454,7 @@ function buildInvoiceFlat(g, issues) {
     terms: terms || '',
     notes: notes || '',
     docDiscountValue,
-    paidAmount: null,
-    // لا رأس منفصل في هذا النمط: إجمالي الفاتورة هو مجموع بنودها
+    // لا رأس منفصل ولا إجمالي مُجمَّع: إجمالي الفاتورة هو مجموع بنودها دائماً
     sourceTotalInclusive: linesSum,
     lines,
     headerRow: first?.sourceRow ?? g.rows[0],

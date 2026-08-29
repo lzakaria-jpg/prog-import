@@ -56,7 +56,7 @@ describe('full pipeline — messy customer header + non-sellable product + flat 
     expect(customers[0].ref).toBe('C-100');
   });
 
-  it('parses the flat (no lineType) invoice file into one invoice with the right totals', () => {
+  it('parses the invoice file (every row a line item) into one invoice with the right totals', () => {
     expect(parsed.sales).toHaveLength(1);
     expect(parsed.sales[0].sourceTotalInclusive).toBe(115);
   });
