@@ -223,73 +223,125 @@ function findLocationStockRow(code, name, locationStockIndex) {
 }
 
 /**
- * فحص كفاية الكميات — يجمع المطلوب لكل منتج (ولكل موقع إن توفّر ملف كميات
- * حسب المواقع) عبر كل الفواتير ويقارنه بالمتاح.
+ * فحص كفاية الكميات — رصيد متسلسل وديناميكي، لا كمية أصلية تُعاد استخدامها لكل فاتورة.
  *
- * سبب أهميته: قيود يرفض الفاتورة كلياً إذا لم تتوفر كمية كافية لمنتج مخزَّن،
- * وعندها يفشل الاستيراد بعد الرفع لا قبله.
+ * لكل منتج (ولكل موقع إن توفّر ملف كميات حسب المواقع — وهو المصدر الوحيد المعتمد
+ * للكمية حسب الموقع، لا إجمالي ملف تعريف المنتجات) يُبنى رصيد متبقٍّ واحد، ثم
+ * تُعالَج الفواتير بالترتيب الذي وردت به (وهو نفسه ترتيبها الزمني من parseSource):
+ * فاتورة تُقبل بالكامل تخصم طلبها من الرصيد المتبقي فينتقل الفارق للفاتورة التالية؛
+ * فاتورة يتجاوز طلبها الرصيد المتبقي وقتها تُعلَّم ناقصة ولا تُخصَم من الرصيد — لن
+ * تُنشأ فعلياً في قيود، فلا يجوز أن تُحرم الفواتير اللاحقة من رصيد لم يُستهلَك فعلاً.
+ *
+ * بنود الفاتورة نفسها لنفس المنتج تُجمَع أولاً (سطر 5 + سطر 8 = طلب واحد قدره 13)
+ * قبل مقارنتها بالرصيد، فلا تُقبَل جزئياً بسبب تفرقها على أكثر من سطر.
+ *
+ * منتج لا يظهر في ملف كميات المواقع إطلاقاً — رغم وجوده في ملف تعريف المنتجات —
+ * منتج غير مخزَّن: يُباع بلا حد وبلا خصم من أي رصيد، لا يُعامَل كمنتج كميته صفر.
  *
  * بدون ملف كميات حسب المواقع، يبقى السلوك كما كان تماماً: رصيد عالمي واحد لكل
- * منتج من ملف تعريف المنتجات. بوجوده، تُفحص الكمية في موقع كل فاتورة تحديداً —
- * فاتورة لموقع «الرياض» لا تُقارَن برصيد «جدة».
+ * منتج من ملف تعريف المنتجات.
  *
  * @param {Array<{code:string, quantity:number, invoiceRef:string, sourceRow:number, location?:string}>} demands
  * @param {object} productIndex
  * @param {object|null} [locationStockIndex] من buildLocationStockIndex
+ * @returns {Array<{code, location, name, required, available, remaining, shortage,
+ *   invoiceCount, invoices, insufficientInvoices, rows, breakdown, status}>}
+ *   breakdown: تسلسل الفواتير كما عولجت، كل عنصر بالرصيد المتبقي *قبل* معالجتها
+ *   تحديداً (لا الرصيد الأصلي)، ليُعرض في واجهة المراجعة الرقم الصحيح وقت كل فاتورة.
  */
 export function checkStock(demands, productIndex, locationStockIndex = null) {
-  const agg = new Map();
+  const groups = new Map();
 
   for (const d of demands) {
     const k = normalizeCode(d.code);
     if (!k) continue;
     const loc = toStr(d.location);
-    const aggKey = locationStockIndex ? `${k}::${loc}` : k;
-    if (!agg.has(aggKey)) agg.set(aggKey, { code: d.code, location: loc, required: 0, invoices: new Set(), rows: [] });
-    const a = agg.get(aggKey);
-    a.required = round(a.required + (d.quantity || 0), 6);
-    a.invoices.add(d.invoiceRef);
-    a.rows.push(d.sourceRow);
+    const groupKey = locationStockIndex ? `${k}::${loc}` : k;
+    if (!groups.has(groupKey)) groups.set(groupKey, { code: d.code, location: loc, order: [], perInvoice: new Map() });
+    const grp = groups.get(groupKey);
+    if (!grp.perInvoice.has(d.invoiceRef)) {
+      grp.perInvoice.set(d.invoiceRef, { invoiceRef: d.invoiceRef, required: 0, rows: [] });
+      grp.order.push(d.invoiceRef); // أول ظهور لكل فاتورة يحفظ ترتيب المعالجة
+    }
+    const e = grp.perInvoice.get(d.invoiceRef);
+    e.required = round(e.required + (d.quantity || 0), 6);
+    e.rows.push(d.sourceRow);
   }
 
   const results = [];
-  for (const a of agg.values()) {
-    const k = normalizeCode(a.code);
+  for (const grp of groups.values()) {
+    const k = normalizeCode(grp.code);
     const p = productIndex.byCode.get(k);
 
-    let available = null;
-    let status;
+    let initialAvailable = null;
+    // baseStatus مضبوطة تعني: هذا المفتاح لا يخضع لفحص كمية إطلاقاً (منتج غير
+    // معروف، غير مخزَّن، أو رصيده غير معروف) — كل الفواتير تمر دون قيد ولا خصم
+    let baseStatus = null;
 
     if (locationStockIndex) {
-      const locRow = p ? findLocationStockRow(a.code, toStr(p.name), locationStockIndex) : null;
-      if (!p) status = 'unknown_product';
-      else if (!locRow) status = 'stock_unknown';
+      const locRow = p ? findLocationStockRow(grp.code, toStr(p.name), locationStockIndex) : null;
+      if (!p) baseStatus = 'unknown_product';
+      // غياب المنتج عن ملف مواقع المنتجات ليس خطأً ولا يعني كمية صفر: هذا هو
+      // تعريف «منتج غير مخزَّن» — عدد منتجات الملفين قد يختلف طبيعياً
+      else if (!locRow) baseStatus = 'not_tracked';
       else {
-        const qty = locRow.quantities[a.location];
-        available = qty === null || qty === undefined ? null : qty;
-        if (available === null) status = 'stock_unknown';
-        else status = available < a.required ? 'insufficient' : 'ok';
+        const qty = locRow.quantities[grp.location];
+        initialAvailable = qty === null || qty === undefined ? null : qty;
+        if (initialAvailable === null) baseStatus = 'stock_unknown';
       }
     } else {
-      available = p && p.stockKnown ? Number(p.stock) : null;
-      if (!p) status = 'unknown_product';
-      // غياب الرصيد ليس نقصاً: قوالب المنتجات لا تحمل الكمية المتاحة أصلاً،
-      // فيُبلَّغ عن الحالة ولا يُمنع التصدير بسببها
-      else if (p.tracked === false) status = 'not_tracked';
-      else if (available === null) status = 'stock_unknown';
-      else status = available < a.required ? 'insufficient' : 'ok';
+      initialAvailable = p && p.stockKnown ? Number(p.stock) : null;
+      if (!p) baseStatus = 'unknown_product';
+      else if (p.tracked === false) baseStatus = 'not_tracked';
+      else if (initialAvailable === null) baseStatus = 'stock_unknown';
     }
 
+    const breakdown = [];
+    let remaining = initialAvailable;
+    let totalRequired = 0;
+    let totalShortage = 0;
+    const insufficientInvoices = [];
+
+    for (const ref of grp.order) {
+      const e = grp.perInvoice.get(ref);
+      totalRequired = round(totalRequired + e.required, 6);
+
+      if (baseStatus) {
+        breakdown.push({
+          invoiceRef: ref, requested: e.required, availableBefore: null,
+          status: baseStatus, shortage: 0, rows: e.rows,
+        });
+        continue;
+      }
+
+      const availableBefore = remaining;
+      if (e.required <= remaining + 1e-9) {
+        remaining = round(remaining - e.required, 6);
+        breakdown.push({ invoiceRef: ref, requested: e.required, availableBefore, status: 'ok', shortage: 0, rows: e.rows });
+      } else {
+        // الفاتورة الناقصة تُعلَّم ولا تُخصَم — لن تُنشأ فعلياً، فلا يُحرَم منها الرصيد
+        const shortage = round(e.required - availableBefore, 6);
+        totalShortage = round(totalShortage + shortage, 6);
+        insufficientInvoices.push(ref);
+        breakdown.push({ invoiceRef: ref, requested: e.required, availableBefore, status: 'insufficient', shortage, rows: e.rows });
+      }
+    }
+
+    const status = baseStatus || (insufficientInvoices.length ? 'insufficient' : 'ok');
+
     results.push({
-      code: a.code,
-      location: a.location,
+      code: grp.code,
+      location: grp.location,
       name: p ? toStr(p.name) : '',
-      required: a.required,
-      available,
-      shortage: status === 'insufficient' ? round(a.required - available, 6) : 0,
-      invoiceCount: a.invoices.size,
-      invoices: [...a.invoices],
-      rows: a.rows,
+      required: totalRequired,
+      available: initialAvailable,
+      remaining: baseStatus ? null : remaining,
+      shortage: totalShortage,
+      invoiceCount: grp.order.length,
+      invoices: [...grp.order],
+      insufficientInvoices,
+      rows: grp.order.flatMap(ref => grp.perInvoice.get(ref).rows),
+      breakdown,
       status,
     });
   }

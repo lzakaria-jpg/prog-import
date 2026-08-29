@@ -248,16 +248,26 @@ export default function InvoiceImportTool({
   const state = {
     template, templateFile, references, refHeaders, refMapping, customersFile, productsFile,
     locationStockFile, locationStockInfo,
-    sourceFile, sourceHeaders, sourceMapping, parsed, decisions, pending, result, options,
+    sourceFile, sourceRaw, sourceHeaders, sourceMapping, parsed, decisions, pending, result, options,
   };
+
+  /*
+   * ملفا المنتجات ومواقع المنتجات إلزاميان معاً — لا يُنتقَل إلى ملف العميل ولا
+   * ما بعده قبل رفعهما (وملف العملاء) بنجاح. رصيد المخزون حسب الموقع تحديداً هو
+   * ما يمنع الفواتير من إعادة استخدام نفس الكمية الأصلية بشكل مستقل عن بعضها.
+   */
+  const referencesReady = !!template
+    && references.customers?.length > 0
+    && references.products?.length > 0
+    && !!references.locationStock?.rows?.length;
 
   /* الخطوة تُفتح فقط عندما تتوفر مدخلاتها */
   const ready = {
     1: true,
-    2: !!template,
-    3: !!parsed && !!template,
-    4: !!result,
-    5: !!result,
+    2: referencesReady,
+    3: referencesReady && !!parsed && !!template,
+    4: referencesReady && !!result,
+    5: referencesReady && !!result,
   };
 
   const openCount = pending

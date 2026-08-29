@@ -55,6 +55,64 @@ export function Card({ title, aside, children, tight }) {
   );
 }
 
+/**
+ * شبكة ربط الأعمدة على بيانات حقيقية — كل عمود من الملف المصدر يظهر بعموده
+ * الأصلي وقائمة منسدلة أعلاه لاختيار الحقل الذي يُربط به، وعيّنة من صفوفه
+ * الفعلية أسفله. نفس تجربة مرحلة المطابقة في أداة استيراد فواتير المشتريات:
+ * ربط ذكي مبدئي، تعديل يدوي حر لكل عمود، وتجاهل صريح بلا حاجة لتذكّر اسم الحقل.
+ *
+ * @param {string[]} headers رؤوس الأعمدة كما وردت في الملف
+ * @param {object[]} sampleRows عيّنة صفوف (كائنات مفاتيحها الرؤوس نفسها)
+ * @param {Array<{title:string, fields:Array<{key:string,label:string,required?:boolean}>}>} fieldGroups
+ * @param {Record<string,string>} mapping حقل → اسم العمود المرتبط به حالياً
+ * @param {(header:string, fieldKey:string) => void} onAssign يُستدعى عند تغيير ربط عمود؛ fieldKey فارغ = تجاهل
+ */
+export function MappingGrid({ headers, sampleRows, fieldGroups, mapping, onAssign }) {
+  const assignedField = {};
+  Object.entries(mapping || {}).forEach(([field, header]) => { if (header) assignedField[header] = field; });
+
+  return (
+    <div className="qii-table-wrap" style={{ maxHeight: 400 }}>
+      <table>
+        <thead>
+          <tr>
+            {headers.map(h => {
+              const field = assignedField[h] || '';
+              return (
+                <th key={h} style={{ whiteSpace: 'normal', minWidth: 150 }}>
+                  <select
+                    className={field ? 'set' : 'unset'}
+                    value={field}
+                    onChange={e => onAssign(h, e.target.value)}
+                    style={{ fontWeight: 600, marginBottom: 5 }}
+                  >
+                    <option value="">— تجاهل هذا العمود —</option>
+                    {fieldGroups.map(g => (
+                      <optgroup key={g.title} label={g.title}>
+                        {g.fields.map(f => (
+                          <option key={f.key} value={f.key}>{f.label}{f.required ? ' *' : ''}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <div style={{ fontWeight: 400, fontSize: 11, opacity: .85 }} className="qii-truncate" title={h}>{h}</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sampleRows.map((r, ri) => (
+            <tr key={ri}>
+              {headers.map(h => <td key={h}>{String(r[h] ?? '').slice(0, 40)}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ColumnSelect({ value, options, onChange, allowEmpty = true }) {
   return (
     <select

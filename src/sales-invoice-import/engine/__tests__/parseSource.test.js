@@ -19,6 +19,24 @@ describe('parseSource — structured (lineType) files keep working exactly as be
     expect(result.sales[0].sourceCustomerName).toBe('أحمد');
     expect(result.sales[0].lines).toHaveLength(1);
   });
+
+  it('Test 8 — invoice total is always the sum of its line items, never the header row\'s own total', () => {
+    const records = [
+      // صف الرأس يحمل قيمة إجمالي مختلفة عمداً عن مجموع البنود الفعلي
+      { 'Invoice Number': 'INV-2', 'Line Type': 'Sale', 'Date': '2026-01-02', 'Customer Name': 'سارة',
+        'Total (Tax Inclusive)': 100 },
+      { 'Invoice Number': 'INV-2', 'Line Type': 'Sale Line', 'SKU': 'P1', 'Quantity': 1, 'Total (Tax Inclusive)': 100 },
+      { 'Invoice Number': 'INV-2', 'Line Type': 'Sale Line', 'SKU': 'P2', 'Quantity': 1, 'Total (Tax Inclusive)': 200 },
+      { 'Invoice Number': 'INV-2', 'Line Type': 'Sale Line', 'SKU': 'P3', 'Quantity': 1, 'Total (Tax Inclusive)': 50 },
+    ];
+    const result = parseSource(records, mapping);
+    expect(result.sales).toHaveLength(1);
+    expect(result.sales[0].lines).toHaveLength(3);
+    expect(result.sales[0].sourceTotalInclusive).toBe(350);
+    // التضارب بين رأس الفاتورة ومجموع بنودها تنبيه فقط، لا يمنع الاستيراد
+    const mismatch = result.issues.find(i => i.code === 'HEADER_LINES_MISMATCH' && i.invoiceRef === 'INV-2');
+    expect(mismatch?.severity).toBe('warn');
+  });
 });
 
 describe('parseSource — flat mode (no lineType column, one row per product line)', () => {

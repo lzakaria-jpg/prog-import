@@ -190,7 +190,11 @@ export function mapReferenceRecords(records, mapping, kind) {
       stock: Number.isFinite(stock) ? stock : null,
       // يُعتبر مخزَّناً فقط عند وجود رصيد معلوم ولم يُستثنَ صراحةً
       tracked: trackedFlag === false ? false : (Number.isFinite(stock) ? true : false),
-      stockKnown: Number.isFinite(stock),
+      // «كمية معروفة» تعني رصيداً موجباً فعلياً — لا رصيداً بلا قيمة ولا صفراً.
+      // صفر ليس رصيداً معروفاً صالحاً؛ منتج بلا رصيد صفري حقيقي يُعامَل كغير معروف
+      // الكمية لا كمنتج مخزَّن كميته صفر (القاعدة لا تُطبَّق هنا على منع البيع،
+      // بل على تصنيف «لها كمية معروفة» في الواجهة والقوائم المبنية عليه فقط).
+      stockKnown: Number.isFinite(stock) && stock > 0,
       sellable,
     };
   }).filter(p => p.code || p.barcode || p.name);

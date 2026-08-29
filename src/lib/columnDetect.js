@@ -74,9 +74,15 @@ export const FIELD_SYNONYMS = {
     ar: ['الرقم المرجعي', 'رقم العميل', 'كود العميل', 'معرف العميل', 'الرقم المرجعي للعميل', 'رقم مرجعي'],
     en: ['customer id', 'customer code', 'customer reference', 'customer ref', 'reference', 'ref', 'id', 'code'],
   },
+  /*
+   * عمود اسم المنتج — عمداً مقصور على أنماط تدل صراحة على «الاسم»، لا على أي عمود
+   * يحتوي كلمة «المنتج»/«product» عرَضاً. «وصف المنتج»/«Product Description»/«صف
+   * المنتج»/«Product Row» ليست اسم المنتج، وكانت تُطابَق خطأً عبر مرادفات عامة
+   * («المنتج»، «product»، «description») تحتوي كأي جزء من رأس أطول.
+   */
   productName: {
-    ar: ['اسم المنتج', 'المنتج', 'الصنف', 'اسم الصنف', 'وصف المنتج'],
-    en: ['product name', 'item name', 'product', 'item', 'description', 'name'],
+    ar: ['اسم المنتج', 'اسم الصنف', 'الاسم'],
+    en: ['product name', 'item name', 'name'],
   },
   productCode: {
     ar: ['الرقم التسلسلي', 'رمز المنتج', 'كود المنتج', 'رقم المنتج', 'رقم الصنف', 'كود الصنف', 'الباركود', 'باركود'],

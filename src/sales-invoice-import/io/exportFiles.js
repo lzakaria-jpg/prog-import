@@ -121,15 +121,19 @@ export async function exportReport({ validation, reconciliation, summary, stock,
   /* الكميات */
   if (stock && stock.length) {
     const st = wb.addWorksheet('الكميات');
-    st.addRow(['رمز المنتج', 'الاسم', 'المطلوب', 'المتاح', 'النقص', 'عدد الفواتير', 'الحالة']);
-    styleHeader(st.getRow(1), 7);
+    st.addRow(['رمز المنتج', 'الاسم', 'الموقع', 'المطلوب', 'المتاح (الأصلي)', 'النقص', 'عدد الفواتير', 'الحالة', 'الفواتير الناقصة']);
+    styleHeader(st.getRow(1), 9);
     const label = {
-      ok: 'كافية', insufficient: 'نقص', not_tracked: 'غير مخزَّن', unknown_product: 'غير موجود في قيود',
+      ok: 'كافية', insufficient: 'نقص', not_tracked: 'غير مخزَّن',
+      stock_unknown: 'رصيد غير معروف', unknown_product: 'غير موجود في قيود',
     };
     for (const p of stock) {
-      st.addRow([p.code, p.name, p.required, p.available ?? '', p.shortage || '', p.invoiceCount, label[p.status]]);
+      st.addRow([
+        p.code, p.name, p.location || '', p.required, p.available ?? '', p.shortage || '', p.invoiceCount,
+        label[p.status], (p.insufficientInvoices || []).join(' · '),
+      ]);
     }
-    st.columns.forEach((c, i) => { c.width = [22, 44, 12, 12, 12, 14, 20][i]; });
+    st.columns.forEach((c, i) => { c.width = [22, 44, 16, 12, 14, 12, 14, 20, 30][i]; });
     st.views = [{ state: 'frozen', ySplit: 1 }];
   }
 

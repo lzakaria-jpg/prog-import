@@ -31,6 +31,20 @@ describe('scoreColumnMatch', () => {
   });
 });
 
+describe('productName detection — only columns that clearly denote the product\'s name', () => {
+  it('Test 7 — picks "الاسم"/"Product Name" but never "Description"/"وصف المنتج"/"صف المنتج"/"Product Row"', () => {
+    expect(detectColumns(['الاسم'], ['productName']).mapping.productName).toBe('الاسم');
+    expect(detectColumns(['Product Name'], ['productName']).mapping.productName).toBe('Product Name');
+    expect(detectColumns(['اسم المنتج'], ['productName']).mapping.productName).toBe('اسم المنتج');
+
+    expect(detectColumns(['Description'], ['productName']).mapping.productName).toBeUndefined();
+    expect(detectColumns(['وصف المنتج'], ['productName']).mapping.productName).toBeUndefined();
+    expect(detectColumns(['صف المنتج'], ['productName']).mapping.productName).toBeUndefined();
+    expect(detectColumns(['Product Row'], ['productName']).mapping.productName).toBeUndefined();
+    expect(detectColumns(['Product Description'], ['productName']).mapping.productName).toBeUndefined();
+  });
+});
+
 describe('detectColumns', () => {
   it('assigns each column to at most one field, highest score wins', () => {
     const headers = ['اسم العميل', 'الرقم المرجعي', 'ملاحظة عشوائية'];

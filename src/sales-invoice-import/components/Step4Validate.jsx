@@ -89,7 +89,7 @@ function IssuesTable({ issues }) {
                 <td><Badge tone={x.severity === 'fatal' ? 'stop' : 'warn'}>{x.severity === 'fatal' ? 'فادح' : 'تحذير'}</Badge></td>
                 <td className="mono">{x.invoiceRef || '—'}</td>
                 <td className="n">{x.sourceRow ?? '—'}</td>
-                <td>{x.message}</td>
+                <td style={{ whiteSpace: 'pre-line' }}>{x.message}</td>
               </tr>
             ))}
           </tbody>
@@ -171,21 +171,34 @@ function StockTable({ rows }) {
             <table>
               <thead>
                 <tr>
-                  <th>الرمز</th><th>الاسم</th>
-                  <th className="n">المطلوب</th><th className="n">المتاح</th><th className="n">النقص</th>
-                  <th className="n">فواتير</th><th>الحالة</th>
+                  <th>الرمز</th><th>الاسم</th><th>الموقع</th>
+                  <th className="n">المطلوب</th><th className="n">المتاح (الأصلي)</th><th className="n">النقص</th>
+                  <th className="n">فواتير</th><th>الحالة</th><th>الفواتير الناقصة</th>
                 </tr>
               </thead>
               <tbody>
                 {list.slice(0, 500).map(p => (
-                  <tr key={p.code} className={p.status === 'insufficient' || p.status === 'unknown_product' ? 'row-stop' : ''}>
+                  <tr key={`${p.code}::${p.location}`} className={p.status === 'insufficient' || p.status === 'unknown_product' ? 'row-stop' : ''}>
                     <td className="mono">{p.code}</td>
                     <td><span className="qii-truncate" title={p.name}>{p.name || '—'}</span></td>
+                    <td>{p.location || '—'}</td>
                     <td className="n">{n(p.required, 0)}</td>
                     <td className="n">{p.available === null ? '—' : n(p.available, 0)}</td>
                     <td className="n">{p.shortage ? n(p.shortage, 0) : '—'}</td>
                     <td className="n">{i(p.invoiceCount)}</td>
                     <td><Badge tone={tone[p.status]}>{label[p.status]}</Badge></td>
+                    <td style={{ fontSize: 12 }}>
+                      {p.insufficientInvoices?.length
+                        ? p.insufficientInvoices.map((ref, idx) => {
+                          const b = p.breakdown?.find(x => x.invoiceRef === ref);
+                          return (
+                            <div key={ref} className="mono">
+                              {ref}{b ? ` — طلبت ${n(b.requested, 0)} والمتاح وقتها ${n(b.availableBefore, 0)}` : ''}
+                            </div>
+                          );
+                        })
+                        : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

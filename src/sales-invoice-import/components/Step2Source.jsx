@@ -1,5 +1,5 @@
-import React from 'react';
-import { Card, FileDrop, Note, Stat, ColumnSelect, Badge, i, n } from './ui.jsx';
+import React, { useState } from 'react';
+import { Card, FileDrop, Note, Stat, ColumnSelect, Badge, MappingGrid, i, n } from './ui.jsx';
 import { SOURCE_FIELD_ALIASES } from '../engine/parseSource.js';
 
 const FIELD_LABELS = {
@@ -48,9 +48,25 @@ const OPTIONAL = [
  * الربط حر بالكامل: الأداة تكتشف الأعمدة تلقائياً ثم تترك التصحيح للمستخدم،
  * حتى تعمل مع أي مصدر لا مع تصدير واحد بعينه.
  */
+// نفس تجربة مرحلة المطابقة في أداة استيراد فواتير المشتريات: أقسام الحقول تُبنى
+// من نفس تعريف REQUIRED/IMPORTANT/OPTIONAL بلا تكرار، لتغذية كلاً من عرض الأعمدة
+// المجمّع بالحقل واختيار الحقل لكل عمود في الشبكة
+const FIELD_GROUPS = [
+  { title: 'حقول أساسية', fields: REQUIRED, required: true },
+  { title: 'حقول مهمة', fields: IMPORTANT },
+  { title: 'حقول اختيارية', fields: OPTIONAL },
+].map(g => ({ title: g.title, fields: g.fields.map(f => ({ key: f, label: FIELD_LABELS[f] || f, required: g.required })) }));
+
 export default function Step2Source({ state, actions }) {
-  const { sourceFile, sourceHeaders, sourceMapping, parsed } = state;
+  const { sourceFile, sourceRaw, sourceHeaders, sourceMapping, parsed } = state;
   const missing = REQUIRED.filter(f => !sourceMapping[f]);
+  const [view, setView] = useState('grid');
+
+  const assignColumn = (header, newField) => {
+    const prevField = Object.keys(sourceMapping).find(f => sourceMapping[f] === header);
+    if (prevField && prevField !== newField) actions.setSourceMapping(prevField, '');
+    if (newField) actions.setSourceMapping(newField, header);
+  };
 
   return (
     <>
@@ -79,11 +95,35 @@ export default function Step2Source({ state, actions }) {
             إن وُجد عمود <strong>نوع السطر</strong> (رأس/بند/دفع) يُستخدم لتمييز صف الرأس عن صفوف البنود كما
             في ملفات نقاط البيع المنظَّمة. إن غاب، تُعامَل كل الصفوف كبنود منتجات، وبيانات الفاتورة (العميل
             والتاريخ والموقع...) تُقرأ من كل صف وتُوفَّق تلقائياً — مناسب لملفات العملاء غير المنظَّمة.
+            الربط الذكي مبدئي دائماً — راجعه أدناه وصحّح أي عمود غير صحيح قبل المتابعة.
           </Note>
 
-          <FieldGroup title="حقول أساسية" fields={REQUIRED} {...{ sourceHeaders, sourceMapping, actions }} />
-          <FieldGroup title="حقول مهمة" fields={IMPORTANT} {...{ sourceHeaders, sourceMapping, actions }} />
-          <FieldGroup title="حقول اختيارية" fields={OPTIONAL} {...{ sourceHeaders, sourceMapping, actions }} />
+          <div className="qii-tabs" style={{ margin: '0 0 14px', padding: 0, border: 0, background: 'transparent' }}>
+            <button className={`qii-tab${view === 'grid' ? ' active' : ''}`} onClick={() => setView('grid')}>
+              شبكة الأعمدة على البيانات
+            </button>
+            <button className={`qii-tab${view === 'fields' ? ' active' : ''}`} onClick={() => setView('fields')}>
+              حسب الحقل
+            </button>
+          </div>
+
+          {view === 'grid'
+            ? (
+              <MappingGrid
+                headers={sourceHeaders}
+                sampleRows={(sourceRaw?.records || []).slice(0, 8)}
+                fieldGroups={FIELD_GROUPS}
+                mapping={sourceMapping}
+                onAssign={assignColumn}
+              />
+            )
+            : (
+              <>
+                <FieldGroup title="حقول أساسية" fields={REQUIRED} {...{ sourceHeaders, sourceMapping, actions }} />
+                <FieldGroup title="حقول مهمة" fields={IMPORTANT} {...{ sourceHeaders, sourceMapping, actions }} />
+                <FieldGroup title="حقول اختيارية" fields={OPTIONAL} {...{ sourceHeaders, sourceMapping, actions }} />
+              </>
+            )}
         </Card>
       )}
 

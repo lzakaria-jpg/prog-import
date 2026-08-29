@@ -423,21 +423,27 @@ function buildInvoice(g, issues) {
 
   const lines = toOutputLines(g.lines);
 
+  /*
+   * إجمالي الفاتورة = مجموع كل بنودها الصالحة دائماً — لا يوجد مفهوم «إجمالي رأس
+   * الفاتورة» يُعتمَد بدلاً منه. صف الرأس في الملفات المنظَّمة قد يحمل عمود إجمالي
+   * خاصاً به (headerTotal)، لكنه لا يُستخدم أبداً كإجمالي الفاتورة الفعلي — فقط
+   * كمرجع تشخيصي لمقارنته بمجموع البنود واكتشاف تضارب في بيانات المصدر نفسها.
+   */
   const linesSum = round(lines.reduce((s, l) => s + l.sourceTotalInclusive, 0), 2);
   const headerTotal = round(g.header.totalInc ?? 0, 2);
 
   const headerDiff = round(headerTotal - linesSum, 2);
   if (Math.abs(headerDiff) > 0.011) {
-    // فرق بحدود القروش أصله تقريب داخلي في نظام المصدر، ولا يدل على خلل بيانات.
-    // الفرق الأكبر يعني أن رأس الفاتورة لا يمثّل بنودها — بيانات معطوبة تُوقف الاستيراد.
+    // تنبيه تشخيصي فقط: إجمالي الفاتورة المعتمد فعلياً هو linesSum دوماً، فهذا
+    // التضارب لا يمنع الاستيراد، لكنه يستحق الإبلاغ لأنه يكشف عطباً في ملف المصدر
     const isRounding = Math.abs(headerDiff) <= 0.05;
     issues.push({
-      severity: isRounding ? 'warn' : 'fatal',
+      severity: 'warn',
       scope: 'invoice', invoiceRef: invNo, sourceRow: g.header.sourceRow,
       code: isRounding ? 'HEADER_LINES_ROUNDING' : 'HEADER_LINES_MISMATCH',
       message: isRounding
-        ? `فرق تقريب ${headerDiff} بين رأس الفاتورة ${headerTotal} ومجموع بنودها ${linesSum} — مصدره نظام العميل`
-        : `إجمالي رأس الفاتورة ${headerTotal} لا يساوي مجموع بنودها ${linesSum} — فرق ${headerDiff}`,
+        ? `فرق تقريب ${headerDiff} بين إجمالي رأس الفاتورة في المصدر ${headerTotal} ومجموع بنودها ${linesSum} — اعتُمد مجموع البنود ${linesSum} كإجمالي الفاتورة الفعلي`
+        : `إجمالي رأس الفاتورة في المصدر ${headerTotal} يختلف عن مجموع بنودها ${linesSum} بفارق ${headerDiff} — اعتُمد مجموع البنود ${linesSum} كإجمالي الفاتورة الفعلي`,
     });
   }
 
@@ -468,7 +474,8 @@ function buildInvoice(g, issues) {
     notes: g.header.notes,
     docDiscountValue: g.header.docDiscountValue,
     paidAmount: paidSum,
-    sourceTotalInclusive: headerTotal,
+    // الإجمالي الفعلي دوماً = مجموع البنود، لا قيمة رأس الفاتورة ولا صف بعينه
+    sourceTotalInclusive: linesSum,
     lines,
     headerRow: g.header.sourceRow,
     rows: g.rows,

@@ -265,12 +265,23 @@ export function runPipeline({ sales, references, decisions, template, options })
    */
   extraIssues.push(...out.issues);
 
-  // نقص الكمية يمنع قيود من إنشاء الفاتورة، فيُعامَل كخطأ فادح
+  /*
+   * نقص الكمية يمنع قيود من إنشاء الفاتورة، فيُعامَل كخطأ فادح — خطأ واحد لكل
+   * فاتورة تجاوز طلبها الرصيد المتبقي *وقت معالجتها* تحديداً (لا الرصيد الأصلي
+   * للمنتج)، حتى تُحدَّد الفاتورة المسبِّبة فعلاً بدل تعليم كل الفواتير التي
+   * لمست نفس المنتج بلا تمييز.
+   */
   for (const s of stock) {
-    if (s.status === 'insufficient') {
+    for (const b of s.breakdown) {
+      if (b.status !== 'insufficient') continue;
       extraIssues.push({
         severity: 'fatal', scope: 'stock', code: 'INSUFFICIENT_STOCK',
-        message: `المنتج ${s.code} (${s.name}) مطلوب ${s.required} والمتاح ${s.available} — نقص ${s.shortage} يؤثر على ${s.invoiceCount} فاتورة`,
+        invoiceRef: b.invoiceRef,
+        message: `الكمية المطلوبة غير متوفرة في الموقع المحدد.\n`
+          + `المنتج: ${s.name || s.code} (${s.code})\n`
+          + `الموقع: ${s.location || '—'}\n`
+          + `الكمية المطلوبة: ${b.requested}\n`
+          + `الكمية المتاحة: ${b.availableBefore}`,
       });
     }
   }
