@@ -252,9 +252,13 @@ export function runPipeline({ sales, references, decisions, template, options })
   const canCheckStock = opts.enforceStock && (productIndex.hasStockData || !!locationStockIndex);
   const stock = canCheckStock ? checkStock(stockDemands, productIndex, locationStockIndex) : [];
 
-  const validation = validateAll({
-    rows: out.rows, template, reconciliation: out.reconciliation, opts,
-  });
+  /*
+   * out.reconciliation/out.summary (إجمالي المصدر ومقارنته بالمحسوب) لا يُمرَّران
+   * إلى validateAll: إجمالي المصدر لا يُستخدم للتحقق إطلاقاً — تُبقى القيمتان
+   * متاحتين في نتيجة runPipeline كبيانات خام فقط (لتقرير التصدير)، لا كأساس
+   * لأي تحذير أو خطأ أو حالة فاتورة.
+   */
+  const validation = validateAll({ rows: out.rows, template, opts });
 
   const extraIssues = [];
 

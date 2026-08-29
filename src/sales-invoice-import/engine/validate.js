@@ -276,19 +276,15 @@ export function validateFileLimits(rows) {
   return issues;
 }
 
-/** الطبقة 4 — انحراف المطابقة الحسابية */
-export function validateReconciliation(reconciliation, tolerance = 0.011) {
-  return reconciliation
-    .filter(t => Math.abs(t.drift) > tolerance)
-    .map(t => ({
-      severity: 'warn', scope: 'invoice', invoiceRef: t.invoiceRef,
-      code: 'TOTAL_DRIFT',
-      message: `إجمالي قيود المحسوب ${t.expectedTotal} مقابل إجمالي المصدر ${t.sourceTotal} — فرق ${t.drift}`,
-    }));
-}
+/**
+ * لا توجد طبقة تحقق تقارن إجمالي المصدر (عمود مجمَّع في الملف المرفوع) بمجموع
+ * بنود الفاتورة المحسوب. إجمالي الفاتورة المعتمد الوحيد هو مجموع بنودها دائماً،
+ * وقيمة المصدر — إن وُجدت — لا تُستخدم للتحقق ولا لإنتاج تحذير أو خطأ ولا للتأثير
+ * على حالة الفاتورة أو نتيجة المراجعة، مهما كان الفرق بينهما كبيراً أو صغيراً.
+ */
 
 /** تشغيل كل الطبقات */
-export function validateAll({ rows, template, reconciliation, opts }) {
+export function validateAll({ rows, template, opts }) {
   const lists = template?.lists || {};
   const issues = [];
 
@@ -299,8 +295,6 @@ export function validateAll({ rows, template, reconciliation, opts }) {
     for (const r of rows) issues.push(...validateRow(r, { lists, opts, template }));
     issues.push(...validateInvoiceGroups(rows, opts, template));
   }
-
-  issues.push(...validateReconciliation(reconciliation || []));
 
   const fatal = issues.filter(i => i.severity === 'fatal');
   const warn = issues.filter(i => i.severity === 'warn');

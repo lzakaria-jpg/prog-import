@@ -4,8 +4,12 @@ import { Card, Note, Badge, Stat, i, n } from './ui.jsx';
 /**
  * الخطوة 4 — التحقق.
  *
- * يفصل بين ثلاث نوافذ على نفس البيانات: الملاحظات، المطابقة الحسابية، الكميات.
- * الفصل مقصود لأن كلاً منها يُقرأ بطريقة مختلفة ويقود إلى إجراء مختلف.
+ * يفصل بين نافذتين على نفس البيانات: الملاحظات، الكميات. الفصل مقصود لأن كلاً
+ * منهما يُقرأ بطريقة مختلفة ويقود إلى إجراء مختلف.
+ *
+ * إجمالي الفاتورة المعتمد الوحيد هو مجموع بنودها؛ إجمالي المصدر — إن وُجد عمود
+ * مجمَّع له في الملف — لا يُقارَن به إطلاقاً، ولا يُنتج عنه أي تحذير أو خطأ ولا
+ * يؤثر على حالة الفاتورة أو نتيجة المراجعة، مهما بلغ الفرق بينهما.
  */
 export default function Step4Validate({ state }) {
   const [tab, setTab] = useState('issues');
@@ -13,24 +17,19 @@ export default function Step4Validate({ state }) {
 
   if (!result) return <div className="qii-empty">أكمل الخطوات السابقة لبدء التحقق</div>;
 
-  const { validation, reconciliation, summary, stock, notes } = result;
+  const { validation, stock, notes } = result;
   const shortages = stock.filter(s => s.status === 'insufficient');
   const unknown = stock.filter(s => s.status === 'unknown_product');
-  const drifted = reconciliation.filter(t => Math.abs(t.drift) > 0.011);
 
   return (
     <>
       <h1 className="qii-page-title">التحقق</h1>
-      <p className="qii-page-sub">خمس طبقات فحص على الصفوف المُحوَّلة قبل التصدير.</p>
+      <p className="qii-page-sub">طبقات فحص على الصفوف المُحوَّلة قبل التصدير.</p>
 
       <div className="qii-grid-3" style={{ marginBottom: 16 }}>
         <Stat k="أخطاء فادحة" v={i(validation.fatal.length)} tone={validation.fatal.length ? 'stop' : 'ok'} />
         <Stat k="تحذيرات" v={i(validation.warn.length + notes.length)} tone="warn" />
-        <Stat k="فواتير بانحراف" v={i(drifted.length)} tone={drifted.length ? 'warn' : 'ok'} />
         <Stat k="نقص كميات" v={i(shortages.length)} tone={shortages.length ? 'stop' : 'ok'} />
-        <Stat k="الفرق الكلي" v={n(summary.expectedGrandTotal - summary.sourceGrandTotal)}
-              tone={Math.abs(summary.expectedGrandTotal - summary.sourceGrandTotal) <= 0.05 ? 'ok' : 'warn'} />
-        <Stat k="أقصى انحراف لفاتورة" v={n(summary.maxDrift)} />
       </div>
 
       {validation.fatal.length === 0
@@ -42,12 +41,10 @@ export default function Step4Validate({ state }) {
       <section className="qii-card">
         <div className="qii-tabs">
           <Tab id="issues" tab={tab} setTab={setTab} label="الملاحظات" count={validation.issues.length + notes.length} />
-          <Tab id="recon" tab={tab} setTab={setTab} label="المطابقة الحسابية" count={reconciliation.length} />
           <Tab id="stock" tab={tab} setTab={setTab} label="الكميات" count={stock.length} />
         </div>
         <div className="qii-card-body tight">
           {tab === 'issues' && <IssuesTable issues={[...validation.issues, ...notes]} />}
-          {tab === 'recon' && <ReconTable rows={reconciliation} />}
           {tab === 'stock' && <StockTable rows={stock} />}
         </div>
       </section>
@@ -100,48 +97,6 @@ function IssuesTable({ issues }) {
           معروض 500 من {i(sorted.length)} — التقرير الكامل في ملف التحقق عند التصدير.
         </div>
       )}
-    </>
-  );
-}
-
-function ReconTable({ rows }) {
-  const [onlyDrift, setOnlyDrift] = useState(true);
-  const list = onlyDrift ? rows.filter(t => Math.abs(t.drift) > 0.011) : rows;
-  const sorted = [...list].sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
-
-  return (
-    <>
-      <div style={{ padding: '12px 18px' }}>
-        <label className="qii-checkline">
-          <input type="checkbox" checked={onlyDrift} onChange={e => setOnlyDrift(e.target.checked)} />
-          الفواتير المنحرفة فقط
-        </label>
-      </div>
-      {sorted.length === 0
-        ? <div className="qii-empty">كل الفواتير مطابقة تماماً ✓</div>
-        : (
-          <div className="qii-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>الفاتورة</th><th className="n">بنود</th>
-                  <th className="n">إجمالي المصدر</th><th className="n">إجمالي قيود</th><th className="n">الفرق</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.slice(0, 500).map(t => (
-                  <tr key={t.invoiceRef} className={Math.abs(t.drift) > 1 ? 'row-stop' : Math.abs(t.drift) > 0.011 ? 'row-warn' : ''}>
-                    <td className="mono">{t.invoiceRef}</td>
-                    <td className="n">{i(t.lineCount)}</td>
-                    <td className="n">{n(t.sourceTotal)}</td>
-                    <td className="n">{n(t.expectedTotal)}</td>
-                    <td className="n"><strong>{t.drift >= 0 ? '+' : ''}{n(t.drift)}</strong></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
     </>
   );
 }

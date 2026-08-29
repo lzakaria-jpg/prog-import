@@ -2,10 +2,11 @@ import React from 'react';
 import { n, i } from './ui.jsx';
 
 /**
- * شريط المطابقة — ثابت أسفل الشاشة في كل الخطوات.
+ * شريط الحالة — ثابت أسفل الشاشة في كل الخطوات.
  *
- * سبب وجوده: الترحيل ينجح أو يفشل بسؤال واحد — هل بقيت الفلوس كما هي؟
- * وضْع الجواب أمام العين طوال الوقت يمنع اكتشاف الانحراف بعد الرفع.
+ * يعرض إجمالي الفاتورة المحسوب من مجموع بنودها — وهو الإجمالي المعتمد الوحيد —
+ * دون مقارنته بأي عمود إجمالي مجمَّع في ملف المصدر: تلك المقارنة ليست مرجعاً
+ * معتمداً للتحقق من صحة الفاتورة، فلا تُحسب ولا تُعرض هنا إطلاقاً.
  */
 export default function ReconStrip({ result, stats }) {
   if (!result) {
@@ -22,8 +23,6 @@ export default function ReconStrip({ result, stats }) {
   }
 
   const { summary, validation } = result;
-  const diff = summary.expectedGrandTotal - summary.sourceGrandTotal;
-  const diffTone = Math.abs(diff) <= 0.05 ? 'ok' : Math.abs(diff) <= 1 ? 'warn' : 'stop';
   const fatal = validation.fatal.length;
 
   return (
@@ -37,16 +36,8 @@ export default function ReconStrip({ result, stats }) {
         <span className="qii-recon-v">{i(summary.rows)}</span>
       </div>
       <div className="qii-recon-cell">
-        <span className="qii-recon-k">إجمالي المصدر</span>
-        <span className="qii-recon-v">{n(summary.sourceGrandTotal)}</span>
-      </div>
-      <div className="qii-recon-cell">
-        <span className="qii-recon-k">إجمالي قيود</span>
+        <span className="qii-recon-k">إجمالي الفاتورة المحسوب</span>
         <span className="qii-recon-v">{n(summary.expectedGrandTotal)}</span>
-      </div>
-      <div className="qii-recon-cell">
-        <span className="qii-recon-k">الفرق</span>
-        <span className={`qii-recon-v ${diffTone}`}>{diff >= 0 ? '+' : ''}{n(diff)}</span>
       </div>
       <div className="qii-recon-cell">
         <span className="qii-recon-k">أخطاء فادحة</span>
@@ -54,9 +45,7 @@ export default function ReconStrip({ result, stats }) {
       </div>
       <span className="spacer" />
       <span className="qii-recon-note">
-        {fatal
-          ? 'التصدير موقوف حتى تُعالَج الأخطاء الفادحة'
-          : `جاهز للتصدير · ${summary.driftedInvoices} فاتورة بانحراف تقريب`}
+        {fatal ? 'التصدير موقوف حتى تُعالَج الأخطاء الفادحة' : 'جاهز للتصدير'}
       </span>
     </div>
   );
