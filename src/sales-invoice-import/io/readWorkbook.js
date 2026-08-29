@@ -4,6 +4,10 @@
 
 import ExcelJS from 'exceljs';
 import { toStr } from '../engine/num.js';
+import { findHeaderRow, detectColumns } from '../../lib/columnDetect.js';
+
+/** أول 10 صفوف تُفحص بحثاً عن صف العناوين — يكفي لأي مقدمة وصفية واقعية */
+const HEADER_SCAN_ROWS = 10;
 
 /** يستخرج القيمة الفعلية من خلية ExcelJS مهما كان نوعها */
 function cellValue(v) {
@@ -35,25 +39,53 @@ function pickDataSheet(wb) {
   )[0];
 }
 
-export async function readWorkbook(file) {
+/**
+ * @param {File} file
+ * @param {object} [opts]
+ * @param {Function} [opts.findHeader] `(rows: string[][]) => {rowIndex, confidence}` — يفحص
+ *        أول صفوف الملف ليحدد أيها صف العناوين الفعلي. بدونه يُفترض الصف الأول كما كان دائماً،
+ *        فلا يتغيّر سلوك أي استدعاء قائم لم يُحدَّث بعد.
+ * @returns {{headers, records, sheetName, fileName, buffer, headerRowIndex, headerConfidence}}
+ */
+export async function readWorkbook(file, opts = {}) {
+  const { findHeader } = opts;
   const name = file.name || '';
   const buffer = await file.arrayBuffer();
 
-  if (/\.csv$/i.test(name)) return readCsv(new TextDecoder('utf-8').decode(buffer), name);
+  if (/\.csv$/i.test(name)) return readCsv(new TextDecoder('utf-8').decode(buffer), name, findHeader);
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const ws = pickDataSheet(wb);
   if (!ws) throw new Error('الملف لا يحتوي على أي ورقة بيانات ظاهرة');
 
+  // صف العناوين الفعلي — قد لا يكون الأول إن سبقته مقدمة وصفية أو صفوف فارغة
+  let headerRowNum = 1;
+  let headerConfidence = null;
+  if (findHeader) {
+    const scanLimit = Math.min(HEADER_SCAN_ROWS, ws.rowCount);
+    const scanRows = [];
+    for (let r = 1; r <= scanLimit; r++) {
+      const row = ws.getRow(r);
+      const arr = [];
+      for (let c = 1; c <= ws.columnCount; c++) arr.push(toStr(cellValue(row.getCell(c).value)));
+      scanRows.push(arr);
+    }
+    const found = findHeader(scanRows);
+    if (found && found.confidence > 0) {
+      headerRowNum = found.rowIndex + 1; // 1-based لأرقام صفوف ExcelJS
+      headerConfidence = found.confidence;
+    }
+  }
+
   const headers = [];
-  ws.getRow(1).eachCell({ includeEmpty: true }, (c, i) => {
+  ws.getRow(headerRowNum).eachCell({ includeEmpty: true }, (c, i) => {
     headers[i - 1] = toStr(cellValue(c.value));
   });
   for (let i = 0; i < headers.length; i++) if (!headers[i]) headers[i] = `عمود ${i + 1}`;
 
   const records = [];
-  for (let r = 2; r <= ws.rowCount; r++) {
+  for (let r = headerRowNum + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
     const rec = {};
     let any = false;
@@ -65,11 +97,14 @@ export async function readWorkbook(file) {
     if (any) records.push(rec);
   }
 
-  return { headers, records, sheetName: ws.name, fileName: name, buffer };
+  return {
+    headers, records, sheetName: ws.name, fileName: name, buffer,
+    headerRowIndex: headerRowNum - 1, headerConfidence,
+  };
 }
 
 /** محلل CSV يحترم علامات الاقتباس والفواصل داخلها */
-function readCsv(text, fileName) {
+function readCsv(text, fileName, findHeader) {
   const rows = [];
   let field = '';
   let row = [];
@@ -92,14 +127,24 @@ function readCsv(text, fileName) {
   const clean = rows.filter(r => r.some(c => toStr(c) !== ''));
   if (!clean.length) throw new Error('ملف CSV فارغ');
 
-  const headers = clean[0].map((h, i) => toStr(h).replace(/^\uFEFF/, '') || `عمود ${i + 1}`);
-  const records = clean.slice(1).map(r => {
+  let headerRowIdx = 0;
+  let headerConfidence = null;
+  if (findHeader) {
+    const found = findHeader(clean.slice(0, HEADER_SCAN_ROWS).map(r => r.map(toStr)));
+    if (found && found.confidence > 0) {
+      headerRowIdx = found.rowIndex;
+      headerConfidence = found.confidence;
+    }
+  }
+
+  const headers = clean[headerRowIdx].map((h, i) => toStr(h).replace(/^﻿/, '') || `عمود ${i + 1}`);
+  const records = clean.slice(headerRowIdx + 1).map(r => {
     const rec = {};
     headers.forEach((h, i) => { rec[h] = r[i] ?? ''; });
     return rec;
   });
 
-  return { headers, records, sheetName: 'CSV', fileName };
+  return { headers, records, sheetName: 'CSV', fileName, headerRowIndex: headerRowIdx, headerConfidence };
 }
 
 /**
@@ -119,7 +164,8 @@ export function mapReferenceRecords(records, mapping, kind) {
     })).filter(c => c.ref || c.name);
   }
 
-  const yes = v => /^(نعم|yes|true|1)$/i.test(toStr(v));
+  const yes = v => /^(نعم|yes|true|1|active|sold)$/i.test(toStr(v).trim());
+  const no = v => /^(لا|no|false|0|inactive|not sold|notsold)$/i.test(toStr(v).trim());
 
   return records.map(r => {
     const stockRaw = mapping.stock ? r[mapping.stock] : null;
@@ -129,6 +175,14 @@ export function mapReferenceRecords(records, mapping, kind) {
     // «هل المنتج مخزون؟» يحدد ما إذا كان المنتج يخضع للرصيد أصلاً
     const trackedFlag = mapping.tracked ? yes(r[mapping.tracked]) : null;
 
+    /*
+     * «هل المنتج يباع؟» — غياب العمود أو قيمة غير مفهومة تُعتبر «يباع» افتراضياً
+     * (لا يُستبعد منتج بالشك)، أما قيمة صريحة تعني «لا» فتستبعده نهائياً من كل
+     * مطابقة أو اقتراح بديل.
+     */
+    const sellableRaw = mapping.sellable ? r[mapping.sellable] : null;
+    const sellable = mapping.sellable ? !no(sellableRaw) : true;
+
     return {
       code: toStr(r[mapping.code]),
       barcode: mapping.barcode ? toStr(r[mapping.barcode]) : '',
@@ -137,35 +191,107 @@ export function mapReferenceRecords(records, mapping, kind) {
       // يُعتبر مخزَّناً فقط عند وجود رصيد معلوم ولم يُستثنَ صراحةً
       tracked: trackedFlag === false ? false : (Number.isFinite(stock) ? true : false),
       stockKnown: Number.isFinite(stock),
+      sellable,
     };
   }).filter(p => p.code || p.barcode || p.name);
 }
 
-/** كشف تلقائي لأعمدة الملفات المرجعية */
+/**
+ * كشف تلقائي لأعمدة الملفات المرجعية — يمر عبر وحدة الاكتشاف المركزية
+ * (src/lib/columnDetect.js) بدل مطابقة نصية خام، فيستفيد من تطبيع النصوص
+ * العربية (توحيد الهمزات والتاء المربوطة وإزالة التشكيل) والمطابقة التقريبية،
+ * بدل .toLowerCase() الخام الذي كان يفشل أمام أي فارق تشكيل أو مسافة إضافية.
+ */
 export function detectReferenceMapping(headers, kind) {
-  const norm = headers.map(h => toStr(h).toLowerCase());
-  const find = aliases => {
-    const i = norm.findIndex(h => aliases.some(a => h === a));
-    if (i >= 0) return headers[i];
-    const j = norm.findIndex(h => h && aliases.some(a => h.includes(a)));
-    return j >= 0 ? headers[j] : '';
-  };
-
   if (kind === 'customers') {
+    const { mapping } = detectColumns(headers, ['customerName', 'customerRef']);
     return {
-      ref: find(['الرقم المرجعي', 'reference', 'ref', 'customer reference', 'رقم مرجعي', 'كود العميل']),
-      name: find(['اسم العميل', 'customer name', 'الاسم العربي', 'name', 'الاسم', 'العميل']),
+      ref: mapping.customerRef || '',
+      name: mapping.customerName || '',
     };
   }
 
-  const code = find(['الرقم التسلسلي', 'sku', 'رمز المنتج', 'كود المنتج', 'item code', 'code']);
-  const barcode = find(['الباركود', 'barcode', 'باركود']);
+  const { mapping } = detectColumns(headers, ['productCode', 'productName', 'stock', 'sellable'], {
+    extraSynonyms: {
+      productCode: { ar: ['الباركود', 'باركود'], en: ['barcode'] },
+    },
+  });
+
+  // productCode قد يلتقط الباركود إذا كان أوضح رمزاً من الرقم التسلسلي؛ يُطلب
+  // عمود باركود منفصل صراحة بمرادفات ضيّقة كي لا يُخصَّص نفس العمود مرتين
+  const barcodeOnly = detectColumns(headers, ['barcodeOnly'], {
+    extraSynonyms: { barcodeOnly: { ar: ['الباركود', 'باركود'], en: ['barcode'] } },
+  }).mapping.barcodeOnly || '';
+
+  const trackedCol = detectColumns(headers, ['tracked'], {
+    extraSynonyms: { tracked: { ar: ['هل المنتج مخزون', 'مخزون'], en: ['is stock', 'tracked', 'inventory'] } },
+  }).mapping.tracked || '';
 
   return {
-    code: code || barcode,
-    barcode: barcode && barcode !== code ? barcode : '',
-    name: find(['الاسم العربي', 'اسم المنتج', 'product name', 'الاسم', 'name', 'المنتج']),
-    stock: find(['الكمية المتاحة', 'الكمية', 'المخزون', 'الرصيد', 'stock', 'available', 'quantity on hand', 'qty']),
-    tracked: find(['هل المنتج مخزون', 'مخزون', 'is stock', 'tracked', 'inventory']),
+    code: mapping.productCode || '',
+    barcode: barcodeOnly && barcodeOnly !== mapping.productCode ? barcodeOnly : '',
+    name: mapping.productName || '',
+    stock: mapping.stock || '',
+    tracked: trackedCol,
+    sellable: mapping.sellable || '',
+  };
+}
+
+/**
+ * يبني دالة اكتشاف صف عناوين لملف عملاء/منتجات، جاهزة لتُمرَّر إلى readWorkbook
+ * عبر `{ findHeader }` — تفحص أول صفوف الملف بدل افتراض أن الصف الأول هو العناوين.
+ */
+export function referenceHeaderFinder(kind) {
+  const fieldKeys = kind === 'customers'
+    ? ['customerName', 'customerRef']
+    : ['productCode', 'productName', 'stock', 'sellable'];
+  return rows => findHeaderRow(rows, fieldKeys, { minFieldsMatched: 1 });
+}
+
+/** دالة اكتشاف صف عناوين لملف كميات المنتجات حسب المواقع */
+export function locationStockHeaderFinder() {
+  return rows => findHeaderRow(rows, ['productCode', 'productName'], { minFieldsMatched: 1 });
+}
+
+/**
+ * يقرأ ملف كميات المنتجات حسب المواقع.
+ *
+ * الشكل المتوقع: عمود أو أكثر لتعريف المنتج (رقم تسلسلي/SKU/باركود/اسم)، وبقية
+ * الأعمدة كل واحد منها يمثّل موقعاً والقيمة أسفله كمية ذلك المنتج في ذلك الموقع.
+ * أعمدة المواقع تُكتشف ديناميكياً: كل عمود لم يُخصَّص كمعرّف منتج يُعتبر موقعاً،
+ * فلا يُفترض عددها ولا أسماؤها مسبقاً.
+ *
+ * @param {{headers:string[], records:object[]}} wbk نتيجة readWorkbook لهذا الملف
+ * @returns {{idColumns:{code:string,name:string}, locationColumns:string[], rows:Array}}
+ */
+export function parseLocationStock(wbk) {
+  const { headers, records } = wbk;
+  const { mapping } = detectColumns(headers, ['productCode', 'productName'], {
+    extraSynonyms: {
+      productCode: { ar: ['الباركود', 'باركود', 'الرقم التسلسلي'], en: ['barcode', 'sku', 'serial'] },
+    },
+  });
+  const idCols = new Set([mapping.productCode, mapping.productName].filter(Boolean));
+  const locationColumns = headers.filter(h => !idCols.has(h) && toStr(h) !== '');
+
+  const rows = records.map(r => {
+    const quantities = {};
+    for (const loc of locationColumns) {
+      const raw = r[loc];
+      const cleaned = raw === null || raw === undefined ? '' : String(raw).replace(/,/g, '').trim();
+      const n = cleaned === '' ? null : Number(cleaned);
+      quantities[loc] = Number.isFinite(n) ? n : null;
+    }
+    return {
+      code: mapping.productCode ? toStr(r[mapping.productCode]) : '',
+      name: mapping.productName ? toStr(r[mapping.productName]) : '',
+      quantities,
+    };
+  }).filter(r => r.code || r.name);
+
+  return {
+    idColumns: { code: mapping.productCode || '', name: mapping.productName || '' },
+    locationColumns,
+    rows,
   };
 }

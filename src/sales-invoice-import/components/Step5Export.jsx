@@ -9,8 +9,9 @@ import { exportInvoiceTemplate, exportReturns, exportReport } from '../io/export
  * وما يُحتفظ به كأثر تدقيقي.
  */
 export default function Step5Export({ state, actions }) {
-  const { result, parsed, options, template } = state;
+  const { result, parsed, options, template, decisions } = state;
   const [busy, setBusy] = useState('');
+  const docDiscountAccounts = template?.lists?.docDiscountAccount || [];
 
   if (!result) return <div className="qii-empty">أكمل الخطوات السابقة</div>;
 
@@ -79,6 +80,41 @@ export default function Step5Export({ state, actions }) {
               `تقرير_التحقق_${stamp}.xlsx`))}
         />
       </Card>
+
+      {template?.hasDocDiscount && (
+        <Card title="خصم إجمالي المستند">
+          <Note>
+            القالب المرفوع يدعم خصم إجمالي المستند (22 عموداً). عند وجود قيمة خصم إجمالي في ملف العميل لفاتورة
+            ما، يُستخدم هذا الحساب لكل فواتير الدفعة — لا يُختار حساب تلقائياً بلا تدخلك.
+          </Note>
+          <label className="qii-field" style={{ maxWidth: 460 }}>
+            <span>حساب خصم المستند</span>
+            {docDiscountAccounts.length > 0 ? (
+              <select
+                className={decisions?.docDiscountAccount ? 'set' : 'unset'}
+                value={decisions?.docDiscountAccount || ''}
+                onChange={e => actions.setDefault('docDiscountAccount', e.target.value)}
+              >
+                <option value="">— اختر حساب الخصم —</option>
+                {docDiscountAccounts.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder="اكتب اسم/كود حساب الخصم كما في قيود"
+                value={decisions?.docDiscountAccount || ''}
+                onChange={e => actions.setDefault('docDiscountAccount', e.target.value)}
+              />
+            )}
+          </label>
+          {docDiscountAccounts.length === 0 && (
+            <Note tone="warn">
+              القالب لا يحمل قائمة حسابات جاهزة لهذا الحقل (حقل نصي حر في قيود) — اكتب اسم أو كود الحساب
+              كما يظهر في شجرة حسابات المصاريف بحسابك تماماً.
+            </Note>
+          )}
+        </Card>
+      )}
 
       <Card title="إعدادات التحويل">
         <Note>

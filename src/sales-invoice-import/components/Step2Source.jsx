@@ -3,11 +3,12 @@ import { Card, FileDrop, Note, Stat, ColumnSelect, Badge, i, n } from './ui.jsx'
 import { SOURCE_FIELD_ALIASES } from '../engine/parseSource.js';
 
 const FIELD_LABELS = {
-  invoiceNumber: 'رقم الفاتورة',
-  lineType:      'نوع السطر',
-  date:          'التاريخ',
+  invoiceNumber: 'رقم الفاتورة / المرجع',
+  lineType:      'نوع السطر (اختياري)',
+  date:          'تاريخ الإصدار',
   sellType:      'نوع العملية (بيع / مرتجع)',
   customerName:  'اسم العميل',
+  customerRef:   'الرقم المرجعي للعميل',
   location:      'الموقع',
   channel:       'القناة',
   sku:           'رمز المنتج / الباركود',
@@ -21,11 +22,25 @@ const FIELD_LABELS = {
   paidAmount:    'المبلغ المدفوع',
   vat:           'ضريبة القيمة المضافة',
   otherTaxes:    'ضرائب أخرى',
+  dueDate:       'تاريخ الاستحقاق',
+  supplyDate:    'تاريخ التوريد',
+  terms:         'الشروط والأحكام',
+  notes:         'الملاحظات',
+  docDiscountValue: 'خصم إجمالي المستند',
+  unit:          'الوحدة',
+  unitPriceExplicit: 'سعر الوحدة (كما ورد في ملف العميل)',
+  discountPctExplicit: 'نسبة الخصم (كما وردت في ملف العميل)',
+  taxInclusiveFlag: 'شامل الضريبة؟ (كما ورد في ملف العميل)',
 };
 
-const REQUIRED = ['invoiceNumber', 'lineType', 'quantity', 'subtotalEx', 'totalInc', 'totalTax', 'date'];
-const IMPORTANT = ['sellType', 'customerName', 'location', 'sku', 'details', 'discount', 'paymentMethod'];
-const OPTIONAL = ['channel', 'paidAmount', 'vat', 'otherTaxes'];
+// «نوع السطر» لم يعد إلزامياً: بوجوده تُعامَل الملف كملف منظَّم (رأس/بند/دفع)
+// كما كان دائماً؛ بغيابه تُعامَل كل صفوفه كبنود منتجات وتُجمَّع بالمرجع وحده
+const REQUIRED = ['invoiceNumber', 'quantity', 'subtotalEx', 'totalInc', 'totalTax', 'date'];
+const IMPORTANT = ['lineType', 'sellType', 'customerName', 'customerRef', 'location', 'sku', 'details', 'discount', 'paymentMethod'];
+const OPTIONAL = [
+  'channel', 'paidAmount', 'vat', 'otherTaxes', 'dueDate', 'supplyDate', 'terms', 'notes',
+  'docDiscountValue', 'unit', 'unitPriceExplicit', 'discountPctExplicit', 'taxInclusiveFlag',
+];
 
 /**
  * الخطوة 2 — ملف العميل وربط أعمدته.
@@ -60,8 +75,10 @@ export default function Step2Source({ state, actions }) {
             : <Badge tone="ok">الحقول الأساسية مكتملة</Badge>}
         >
           <Note>
-            <strong>نوع السطر</strong> هو الحقل الذي يفكّك الملف: يميّز صف رأس الفاتورة عن صفوف البنود عن صفوف الدفع.
-            بدونه لا يمكن معرفة أي البنود تخص أي فاتورة.
+            <strong>رقم الفاتورة</strong> هو أساس تجميع الصفوف: كل الصفوف التي تحمل نفس الرقم فاتورة واحدة.
+            إن وُجد عمود <strong>نوع السطر</strong> (رأس/بند/دفع) يُستخدم لتمييز صف الرأس عن صفوف البنود كما
+            في ملفات نقاط البيع المنظَّمة. إن غاب، تُعامَل كل الصفوف كبنود منتجات، وبيانات الفاتورة (العميل
+            والتاريخ والموقع...) تُقرأ من كل صف وتُوفَّق تلقائياً — مناسب لملفات العملاء غير المنظَّمة.
           </Note>
 
           <FieldGroup title="حقول أساسية" fields={REQUIRED} {...{ sourceHeaders, sourceMapping, actions }} />

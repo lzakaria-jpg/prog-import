@@ -17,6 +17,7 @@ import { normalizeAr, normalizeCode, toStr, round } from './num.js';
 export function buildCustomerIndex(customers) {
   const byRef = new Map();
   const byName = new Map();
+  const byNameAll = new Map();
   const dupNames = new Set();
 
   for (const c of customers) {
@@ -25,34 +26,54 @@ export function buildCustomerIndex(customers) {
     if (ref) byRef.set(normalizeCode(ref), c);
     if (name) {
       const k = normalizeAr(name);
+      if (!byNameAll.has(k)) byNameAll.set(k, []);
+      byNameAll.get(k).push(c);
       if (byName.has(k)) dupNames.add(k);
       else byName.set(k, c);
     }
   }
-  return { byRef, byName, dupNames, all: customers };
+  return { byRef, byName, byNameAll, dupNames, all: customers };
 }
 
 /**
- * يطابق اسم عميل المصدر بسجل عميل في قيود.
- * @returns {{status:'matched'|'ambiguous'|'unmatched'|'empty', ref?:string, customer?:object}}
+ * يطابق عميل المصدر بسجل عميل في قيود.
+ *
+ * ترتيب الأولوية: قرار يدوي سابق ← الرقم المرجعي من ملف الفواتير إن وُجد وصحّ ←
+ * مطابقة الاسم. تكرار الاسم بين عدة عملاء لا يُحسم عشوائياً؛ تُعاد قائمة كل
+ * الأرقام المرجعية المحتملة لنفس الاسم ليختار المستخدم بينها.
+ *
+ * @param {string} sourceName
+ * @param {object} index من buildCustomerIndex
+ * @param {object} [overrides] قرارات يدوية سابقة: { [sourceName]: ref }
+ * @param {string} [sourceRef] الرقم المرجعي كما ورد في ملف الفواتير، إن وُجد عمود له
+ * @returns {{status:'matched'|'ambiguous'|'unmatched'|'empty', ref?:string, customer?:object, candidates?:object[]}}
  */
-export function matchCustomer(sourceName, index, overrides = {}) {
+export function matchCustomer(sourceName, index, overrides = {}, sourceRef = '') {
   const name = toStr(sourceName);
+  const ref = toStr(sourceRef);
 
   // قرار يدوي سابق له الأولوية المطلقة
-  const ov = overrides[name] ?? overrides[''];
   if (name && overrides[name]) {
     return { status: 'matched', ref: toStr(overrides[name]), manual: true };
   }
+
+  // الرقم المرجعي من ملف الفواتير، بعد التحقق من وجوده فعلاً في ملف عملاء قيود
+  if (ref) {
+    const hit = index.byRef.get(normalizeCode(ref));
+    if (hit) return { status: 'matched', ref: toStr(hit.ref), customer: hit, via: 'ref' };
+  }
+
   if (!name) {
-    return overrides[''] !== undefined && toStr(overrides[''])
-      ? { status: 'matched', ref: toStr(overrides['']), manual: true, viaDefault: true }
-      : { status: 'empty' };
+    if (overrides[''] !== undefined && toStr(overrides['']))
+      return { status: 'matched', ref: toStr(overrides['']), manual: true, viaDefault: true };
+    if (ref) return { status: 'unmatched', reason: `الرقم المرجعي «${ref}» غير موجود في ملف عملاء قيود` };
+    return { status: 'empty' };
   }
 
   const k = normalizeAr(name);
   if (index.dupNames.has(k)) {
-    return { status: 'ambiguous', reason: 'أكثر من عميل بنفس الاسم في قيود' };
+    const candidates = (index.byNameAll.get(k) || []).map(c => ({ ref: toStr(c.ref), name: toStr(c.name) }));
+    return { status: 'ambiguous', reason: 'أكثر من عميل بنفس الاسم في قيود', candidates };
   }
   const hit = index.byName.get(k);
   if (hit) return { status: 'matched', ref: toStr(hit.ref), customer: hit };
@@ -75,8 +96,24 @@ export function buildProductIndex(products) {
   const byCode = new Map();
   const byName = new Map();
   const dupNames = new Set();
+  // منتجات غير مسموح ببيعها (sellable === false): تُستبعد من كل مطابقة أو اقتراح،
+  // لكن تُحفظ هنا فقط لتفسير سبب عدم التطابق بدل الإيحاء بأن الرمز غير موجود أصلاً
+  const excludedByCode = new Map();
+  const excludedByName = new Map();
+  const sellableProducts = [];
 
   for (const p of products) {
+    if (p.sellable === false) {
+      for (const raw of [p.code, p.barcode]) {
+        const k = normalizeCode(raw);
+        if (k && !excludedByCode.has(k)) excludedByCode.set(k, p);
+      }
+      const n = toStr(p.name);
+      if (n && !excludedByName.has(normalizeAr(n))) excludedByName.set(normalizeAr(n), p);
+      continue;
+    }
+
+    sellableProducts.push(p);
     for (const raw of [p.code, p.barcode]) {
       const k = normalizeCode(raw);
       if (k && !byCode.has(k)) byCode.set(k, p);
@@ -89,8 +126,11 @@ export function buildProductIndex(products) {
     }
   }
 
-  const stockKnown = products.filter(p => p.stockKnown).length;
-  return { byCode, byName, dupNames, all: products, stockKnown, hasStockData: stockKnown > 0 };
+  const stockKnown = sellableProducts.filter(p => p.stockKnown).length;
+  return {
+    byCode, byName, dupNames, excludedByCode, excludedByName,
+    all: sellableProducts, stockKnown, hasStockData: stockKnown > 0,
+  };
 }
 
 /**
@@ -112,6 +152,12 @@ export function matchProduct(sourceSku, sourceName, index, overrides = {}) {
     // يُعاد الرمز كما ورد في المصدر لأنه المفتاح الذي يعرفه قيود لهذا المنتج،
     // سواء كان الرقم التسلسلي أو الباركود
     if (p) return { status: 'matched', code: toStr(sku), product: p, via: 'code' };
+
+    // الرمز موجود لكن المنتج غير مسموح ببيعه — لا يُقترح ولا يُطابق، ويُوضَّح السبب
+    const excluded = index.excludedByCode.get(normalizeCode(sku));
+    if (excluded) {
+      return { status: 'unmatched', reason: `المنتج «${toStr(excluded.name) || sku}» غير مسموح ببيعه` };
+    }
 
     // الرمز لم يطابق: قد يكون المنتج نفسه موجوداً برمز آخر (تغيّر ترميز، أو
     // نسخة مختلفة من الرمز). تُجرَّب المطابقة بالاسم، ويُعلَّم أنها احتياطية
@@ -142,6 +188,10 @@ export function matchProduct(sourceSku, sourceName, index, overrides = {}) {
     }
     const p = index.byName.get(k);
     if (p) return { status: 'matched', code: toStr(p.code) || toStr(p.barcode), product: p, via: 'name' };
+
+    if (index.excludedByName.has(k)) {
+      return { status: 'unmatched', reason: `المنتج «${name}» غير مسموح ببيعه` };
+    }
     return { status: 'unmatched', reason: 'لا يوجد رمز، ولا يطابق الاسم أي منتج في قيود' };
   }
 
@@ -149,42 +199,90 @@ export function matchProduct(sourceSku, sourceName, index, overrides = {}) {
 }
 
 /**
- * فحص كفاية الكميات — يجمع المطلوب لكل منتج عبر كل الفواتير ويقارنه بالمتاح.
+ * يفهرس ملف كميات المنتجات حسب المواقع (من io/readWorkbook.js parseLocationStock)
+ * بالرمز وبالاسم، ليُطابَق بأي معرّف متاح دون الاعتماد على ترتيب الصفوف بين الملفين.
+ */
+export function buildLocationStockIndex(locationStock) {
+  if (!locationStock || !locationStock.rows?.length) return null;
+  const byCode = new Map();
+  const byName = new Map();
+  for (const row of locationStock.rows) {
+    const codeKey = normalizeCode(row.code);
+    if (codeKey && !byCode.has(codeKey)) byCode.set(codeKey, row);
+    const nameKey = normalizeAr(row.name);
+    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, row);
+  }
+  return { byCode, byName, locationColumns: locationStock.locationColumns };
+}
+
+function findLocationStockRow(code, name, locationStockIndex) {
+  if (!locationStockIndex) return null;
+  const byCode = code ? locationStockIndex.byCode.get(normalizeCode(code)) : null;
+  if (byCode) return byCode;
+  return name ? (locationStockIndex.byName.get(normalizeAr(name)) || null) : null;
+}
+
+/**
+ * فحص كفاية الكميات — يجمع المطلوب لكل منتج (ولكل موقع إن توفّر ملف كميات
+ * حسب المواقع) عبر كل الفواتير ويقارنه بالمتاح.
  *
  * سبب أهميته: قيود يرفض الفاتورة كلياً إذا لم تتوفر كمية كافية لمنتج مخزَّن،
  * وعندها يفشل الاستيراد بعد الرفع لا قبله.
  *
- * @param {Array<{code:string, quantity:number, invoiceRef:string, sourceRow:number}>} demands
+ * بدون ملف كميات حسب المواقع، يبقى السلوك كما كان تماماً: رصيد عالمي واحد لكل
+ * منتج من ملف تعريف المنتجات. بوجوده، تُفحص الكمية في موقع كل فاتورة تحديداً —
+ * فاتورة لموقع «الرياض» لا تُقارَن برصيد «جدة».
+ *
+ * @param {Array<{code:string, quantity:number, invoiceRef:string, sourceRow:number, location?:string}>} demands
  * @param {object} productIndex
+ * @param {object|null} [locationStockIndex] من buildLocationStockIndex
  */
-export function checkStock(demands, productIndex) {
+export function checkStock(demands, productIndex, locationStockIndex = null) {
   const agg = new Map();
 
   for (const d of demands) {
     const k = normalizeCode(d.code);
     if (!k) continue;
-    if (!agg.has(k)) agg.set(k, { code: d.code, required: 0, invoices: new Set(), rows: [] });
-    const a = agg.get(k);
+    const loc = toStr(d.location);
+    const aggKey = locationStockIndex ? `${k}::${loc}` : k;
+    if (!agg.has(aggKey)) agg.set(aggKey, { code: d.code, location: loc, required: 0, invoices: new Set(), rows: [] });
+    const a = agg.get(aggKey);
     a.required = round(a.required + (d.quantity || 0), 6);
     a.invoices.add(d.invoiceRef);
     a.rows.push(d.sourceRow);
   }
 
   const results = [];
-  for (const [k, a] of agg) {
+  for (const a of agg.values()) {
+    const k = normalizeCode(a.code);
     const p = productIndex.byCode.get(k);
-    const available = p && p.stockKnown ? Number(p.stock) : null;
 
-    let status = 'ok';
-    if (!p) status = 'unknown_product';
-    // غياب الرصيد ليس نقصاً: قوالب المنتجات لا تحمل الكمية المتاحة أصلاً،
-    // فيُبلَّغ عن الحالة ولا يُمنع التصدير بسببها
-    else if (p.tracked === false) status = 'not_tracked';
-    else if (available === null) status = 'stock_unknown';
-    else if (available < a.required) status = 'insufficient';
+    let available = null;
+    let status;
+
+    if (locationStockIndex) {
+      const locRow = p ? findLocationStockRow(a.code, toStr(p.name), locationStockIndex) : null;
+      if (!p) status = 'unknown_product';
+      else if (!locRow) status = 'stock_unknown';
+      else {
+        const qty = locRow.quantities[a.location];
+        available = qty === null || qty === undefined ? null : qty;
+        if (available === null) status = 'stock_unknown';
+        else status = available < a.required ? 'insufficient' : 'ok';
+      }
+    } else {
+      available = p && p.stockKnown ? Number(p.stock) : null;
+      if (!p) status = 'unknown_product';
+      // غياب الرصيد ليس نقصاً: قوالب المنتجات لا تحمل الكمية المتاحة أصلاً،
+      // فيُبلَّغ عن الحالة ولا يُمنع التصدير بسببها
+      else if (p.tracked === false) status = 'not_tracked';
+      else if (available === null) status = 'stock_unknown';
+      else status = available < a.required ? 'insufficient' : 'ok';
+    }
 
     results.push({
       code: a.code,
+      location: a.location,
       name: p ? toStr(p.name) : '',
       required: a.required,
       available,
@@ -231,6 +329,37 @@ export function matchListValue(sourceValue, allowedValues, overrides = {}, defau
   if (norm) return { status: 'matched', value: norm, via: 'normalized' };
 
   return { status: 'unmatched' };
+}
+
+/**
+ * كـ matchListValue، مع محاولة إضافية عبر مجموعات مرادفات مفاهيمية قبل إعلان
+ * عدم التطابق — مثل «رئيسي/مخزن رئيسي/المستودع الرئيسي» ← نفس مفهوم الموقع
+ * الرئيسي، أو «الرياض/Riyadh/reyadh» ← نفس موقع الرياض في القالب، أياً كانت
+ * صياغته الحرفية بالقالب.
+ *
+ * @param {object} synonymGroups { مفهوم: [مرادفاته...] }
+ */
+export function matchListValueSmart(sourceValue, allowedValues, synonymGroups, overrides = {}, defaultValue = null) {
+  const direct = matchListValue(sourceValue, allowedValues, overrides, defaultValue);
+  if (direct.status !== 'unmatched') return direct;
+
+  const v = normalizeAr(sourceValue);
+  if (!v || !synonymGroups) return direct;
+
+  const belongsTo = (text, syns) => syns.some(s => {
+    const sv = normalizeAr(s);
+    return sv && (text === sv || text.includes(sv) || sv.includes(text));
+  });
+
+  const sourceConcept = Object.entries(synonymGroups).find(([, syns]) => belongsTo(v, syns))?.[0];
+  if (!sourceConcept) return direct;
+
+  const matches = allowedValues.filter(a => belongsTo(normalizeAr(a), synonymGroups[sourceConcept]));
+  if (matches.length === 1) return { status: 'matched', value: matches[0], via: 'synonym' };
+  if (matches.length > 1) {
+    return { status: 'ambiguous', reason: 'أكثر من قيمة معتمدة محتملة لنفس المفهوم', candidates: matches };
+  }
+  return direct;
 }
 
 /**

@@ -8,7 +8,10 @@ import { Card, FileDrop, Note, Stat, ColumnSelect, Badge, i } from './ui.jsx';
  * القالب المنزَّل من حساب العميل نفسه، والمطابقة تحتاج ملفي العملاء والمنتجات.
  */
 export default function Step1References({ state, actions }) {
-  const { template, templateFile, customersFile, productsFile, references, refMapping, refHeaders } = state;
+  const {
+    template, templateFile, customersFile, productsFile, references, refMapping, refHeaders,
+    locationStockFile, locationStockInfo,
+  } = state;
 
   return (
     <>
@@ -178,11 +181,20 @@ export default function Step1References({ state, actions }) {
                   onChange={v => actions.setRefMapping('products', 'stock', v)}
                 />
               </label>
+              <label className="qii-field">
+                <span>عمود «هل المنتج يُباع؟»</span>
+                <ColumnSelect
+                  value={refMapping.products.sellable}
+                  options={refHeaders.products}
+                  onChange={v => actions.setRefMapping('products', 'sellable', v)}
+                />
+              </label>
             </div>
 
             <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: '0 0 12px' }}>
               الرقم التسلسلي والباركود كلاهما مقبول في عمود المنتج بقالب الفواتير، فتُفهرس القيمتان معاً.
-              اترك أي عمود فارغاً إن لم يكن موجوداً في ملفك.
+              أي منتج تُحدَّد قيمة «لا» صراحةً في عمود «هل المنتج يُباع؟» يُستبعد نهائياً من كل مطابقة أو
+              اقتراح بديل. اترك أي عمود فارغاً إن لم يكن موجوداً في ملفك.
             </p>
           </>
         )}
@@ -197,16 +209,56 @@ export default function Step1References({ state, actions }) {
                 v={i(references.products.filter(p => p.stockKnown).length)}
                 tone={references.products.some(p => p.stockKnown) ? 'ok' : 'warn'}
               />
+              {refMapping.products.sellable && (
+                <Stat
+                  k="غير مسموح ببيعها (مستبعدة)"
+                  v={i(references.products.filter(p => p.sellable === false).length)}
+                />
+              )}
             </div>
 
-            {!references.products.some(p => p.stockKnown) && (
+            {!references.products.some(p => p.stockKnown) && !locationStockFile && (
               <Note tone="warn">
                 لا يوجد عمود كمية متاحة في هذا الملف، وقوالب رفع المنتجات في قيود لا تحمله أصلاً.
                 <strong> فحص الكميات معطّل.</strong> المطابقة بالرمز والباركود تعمل كالمعتاد، لكن قيود سيرفض
                 أي فاتورة لا تكفي كمية أحد منتجاتها المخزَّنة. لتفعيل الفحص، ارفع ملف جرد أو تقرير أرصدة
-                يحتوي عمود الكمية.
+                يحتوي عمود الكمية أدناه (ملف كميات المواقع)، أو أضف عمود الكمية هنا.
               </Note>
             )}
+          </>
+        )}
+      </Card>
+
+      <Card
+        title="ملف كميات المنتجات حسب المواقع (اختياري)"
+        aside={locationStockInfo ? <Badge tone="ok">{i(locationStockInfo.count)} منتج</Badge> : <Badge tone="info">اختياري</Badge>}
+      >
+        <Note>
+          يحدد الكمية المتوفرة من كل منتج في كل موقع — عمود أو أكثر لتعريف المنتج (الرقم التسلسلي/الباركود/الاسم)،
+          وبقية الأعمدة كل واحد منها موقع. أعمدة المواقع تُكتشف تلقائياً من رؤوس الملف. عند رفعه، يفحص التصدير
+          كفاية الكمية في موقع كل فاتورة تحديداً بدل رصيد عالمي واحد.
+        </Note>
+
+        <FileDrop
+          label="اسحب ملف كميات المواقع هنا"
+          hint="xlsx أو csv"
+          accept=".xlsx,.csv"
+          file={locationStockFile}
+          onFile={f => actions.loadLocationStock(f)}
+        />
+
+        {locationStockInfo && (
+          <>
+            <div className="qii-grid-3" style={{ marginTop: 14 }}>
+              <Stat k="منتجات مقروءة" v={i(locationStockInfo.count)} />
+              <Stat k="مواقع مكتشَفة" v={i(locationStockInfo.locationColumns.length)} />
+            </div>
+            <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: '10px 0 0' }}>
+              المواقع المكتشَفة: {locationStockInfo.locationColumns.join(' · ') || '—'}
+            </p>
+            <button type="button" className="qii-btn ghost sm" style={{ marginTop: 10 }} onClick={actions.clearLocationStock}>
+              إزالة الملف
+            </button>
           </>
         )}
       </Card>

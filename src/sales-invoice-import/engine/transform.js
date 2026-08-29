@@ -36,23 +36,27 @@ export function computeLineFields(line, opts = ENGINE_DEFAULTS) {
     throw new Error('الكمية صفر أو مفقودة — لا يمكن اشتقاق سعر الوحدة');
   }
 
-  const inclusive = opts.priceMode === 'inclusive';
   const dp = opts.unitPriceDecimals;
+  const { inclusive, via: inclusiveVia } = resolveLineInclusive(line, opts, rate);
 
   // المبلغ قبل الخصم على الأساس المختار
   const grossBasis = inclusive ? grossEx * (1 + rate) : grossEx;
   const unitPrice = round(grossBasis / qty, dp);
 
-  // نسبة الخصم — محايدة تجاه أساس الاحتساب، ولذلك اعتُمدت
+  // نسبة الخصم — محايدة تجاه أساس الاحتساب، ولذلك اعتُمدت افتراضياً
   let discountPct = null;
   let discountVal = null;
 
-  if (discEx !== 0) {
+  if (Number.isFinite(line.discountPctExplicit)) {
+    // نسبة صريحة من ملف العميل — تُعتمد مباشرة دون إعادة اشتقاقها من المبلغ
+    discountPct = round(line.discountPctExplicit, opts.discountPctDecimals);
+  } else if (discEx !== 0) {
     if (opts.discountMode === 'percent') {
       if (grossEx === 0) {
         // خصم على مبلغ صفر: حالة شاذة، تُبلَّغ ولا تُخمَّن
         discountPct = null;
       } else {
+        // قيمة خصم صريحة تُحوَّل إلى نسبة مكافئة تحافظ على إجمالي الصف
         discountPct = round((discEx / grossEx) * 100, opts.discountPctDecimals);
       }
     } else {
@@ -74,12 +78,48 @@ export function computeLineFields(line, opts = ENGINE_DEFAULTS) {
   return {
     unitPrice,
     taxInclusive: inclusive ? YES : NO,
+    inclusiveVia,
     discountPct,
     discountVal,
     expectedTotal,
     sourceTotal,
     drift: round(expectedTotal - sourceTotal, 2),
   };
+}
+
+/**
+ * يقرّر «شامل الضريبة؟» لبند واحد.
+ *
+ * الافتراضي العالمي (opts.priceMode) هو المرجع دائماً، ولا يُعكَس لبند بعينه إلا
+ * بدليل: مؤشر صريح صالح (نعم/لا فقط، من عمود مخصص) أو سعر وحدة صريح من ملف
+ * العميل يطابق حسابياً أحد الأساسين (شامل/غير شامل) بوضوح دون الآخر. غياب أي
+ * دليل يُبقي الافتراضي كما هو — نفس السلوك المُثبَت على بيانات حقيقية سابقاً،
+ * فلا يتغيّر ناتج أي ملف لا يحمل هذه الأعمدة الجديدة أصلاً.
+ */
+function resolveLineInclusive(line, opts, rate) {
+  const defaultInclusive = opts.priceMode === 'inclusive';
+
+  if (line.taxInclusiveExplicit === true || line.taxInclusiveExplicit === false) {
+    return { inclusive: line.taxInclusiveExplicit, via: 'explicit-flag' };
+  }
+
+  const explicitUnitPrice = line.unitPriceExplicit;
+  if (
+    Number.isFinite(explicitUnitPrice) && Number.isFinite(line.quantity) && line.quantity !== 0
+    && Number.isFinite(rate) && Number.isFinite(line.grossExclusive)
+  ) {
+    const lineTotal = round(explicitUnitPrice * line.quantity, 2);
+    const exBasis = round(line.grossExclusive, 2);
+    const incBasis = round(line.grossExclusive * (1 + rate), 2);
+    const tol = 0.02;
+    const matchesEx = Math.abs(lineTotal - exBasis) <= tol;
+    const matchesInc = Math.abs(lineTotal - incBasis) <= tol;
+    if (matchesInc && !matchesEx) return { inclusive: true, via: 'verified' };
+    if (matchesEx && !matchesInc) return { inclusive: false, via: 'verified' };
+    // كلاهما يطابق (ضريبة قريبة من الصفر) أو لا شيء يطابق: لا دليل كافٍ لعكس الافتراضي
+  }
+
+  return { inclusive: defaultInclusive, via: 'default' };
 }
 
 /**

@@ -82,6 +82,12 @@ function CustomerTab({ pending, references, decisions, actions }) {
     [customers]
   );
 
+  // لكل عميل تعذّرت مطابقته باسم مكرر، خياراته تُحصر بالأرقام المرجعية المرتبطة
+  // بنفس الاسم فقط — لا كل عملاء قيود — تماشياً مع: «محمد أحمد ← 10025 / 10071 / 10280»
+  const optionsFor = p => (p.candidates?.length
+    ? p.candidates.map(c => ({ value: c.ref, label: `${c.name || '(بلا اسم)'} — ${c.ref}` }))
+    : options);
+
   return (
     <>
       <Note>
@@ -110,7 +116,7 @@ function CustomerTab({ pending, references, decisions, actions }) {
             />
             <MatchTable
               rows={pending.filter(p => !q || p.label.includes(q))}
-              options={options}
+              optionsFor={optionsFor}
               valueOf={p => decisions.customers?.[p.key] || ''}
               onChange={(p, v) => actions.decide('customers', p.key, v)}
               headers={['اسم العميل في المصدر', 'فواتير', 'السبب', 'العميل في قيود']}
@@ -124,7 +130,8 @@ function CustomerTab({ pending, references, decisions, actions }) {
 /* ─────────────────────────── المنتجات ─────────────────────────── */
 
 function ProductTab({ pending, references, decisions, actions }) {
-  const products = references.products || [];
+  // المنتجات غير المسموح ببيعها لا تظهر كخيار بديل مطلقاً، حتى للاختيار اليدوي
+  const products = (references.products || []).filter(p => p.sellable !== false);
   const [q, setQ] = useState('');
 
   const options = useMemo(
@@ -168,6 +175,7 @@ function ProductTab({ pending, references, decisions, actions }) {
 
 function ListTab({ kind, pending, options, decisions, actions, help, defaultKey, defaultLabel }) {
   const opts = options.map(o => ({ value: o, label: o }));
+  const [bulkValue, setBulkValue] = useState('');
 
   return (
     <>
@@ -188,13 +196,32 @@ function ListTab({ kind, pending, options, decisions, actions, help, defaultKey,
       {pending.length === 0
         ? <div className="qii-empty">كل القيم مطابقة ✓</div>
         : (
-          <MatchTable
-            rows={pending}
-            options={opts}
-            valueOf={p => decisions[kind]?.[p.key] || ''}
-            onChange={(p, v) => actions.decide(kind, p.key, v)}
-            headers={['القيمة في المصدر', 'فواتير', 'السبب', 'القيمة في قيود']}
-          />
+          <>
+            <div className="qii-field" style={{ maxWidth: 460, display: 'flex', flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 14 }}>
+              <label style={{ flex: 1 }}>
+                <span>تطبيق قيمة واحدة على كل الفواتير المعلّقة أدناه دفعة واحدة</span>
+                <select value={bulkValue} onChange={e => setBulkValue(e.target.value)}>
+                  <option value="">— اختر قيمة —</option>
+                  {options.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </label>
+              <button
+                type="button" className="qii-btn sm"
+                disabled={!bulkValue}
+                onClick={() => actions.decideAll(kind, bulkValue)}
+              >
+                تطبيق على الكل
+              </button>
+            </div>
+
+            <MatchTable
+              rows={pending}
+              options={opts}
+              valueOf={p => decisions[kind]?.[p.key] || ''}
+              onChange={(p, v) => actions.decide(kind, p.key, v)}
+              headers={['القيمة في المصدر', 'فواتير', 'السبب', 'القيمة في قيود']}
+            />
+          </>
         )}
     </>
   );
@@ -202,7 +229,7 @@ function ListTab({ kind, pending, options, decisions, actions, help, defaultKey,
 
 /* ─────────────────────────── الجدول المشترك ─────────────────────────── */
 
-function MatchTable({ rows, options, valueOf, onChange, headers }) {
+function MatchTable({ rows, options, optionsFor, valueOf, onChange, headers }) {
   return (
     <div className="qii-table-wrap">
       <table>
@@ -217,6 +244,7 @@ function MatchTable({ rows, options, valueOf, onChange, headers }) {
         <tbody>
           {rows.map(p => {
             const v = valueOf(p);
+            const rowOptions = optionsFor ? optionsFor(p) : options;
             return (
               <tr key={p.key} className={v ? 'row-ok' : 'row-stop'}>
                 <td>
@@ -228,7 +256,7 @@ function MatchTable({ rows, options, valueOf, onChange, headers }) {
                 <td>
                   <select className={v ? 'set' : 'unset'} value={v} onChange={e => onChange(p, e.target.value)}>
                     <option value="">— اختر —</option>
-                    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {rowOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </td>
               </tr>

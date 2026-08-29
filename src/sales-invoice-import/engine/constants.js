@@ -177,3 +177,37 @@ export const ENGINE_DEFAULTS = {
 };
 
 export const ROUNDING = { money: 2 };
+
+/**
+ * مجموعات مرادفات مفاهيمية للمواقع — تُستخدم في matchListValueSmart (resolve.js)
+ * لمطابقة «رئيسي/مخزن رئيسي/المستودع الرئيسي» بنفس مفهوم الموقع الرئيسي، أو
+ * «الرياض/Riyadh/reyadh» بنفس موقع الرياض، أياً كانت صياغته الحرفية في القالب.
+ * قابلة للتوسعة: أضف مفهوماً جديداً أو مرادفاً لمفهوم قائم دون تعديل أي منطق.
+ */
+export const LOCATION_SYNONYM_GROUPS = {
+  main: ['رئيسي', 'الرئيسي', 'المركز الرئيسي', 'مخزن رئيسي', 'المخزن الرئيسي', 'المستودع الرئيسي',
+         'main', 'main branch', 'main warehouse', 'headquarters', 'hq'],
+  riyadh: ['الرياض', 'رياض', 'riyadh', 'reyadh', 'ryd'],
+  jeddah: ['جدة', 'جده', 'jeddah', 'jedda', 'jed'],
+  dammam: ['الدمام', 'دمام', 'dammam', 'dmm'],
+  makkah: ['مكة', 'مكه', 'makkah', 'mecca'],
+  medina: ['المدينة', 'المدينه', 'medina', 'madinah'],
+};
+
+/**
+ * طرق الدفع الخمس الوحيدة المسموحة في قيود — ثابتة ومقفلة، لا يُنشأ خيار جديد
+ * ولا يُقسَّم خيار قائم. القيمة الفعلية المصدَّرة تبقى دوماً كما وردت في قائمة
+ * القالب المرفوع (matchListValueSmart تعيد قيمة القالب لا القيمة القانونية هنا)؛
+ * هذه القائمة تصف المفاهيم الخمسة نفسها لتصنيف قيمة المصدر ضمنها فقط.
+ */
+export const PAYMENT_METHOD_CANONICAL = ['نقدي', 'آجل', 'دفعة لحساب بنك', 'بطاقة بنك', 'غير محدد'];
+
+export const PAYMENT_METHOD_SYNONYM_GROUPS = {
+  cash: ['نقدي', 'نقدا', 'كاش', 'نقد', 'cash'],
+  credit: ['آجل', 'اجل', 'ذمم', 'دفع آجل', 'credit', 'on account', 'on credit'],
+  bankTransfer: ['دفعة لحساب بنك', 'دفعه لحساب بنك', 'تحويل بنكي', 'حوالة بنكية', 'حوالة',
+                 'bank transfer', 'transfer', 'wire transfer', 'wire'],
+  card: ['بطاقة بنك', 'بطاقة', 'فيزا', 'ماستركارد', 'مدى',
+         'card', 'credit card', 'debit card', 'visa', 'mastercard', 'mada'],
+  unspecified: ['غير محدد', 'اخرى', 'أخرى', 'unspecified', 'other', 'n/a', 'na'],
+};

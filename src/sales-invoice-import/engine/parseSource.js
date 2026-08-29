@@ -6,6 +6,7 @@
  */
 
 import { toNum, toStr, round, parseDate, dateKey } from './num.js';
+import { findHeaderRow } from '../../lib/columnDetect.js';
 
 /**
  * مرادفات أعمدة المصدر.
@@ -109,6 +110,47 @@ export const SOURCE_FIELD_ALIASES = {
     exact: ['paidamount', 'paid', 'amountpaid', 'payment', 'المبلغالمدفوع', 'المدفوع'],
     partial: ['paidamount', 'amountpaid', 'المبلغالمدفوع'],
   },
+
+  // ── حقول ملفات الفواتير غير المنظّمة (بلا عمود «نوع السطر») ──
+  dueDate: {
+    exact: ['duedate', 'تاريخالاستحقاق', 'الاستحقاق'],
+    partial: ['duedate', 'تاريخالاستحقاق'],
+  },
+  supplyDate: {
+    exact: ['supplydate', 'deliverydate', 'تاريخالتوريد', 'تاريخالتسليم'],
+    partial: ['supplydate', 'deliverydate', 'تاريخالتوريد', 'تاريخالتسليم'],
+  },
+  terms: {
+    exact: ['terms', 'termsandconditions', 'الشروطوالاحكام', 'الشروط', 'الاحكام'],
+    partial: ['termsandconditions', 'الشروطوالاحكام'],
+  },
+  notes: {
+    exact: ['notes', 'remarks', 'comment', 'comments', 'الملاحظات', 'ملاحظات'],
+    partial: ['remarks', 'الملاحظات'],
+  },
+  docDiscountValue: {
+    exact: ['invoicediscount', 'documentdiscount', 'totaldiscount', 'خصماجمالي', 'خصمالفاتوره', 'خصمالمستند'],
+    partial: ['invoicediscount', 'documentdiscount', 'totaldiscount', 'خصماجمالي', 'خصمالمستند'],
+  },
+  unit: {
+    exact: ['unit', 'uom', 'unitofmeasure', 'الوحده', 'وحدهالقياس'],
+    partial: ['unitofmeasure', 'وحدهالقياس'],
+  },
+  // أسماء ضيّقة عمداً كي لا تتنازع مع مرادفات subtotalEx العامة (price/سعر)
+  unitPriceExplicit: {
+    exact: ['unitprice', 'priceperunit', 'سعرالوحده'],
+    partial: ['unitprice', 'priceperunit', 'سعرالوحده'],
+  },
+  discountPctExplicit: {
+    exact: ['discountpercent', 'discountpercentage', 'discountrate', 'نسبهالخصم', 'خصمنسبه'],
+    partial: ['discountpercent', 'discountrate', 'نسبهالخصم'],
+  },
+  // مرادفات ضيّقة أيضاً كي لا تتنازع مع «totalInc» — يُتحقق من محتواها (نعم/لا)
+  // عند الاستهلاك في buildInvoiceFlat، فأي عمود مطابَق خطأً يُتجاهَل بأمان
+  taxInclusiveFlag: {
+    exact: ['taxinclusiveflag', 'priceincludestax', 'شاملالضريبه؟', 'شاملالضريبهامال'],
+    partial: ['priceincludestax', 'isinclusive'],
+  },
 };
 
 /**
@@ -169,9 +211,79 @@ export function detectMapping(headers) {
   return mapping;
 }
 
+/**
+ * يبحث عن صف العناوين الفعلي في أول صفوف ملف فواتير العميل، بدل افتراض الصف
+ * الأول — يعيد استخدام محرك الاكتشاف المركزي بمرادفات هذا الملف نفسها.
+ */
+export function findSourceHeaderRow(rows) {
+  const extraSynonyms = {};
+  for (const [field, aliases] of Object.entries(SOURCE_FIELD_ALIASES)) {
+    extraSynonyms[field] = { ar: [...(aliases.exact || []), ...(aliases.partial || [])], en: [] };
+  }
+  return findHeaderRow(rows, Object.keys(SOURCE_FIELD_ALIASES), { extraSynonyms, minFieldsMatched: 3 });
+}
+
 function isReturn(v) {
   const s = toStr(v).toLowerCase();
   return RETURN_MARKERS.some(m => s.includes(m));
+}
+
+/** يفهم قيمة «شامل الضريبة؟» الصريحة، أو null إن كانت غير مفهومة (تُهمَل بأمان بدل تخمينها) */
+function parseYesNo(v) {
+  const s = toStr(v).trim().toLowerCase();
+  if (!s) return null;
+  if (/^(نعم|yes|true|1|y)$/.test(s)) return true;
+  if (/^(لا|no|false|0|n)$/.test(s)) return false;
+  return null;
+}
+
+/** الحقول على مستوى الفاتورة — تُقرأ من صف الرأس (نمط نوع السطر) أو من أي صف (النمط المسطّح) */
+function extractHeaderFields(rec, get) {
+  return {
+    date: parseDate(get(rec, 'date')),
+    rawDate: toStr(get(rec, 'date')),
+    dueDate: parseDate(get(rec, 'dueDate')),
+    supplyDate: parseDate(get(rec, 'supplyDate')),
+    customerName: toStr(get(rec, 'customerName')),
+    customerRef: toStr(get(rec, 'customerRef')),
+    location: toStr(get(rec, 'location')),
+    channel: toStr(get(rec, 'channel')),
+    paymentMethod: toStr(get(rec, 'paymentMethod')),
+    terms: toStr(get(rec, 'terms')),
+    notes: toStr(get(rec, 'notes')),
+    docDiscountValue: toNum(get(rec, 'docDiscountValue')),
+    totalInc: toNum(get(rec, 'totalInc')),
+    subtotalEx: toNum(get(rec, 'subtotalEx')),
+    totalTax: toNum(get(rec, 'totalTax')),
+  };
+}
+
+/** الحقول على مستوى البند — منتج واحد وكميته وسعره */
+function extractLineFields(rec, get, sourceRow) {
+  const qty = toNum(get(rec, 'quantity'));
+  const subtotalEx = toNum(get(rec, 'subtotalEx'));
+  const discount = toNum(get(rec, 'discount')) || 0;
+  // الضريبة الفعلية = إجمالي الضريبة، لأن VAT و Other taxes خانتان لنفس المبلغ
+  const totalTax = toNum(get(rec, 'totalTax')) || 0;
+  const totalInc = toNum(get(rec, 'totalInc'));
+
+  return {
+    sourceRow,
+    sku: toStr(get(rec, 'sku')),
+    details: toStr(get(rec, 'details')),
+    quantity: qty,
+    subtotalEx,
+    discount,
+    totalTax,
+    totalInc,
+    isReturn: isReturn(get(rec, 'sellType')),
+    location: toStr(get(rec, 'location')),
+    unit: toStr(get(rec, 'unit')),
+    unitPriceExplicit: toNum(get(rec, 'unitPriceExplicit')),
+    discountPctExplicit: toNum(get(rec, 'discountPctExplicit')),
+    // لا يُقبل إلا قيمة صريحة مفهومة (نعم/لا وما يعادلها) — غير ذلك يُهمَل لا يُخمَّن
+    taxInclusiveExplicit: parseYesNo(get(rec, 'taxInclusiveFlag')),
+  };
 }
 
 /**
@@ -184,6 +296,15 @@ export function parseSource(records, mapping, opts = {}) {
   const get = (rec, field) => (mapping[field] ? rec[mapping[field]] : undefined);
   const issues = [];
   const groups = new Map();
+
+  /*
+   * نمطان: ملفات نقاط البيع المنظَّمة تحمل عمود «نوع السطر» (رأس/بند/دفع) —
+   * نمطها الأصلي المثبَت لا يتغيّر هنا حرفياً. ملفات العملاء غير المنظَّمة
+   * (لا عمود نوع سطر) تصل بصف واحد لكل بند منتج، وبيانات الفاتورة (العميل
+   * والتاريخ والموقع...) مكرَّرة أو موجودة في صفها الأول فقط؛ المرجع وحده هو
+   * أساس التجميع، لا عدد الصفوف ولا ترتيبها.
+   */
+  const flatMode = !mapping.lineType;
 
   records.forEach((rec, i) => {
     const sourceRow = i + 2; // صف 1 رؤوس
@@ -198,10 +319,17 @@ export function parseSource(records, mapping, opts = {}) {
     }
 
     if (!groups.has(invNo)) {
-      groups.set(invNo, { invoiceNumber: invNo, header: null, lines: [], payments: [], rows: [] });
+      groups.set(invNo, { invoiceNumber: invNo, header: null, headerCandidates: [], lines: [], payments: [], rows: [] });
     }
     const g = groups.get(invNo);
     g.rows.push(sourceRow);
+
+    if (flatMode) {
+      // كل صف بند منتج، وبيانات الفاتورة تُقرأ من كل صف للتوفيق بينها لاحقاً
+      g.headerCandidates.push({ sourceRow, ...extractHeaderFields(rec, get) });
+      g.lines.push(extractLineFields(rec, get, sourceRow));
+      return;
+    }
 
     const lt = toStr(get(rec, 'lineType')).toLowerCase();
 
@@ -214,38 +342,9 @@ export function parseSource(records, mapping, opts = {}) {
         });
         return;
       }
-      g.header = {
-        sourceRow,
-        date: parseDate(get(rec, 'date')),
-        rawDate: toStr(get(rec, 'date')),
-        customerName: toStr(get(rec, 'customerName')),
-        location: toStr(get(rec, 'location')),
-        channel: toStr(get(rec, 'channel')),
-        isReturn: isReturn(get(rec, 'sellType')),
-        totalInc: toNum(get(rec, 'totalInc')),
-        subtotalEx: toNum(get(rec, 'subtotalEx')),
-        totalTax: toNum(get(rec, 'totalTax')),
-      };
+      g.header = { sourceRow, isReturn: isReturn(get(rec, 'sellType')), ...extractHeaderFields(rec, get) };
     } else if (lt === LINE_TYPE.LINE) {
-      const qty = toNum(get(rec, 'quantity'));
-      const subtotalEx = toNum(get(rec, 'subtotalEx'));
-      const discount = toNum(get(rec, 'discount')) || 0;
-      // الضريبة الفعلية = إجمالي الضريبة، لأن VAT و Other taxes خانتان لنفس المبلغ
-      const totalTax = toNum(get(rec, 'totalTax')) || 0;
-      const totalInc = toNum(get(rec, 'totalInc'));
-
-      g.lines.push({
-        sourceRow,
-        sku: toStr(get(rec, 'sku')),
-        details: toStr(get(rec, 'details')),
-        quantity: qty,
-        subtotalEx,
-        discount,
-        totalTax,
-        totalInc,
-        isReturn: isReturn(get(rec, 'sellType')),
-        location: toStr(get(rec, 'location')),
-      });
+      g.lines.push(extractLineFields(rec, get, sourceRow));
     } else if (lt === LINE_TYPE.PAYMENT) {
       g.payments.push({
         sourceRow,
@@ -265,7 +364,7 @@ export function parseSource(records, mapping, opts = {}) {
   const returns = [];
 
   for (const g of groups.values()) {
-    const built = buildInvoice(g, issues);
+    const built = flatMode ? buildInvoiceFlat(g, issues) : buildInvoice(g, issues);
     if (!built) continue;
     (built.isReturn ? returns : sales).push(built);
   }
@@ -322,23 +421,7 @@ function buildInvoice(g, issues) {
     });
   }
 
-  const lines = g.lines.map(l => {
-    const grossExclusive = l.subtotalEx ?? 0;
-    const base = grossExclusive - (l.discount || 0);
-    // اشتقاق نسبة الضريبة من البند نفسه بدل افتراضها
-    const rate = base !== 0 ? (l.totalTax || 0) / base : null;
-    return {
-      sourceRow: l.sourceRow,
-      sourceSku: l.sku,
-      sourceName: l.details,
-      quantity: l.quantity,
-      grossExclusive,
-      discountExclusive: l.discount || 0,
-      taxAmount: l.totalTax || 0,
-      taxRateRaw: rate,
-      sourceTotalInclusive: l.totalInc ?? 0,
-    };
-  });
+  const lines = toOutputLines(g.lines);
 
   const linesSum = round(lines.reduce((s, l) => s + l.sourceTotalInclusive, 0), 2);
   const headerTotal = round(g.header.totalInc ?? 0, 2);
@@ -374,14 +457,141 @@ function buildInvoice(g, issues) {
     isReturn,
     issueDateParts: g.header.date,
     rawDate: g.header.rawDate,
+    dueDateParts: g.header.dueDate,
+    supplyDateParts: g.header.supplyDate,
     sourceCustomerName: g.header.customerName,
+    sourceCustomerRef: g.header.customerRef,
     sourceLocation: g.header.location,
     channel: g.header.channel,
-    sourcePaymentMethods: methods,
+    sourcePaymentMethods: methods.length ? methods : [g.header.paymentMethod].filter(Boolean),
+    terms: g.header.terms,
+    notes: g.header.notes,
+    docDiscountValue: g.header.docDiscountValue,
     paidAmount: paidSum,
     sourceTotalInclusive: headerTotal,
     lines,
     headerRow: g.header.sourceRow,
+    rows: g.rows,
+  };
+}
+
+/** يحوّل بنود خام (من extractLineFields) إلى الشكل الذي يعتمده باقي المحرك */
+function toOutputLines(rawLines) {
+  return rawLines.map(l => {
+    const grossExclusive = l.subtotalEx ?? 0;
+    const base = grossExclusive - (l.discount || 0);
+    // اشتقاق نسبة الضريبة من البند نفسه بدل افتراضها
+    const rate = base !== 0 ? (l.totalTax || 0) / base : null;
+    return {
+      sourceRow: l.sourceRow,
+      sourceSku: l.sku,
+      sourceName: l.details,
+      quantity: l.quantity,
+      grossExclusive,
+      discountExclusive: l.discount || 0,
+      taxAmount: l.totalTax || 0,
+      taxRateRaw: rate,
+      sourceTotalInclusive: l.totalInc ?? 0,
+      sourceUnit: l.unit || '',
+      unitPriceExplicit: l.unitPriceExplicit,
+      discountPctExplicit: l.discountPctExplicit,
+      taxInclusiveExplicit: l.taxInclusiveExplicit,
+    };
+  });
+}
+
+/**
+ * يبني فاتورة من مجموعة صفوف بلا عمود «نوع سطر» — كل صف بند منتج، وبيانات
+ * الفاتورة تُقرأ من كل صف وتُوفَّق بينها: قيمة الصف الأول تُعتمد، وأي اختلاف
+ * لاحق يُبلَّغ عنه بدل أن يُختار عشوائياً أو يُسقَط بصمت.
+ * الموقع وحده يُفشل الفاتورة عند الاختلاف — فاتورة واحدة لا يجوز أن تحمل أكثر
+ * من موقع، ولا معنى لاختيار أحدهما عشوائياً.
+ */
+function buildInvoiceFlat(g, issues) {
+  const invNo = g.invoiceNumber;
+
+  if (g.lines.length === 0) {
+    issues.push({
+      severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow: g.rows[0],
+      code: 'NO_LINES',
+      message: `الفاتورة ${invNo} بلا بنود`,
+    });
+    return null;
+  }
+
+  const first = g.headerCandidates[0];
+
+  // توفيق الحقول متفقة النطاق بين كل صفوف الفاتورة: القيمة الأولى غير الفارغة تُعتمد
+  const reconcile = (key, { fatal = false } = {}) => {
+    let chosen = null;
+    for (const c of g.headerCandidates) {
+      const v = c[key];
+      const isEmpty = v === null || v === undefined || v === '';
+      if (isEmpty) continue;
+      if (chosen === null) { chosen = v; continue; }
+      const differs = v instanceof Object
+        ? JSON.stringify(v) !== JSON.stringify(chosen)
+        : v !== chosen;
+      if (differs) {
+        issues.push({
+          severity: fatal ? 'fatal' : 'warn',
+          scope: 'invoice', invoiceRef: invNo, sourceRow: c.sourceRow,
+          code: fatal ? 'INVOICE_LOCATION_CONFLICT' : 'INVOICE_HEADER_FIELD_MISMATCH',
+          message: fatal
+            ? `الفاتورة ${invNo} تحمل أكثر من موقع بين صفوفها — فاتورة واحدة يجب أن تكون بموقع واحد`
+            : `حقل «${key}» يختلف بين صفوف الفاتورة ${invNo} — اعتُمدت أول قيمة غير فارغة`,
+        });
+      }
+    }
+    return chosen;
+  };
+
+  const location = reconcile('location', { fatal: true });
+  const customerName = reconcile('customerName');
+  const customerRef = reconcile('customerRef');
+  const paymentMethod = reconcile('paymentMethod');
+  const date = reconcile('date');
+  const rawDate = reconcile('rawDate');
+  const dueDate = reconcile('dueDate');
+  const supplyDate = reconcile('supplyDate');
+  const terms = reconcile('terms');
+  const notes = reconcile('notes');
+  const docDiscountValue = reconcile('docDiscountValue');
+  const channel = reconcile('channel');
+
+  const isReturn = g.lines.every(l => l.isReturn) && g.lines.length > 0;
+  const mixed = g.lines.some(l => l.isReturn) && g.lines.some(l => !l.isReturn);
+  if (mixed) {
+    issues.push({
+      severity: 'fatal', scope: 'invoice', invoiceRef: invNo, sourceRow: first?.sourceRow,
+      code: 'MIXED_SELL_RETURN',
+      message: `الفاتورة ${invNo} تخلط بنود بيع وبنود مرتجع`,
+    });
+  }
+
+  const lines = toOutputLines(g.lines);
+  const linesSum = round(lines.reduce((s, l) => s + l.sourceTotalInclusive, 0), 2);
+
+  return {
+    invoiceRef: invNo,
+    isReturn,
+    issueDateParts: date,
+    rawDate,
+    dueDateParts: dueDate,
+    supplyDateParts: supplyDate,
+    sourceCustomerName: customerName || '',
+    sourceCustomerRef: customerRef || '',
+    sourceLocation: location || '',
+    channel: channel || '',
+    sourcePaymentMethods: [paymentMethod].filter(Boolean),
+    terms: terms || '',
+    notes: notes || '',
+    docDiscountValue,
+    paidAmount: null,
+    // لا رأس منفصل في هذا النمط: إجمالي الفاتورة هو مجموع بنودها
+    sourceTotalInclusive: linesSum,
+    lines,
+    headerRow: first?.sourceRow ?? g.rows[0],
     rows: g.rows,
   };
 }

@@ -79,8 +79,40 @@ const MONTHS = {
 };
 
 /**
+ * تحويل تاريخ هجري إلى ميلادي {y,m,d} — بالتقويم الهجري الحسابي (الجدولي)،
+ * وليس تقويم أم القرى المعتمد على رؤية الهلال. الفارق المتوقع يوم أو يومان عن
+ * التقويم الرسمي السعودي أحياناً — يكفي لصيغة تاريخ في ملف عميل، لا لغرض شرعي دقيق.
+ * الصيغة: نفس خوارزمية Richards القياسية (JDN) المستخدمة في مكتبات التقويم الهجري.
+ */
+export function hijriToGregorian(hy, hm, hd) {
+  if (!Number.isFinite(hy) || !Number.isFinite(hm) || !Number.isFinite(hd)) return null;
+  if (hm < 1 || hm > 12 || hd < 1 || hd > 30) return null;
+  const jdn = hd + Math.ceil(29.5 * (hm - 1)) + (hy - 1) * 354 + Math.floor((3 + 11 * hy) / 30) + 1948440 - 1;
+  return jdnToGregorian(jdn);
+}
+
+function jdnToGregorian(jdn) {
+  const a = jdn + 32044;
+  const b = Math.floor((4 * a + 3) / 146097);
+  const c = a - Math.floor((146097 * b) / 4);
+  const d = Math.floor((4 * c + 3) / 1461);
+  const e = c - Math.floor((1461 * d) / 4);
+  const mm = Math.floor((5 * e + 2) / 153);
+  const day = e - Math.floor((153 * mm + 2) / 5) + 1;
+  const month = mm + 3 - 12 * Math.floor(mm / 10);
+  const year = 100 * b + d - 4800 + Math.floor(mm / 10);
+  return validate(year, month, day);
+}
+
+/** نطاق سنة هجرية معقول للفواتير الحديثة — يمنع تفسير سنة ميلادية عادية كهجرية خطأً */
+const HIJRI_YEAR_MIN = 1300;
+const HIJRI_YEAR_MAX = 1500;
+
+/**
  * تحليل تاريخ من صيغ متعددة إلى {y,m,d}.
- * يتعامل مع: Date، رقم تسلسلي إكسل، "August 19, 2026 07:45 PM"، DD/MM/YYYY، YYYY-MM-DD.
+ * يتعامل مع: Date، رقم تسلسلي إكسل، "August 19, 2026 07:45 PM"، DD/MM/YYYY، YYYY-MM-DD،
+ * وتواريخ هجرية بنفس صيغ الأرقام (تُجرَّب فقط عند فشل التفسير الميلادي وسنة معقولة هجرياً،
+ * فلا يتأثر أي تاريخ ميلادي صالح بهذه الإضافة).
  * يُرجع null عند الفشل — لا يخمّن أبداً.
  */
 export function parseDate(v) {
@@ -101,13 +133,27 @@ export function parseDate(v) {
   const s = toStr(v);
   if (!s) return null;
 
-  // DD/MM/YYYY أو DD-MM-YYYY
+  // DD/MM/YYYY أو DD-MM-YYYY (ميلادي أولاً، فهجري عند فشله وسنة معقولة)
   let m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/);
-  if (m) return validate(+m[3], +m[2], +m[1]);
+  if (m) {
+    const g = validate(+m[3], +m[2], +m[1]);
+    if (g) return g;
+    if (+m[3] >= HIJRI_YEAR_MIN && +m[3] <= HIJRI_YEAR_MAX) {
+      const h = hijriToGregorian(+m[3], +m[2], +m[1]);
+      if (h) return h;
+    }
+  }
 
-  // YYYY-MM-DD
+  // YYYY-MM-DD (ميلادي أولاً، فهجري بنفس الترتيب عند فشله)
   m = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
-  if (m) return validate(+m[1], +m[2], +m[3]);
+  if (m) {
+    const g = validate(+m[1], +m[2], +m[3]);
+    if (g) return g;
+    if (+m[1] >= HIJRI_YEAR_MIN && +m[1] <= HIJRI_YEAR_MAX) {
+      const h = hijriToGregorian(+m[1], +m[2], +m[3]);
+      if (h) return h;
+    }
+  }
 
   // "August 19, 2026 07:45 PM"
   m = s.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);

@@ -1,9 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { readTemplate } from './engine/template.js';
-import { detectMapping, parseSource } from './engine/parseSource.js';
+import { detectMapping, parseSource, findSourceHeaderRow } from './engine/parseSource.js';
 import { collectDecisions, runPipeline } from './engine/pipeline.js';
 import { ENGINE_DEFAULTS } from './engine/constants.js';
-import { readWorkbook, mapReferenceRecords, detectReferenceMapping } from './io/readWorkbook.js';
+import {
+  readWorkbook, mapReferenceRecords, detectReferenceMapping,
+  referenceHeaderFinder, locationStockHeaderFinder, parseLocationStock,
+} from './io/readWorkbook.js';
 
 import ReconStrip from './components/ReconStrip.jsx';
 import Step1References from './components/Step1References.jsx';
@@ -62,15 +65,17 @@ export default function InvoiceImportTool({
   const [template, setTemplate] = useState(null);
   const [templateFile, setTemplateFile] = useState('');
 
-  const [references, setReferences] = useState({ customers: [], products: [] });
+  const [references, setReferences] = useState({ customers: [], products: [], locationStock: null });
   const [refRaw, setRefRaw] = useState({ customers: null, products: null });
   const [refHeaders, setRefHeaders] = useState({ customers: null, products: null });
   const [refMapping, setRefMapping] = useState({
     customers: { name: '', ref: '' },
-    products: { code: '', barcode: '', name: '', stock: '', tracked: '' },
+    products: { code: '', barcode: '', name: '', stock: '', tracked: '', sellable: '' },
   });
   const [customersFile, setCustomersFile] = useState('');
   const [productsFile, setProductsFile] = useState('');
+  const [locationStockFile, setLocationStockFile] = useState('');
+  const [locationStockInfo, setLocationStockInfo] = useState(null); // { idColumns, locationColumns, count }
 
   const [sourceFile, setSourceFile] = useState('');
   const [sourceRaw, setSourceRaw] = useState(null);
@@ -91,9 +96,14 @@ export default function InvoiceImportTool({
     onError?.(msg);
   }, [onError]);
 
-  /* ── تفكيك ملف المصدر ── */
+  /*
+   * تفكيك ملف المصدر — عمود «رقم الفاتورة» وحده إلزامي لبدء التفكيك. عمود «نوع
+   * السطر» اختياري: إن وُجد فالملف منظَّم (رأس/بند/دفع)، وإن غاب فالملف مسطَّح
+   * (صف واحد لكل بند منتج، بيانات الفاتورة تُقرأ من كل صف وتُوفَّق تلقائياً) —
+   * parseSource يختار المسار المناسب داخلياً.
+   */
   const parsed = useMemo(() => {
-    if (!sourceRaw || !sourceMapping.invoiceNumber || !sourceMapping.lineType) return null;
+    if (!sourceRaw || !sourceMapping.invoiceNumber) return null;
     try { return parseSource(sourceRaw.records, sourceMapping); }
     catch (e) { raise(`تعذّر تفكيك الملف: ${e.message}`); return null; }
   }, [sourceRaw, sourceMapping, raise]);
@@ -103,6 +113,11 @@ export default function InvoiceImportTool({
     if (!parsed || !template) return null;
     return collectDecisions({ sales: parsed.sales, references, decisions, template });
   }, [parsed, template, references, decisions]);
+
+  // مرجع دائم التحديث بآخر قيمة لـ pending، يقرؤه actions.decideAll وقت التنفيذ
+  // لا وقت التعريف — بدونه يطبّق "تطبيق على الكل" قائمة قديمة من القيم المعلّقة
+  const pendingRef = useRef(null);
+  useEffect(() => { pendingRef.current = pending; }, [pending]);
 
   /* ── التحويل والتحقق ── */
   const result = useMemo(() => {
@@ -145,7 +160,8 @@ export default function InvoiceImportTool({
   const loadReference = useCallback(async (file, kind) => {
     setError('');
     try {
-      const wbk = await readWorkbook(file);
+      // صف العناوين قد لا يكون الأول — يُكتشف بفحص أول صفوف الملف بدل افتراضه
+      const wbk = await readWorkbook(file, { findHeader: referenceHeaderFinder(kind) });
       const m = detectReferenceMapping(wbk.headers, kind);
       setRefRaw(r => ({ ...r, [kind]: wbk }));
       setRefHeaders(h => ({ ...h, [kind]: wbk.headers }));
@@ -157,6 +173,29 @@ export default function InvoiceImportTool({
       raise(`تعذّرت قراءة الملف: ${e.message}`);
     }
   }, [raise]);
+
+  const loadLocationStock = useCallback(async file => {
+    setError('');
+    try {
+      const wbk = await readWorkbook(file, { findHeader: locationStockHeaderFinder() });
+      const parsed = parseLocationStock(wbk);
+      setReferences(refs => ({ ...refs, locationStock: parsed }));
+      setLocationStockFile(file.name);
+      setLocationStockInfo({
+        idColumns: parsed.idColumns,
+        locationColumns: parsed.locationColumns,
+        count: parsed.rows.length,
+      });
+    } catch (e) {
+      raise(`تعذّرت قراءة ملف كميات المواقع: ${e.message}`);
+    }
+  }, [raise]);
+
+  const clearLocationStock = useCallback(() => {
+    setReferences(refs => ({ ...refs, locationStock: null }));
+    setLocationStockFile('');
+    setLocationStockInfo(null);
+  }, []);
 
   const setRefMappingField = useCallback((kind, field, value) => {
     setRefMapping(prev => {
@@ -170,7 +209,7 @@ export default function InvoiceImportTool({
   const loadSource = useCallback(async file => {
     setError('');
     try {
-      const wbk = await readWorkbook(file);
+      const wbk = await readWorkbook(file, { findHeader: findSourceHeaderRow });
       setSourceRaw(wbk);
       setSourceHeaders(wbk.headers);
       setSourceMapping(detectMapping(wbk.headers));
@@ -187,17 +226,28 @@ export default function InvoiceImportTool({
     loadTemplate,
     loadReference,
     loadSource,
+    loadLocationStock,
+    clearLocationStock,
     setRefMapping: setRefMappingField,
     setSourceMapping: (field, value) => setSourceMapping(m => ({ ...m, [field]: value })),
     decide: (kind, key, value) => setDecisions(d => ({ ...d, [kind]: { ...d[kind], [key]: value } })),
+    // يطبّق قيمة واحدة على كل القيم المعلّقة الحالية لهذا النوع دفعة واحدة —
+    // "تطبيق على الكل" لموقع أو طريقة دفع بدل اختيارها فاتورة فاتورة
+    decideAll: (kind, value) => setDecisions(d => {
+      const items = pendingRef.current?.[kind] || [];
+      const next = { ...d[kind] };
+      for (const p of items) next[p.key] = value;
+      return { ...d, [kind]: next };
+    }),
     setDefault: (key, value) => setDecisions(d => ({ ...d, [key]: value })),
     setOption: (key, value) => setOptions(o => ({ ...o, [key]: value })),
     resetDecisions: () => setDecisions({ ...EMPTY_DECISIONS }),
     notifyExport: payload => onExport?.(payload),
-  }), [loadTemplate, loadReference, loadSource, setRefMappingField, onExport]);
+  }), [loadTemplate, loadReference, loadSource, loadLocationStock, clearLocationStock, setRefMappingField, onExport]);
 
   const state = {
     template, templateFile, references, refHeaders, refMapping, customersFile, productsFile,
+    locationStockFile, locationStockInfo,
     sourceFile, sourceHeaders, sourceMapping, parsed, decisions, pending, result, options,
   };
 
