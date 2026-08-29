@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { AI_SYSTEM_PROMPT } from "./lib/aiSystemPrompt";
 
 export async function getGeminiKey() {
   try {
@@ -46,7 +47,10 @@ async function callGemini(prompt) {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+      contents: [{ parts: [{ text: prompt }] }]
+    })
   });
 
   const data = await res.json();

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { AI_SYSTEM_PROMPT } from "./lib/aiSystemPrompt";
 
 export const AI_AGENT_EMAIL = "ai-agent@system.local";
 export const AI_AGENT_NAME_AR = "مساعد قيود (ذكاء اصطناعي)";
@@ -55,7 +56,10 @@ export async function chatWithAgent(userPrompt) {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: userPrompt }] }] })
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+        contents: [{ parts: [{ text: userPrompt }] }]
+      })
     });
 
     const data = await res.json();
