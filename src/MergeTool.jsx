@@ -230,6 +230,20 @@ function normalizeArabic(str) {
     .toLowerCase().trim();
 }
 
+// [إصلاح جذري] رمز الحساب أولاً وأخيرًا: أول رقم في رمز الحساب نفسه يحدد جذره
+// حتماً - 1=أصول، 2=التزامات، 3=حقوق ملاك، 4=إيرادات، 5=مصاريف - قاعدة قيود
+// الرقمية شبه العالمية. هذا أقوى مرجع هرمي متاح إطلاقاً: لا يعتمد على تفسير اسم
+// ولا على توفر صف أب موثوق بياناته، فيُعتمد قبل أي استنتاج آخر ولا يجوز لاسم
+// الحساب ولا لعمود النوع في ملف العميل أن يخالفاه. حساب برمز لا يبدأ برقم من
+// 1-5 (ترقيم غير قياسي) يعيد "" فتستمر بقية طبقات الاستنتاج كما كانت.
+const CODE_ROOT_BY_FIRST_DIGIT = {
+  "1": "الاصول", "2": "الالتزامات", "3": "حقوق الملاك", "4": "الايرادات", "5": "المصاريف",
+};
+function rootFromAccountCode(code) {
+  const d = String(code ?? "").trim().charAt(0);
+  return CODE_ROOT_BY_FIRST_DIGIT[d] || "";
+}
+
 function matchLevel1RootByKeyword(text) {
   if (!text) return null;
   const n = normalizeArabic(text);
@@ -567,20 +581,24 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
   // وليس نوع حساب - لازم يُقرأ كجذر لا كنوع، وإلا انهار الهيكل بالكامل.
   // ملاحظة: النسخة الصارمة لا تعتبر أسماء الأنواع/الفئات المعتمدة جذورًا (إصلاح "مصروفات مقدمة")
   const declaredRoot = canonicalizeLevel1Root(rawType);
+  // رمز الحساب نفسه أولاً - أقوى مرجع هرمي متاح، انظر التعليق أعلى الدالة
+  const codeRoot = rootFromAccountCode(row.code);
 
   // ===== المستوى 1: النوع هو جذر الشجرة (أصول / التزامات / ...) =====
   if (level === 1) {
-    const root1 = level1RootFromText(rawType) || level1RootFromText(nameText);
+    const root1 = codeRoot || level1RootFromText(rawType) || level1RootFromText(nameText);
     if (rawType && !root1) notes.push(`نوع الحساب "${rawType}" غير معتمد لحساب مستوى 1 - تم استنتاجه من الاسم`);
     return { level2Category: "", type: root1 || "", notes };
   }
 
   // ===== المستوى 2: النوع هو الفئة نفسها (أصول متداولة / تكاليف تشغيلية / ...) =====
   if (level === 2) {
-    // موقع الحساب في الشجرة أقوى دليل، ثم الجذر المصرّح بالملف، ثم الاسم
+    // رمز الحساب نفسه أولاً، فموقعه في الشجرة، فالجذر المصرّح بالملف، فالاسم
     const chainRoot = rootFromAnyText(parentText);
-    const rootHint = chainRoot || declaredRoot || canonicalizeLevel1Root(nameText);
-    if (chainRoot && declaredRoot && !sameRoot(chainRoot, declaredRoot)) {
+    const rootHint = codeRoot || chainRoot || declaredRoot || canonicalizeLevel1Root(nameText);
+    if (codeRoot && chainRoot && !sameRoot(codeRoot, chainRoot)) {
+      notes.push(`رمز الحساب "${row.code}" يشير إلى جذر "${codeRoot}" بينما موقعه في الشجرة يوحي بجذر مختلف - تم اعتماد رمز الحساب`);
+    } else if (chainRoot && declaredRoot && !sameRoot(chainRoot, declaredRoot)) {
       notes.push(`عمود النوع بالملف يقول "${declaredRoot}" بينما الحساب واقع تحت "${chainRoot}" - تم اعتماد موقعه في الشجرة`);
     }
 
@@ -641,15 +659,18 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
     : "";
 
   // 2) الجذر المرجعي للصف - لا يجوز أبدًا خروج الفئة أو النوع عنه.
-  //    موقع الحساب في الشجرة (سلسلة الآباء) هو الدليل الأقوى، لأن ملفات العملاء
-  //    كثيرًا ما تحمل جذرًا خاطئًا في عمود النوع على صفوف فرعية عميقة.
+  //    رمز الحساب نفسه أولاً وأخيرًا (انظر تعليق rootFromAccountCode)، فموقع
+  //    الحساب في الشجرة (سلسلة الآباء)، لأن ملفات العملاء كثيرًا ما تحمل جذرًا
+  //    خاطئًا في عمود النوع على صفوف فرعية عميقة.
   const chainRoot =
     rootOfCategory(canonicalizeLevel2Category(ancestorCategory)) ||
     rootOfCategory(parentCategory) ||
     rootFromAnyText(parentText) ||
     "";
-  const rowRoot = chainRoot || declaredRoot || canonicalizeLevel1Root(nameText) || "";
-  if (chainRoot && declaredRoot && !sameRoot(chainRoot, declaredRoot)) {
+  const rowRoot = codeRoot || chainRoot || declaredRoot || canonicalizeLevel1Root(nameText) || "";
+  if (codeRoot && chainRoot && !sameRoot(codeRoot, chainRoot)) {
+    notes.push(`رمز الحساب "${row.code}" يشير إلى جذر "${codeRoot}" بينما موقعه في الشجرة يوحي بجذر مختلف - تم اعتماد رمز الحساب`);
+  } else if (chainRoot && declaredRoot && !sameRoot(chainRoot, declaredRoot)) {
     notes.push(`عمود النوع بالملف يقول "${declaredRoot}" بينما الحساب واقع تحت "${chainRoot}" - تم اعتماد موقعه في الشجرة`);
   }
 
@@ -1003,10 +1024,15 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     if (catCache.has(code)) return catCache.get(code);
     guard.add(code);
     // حساب جديد سبقت معالجته (متاح بفضل الترتيب الهرمي أعلاه) يحمل فئة محسوبة
-    // فعليًا بالفعل - أولى بالثقة من نصه الخام في ملف 2 غير المصنَّف بعد
+    // فعليًا بالفعل - أولى بالثقة من نصه الخام في ملف 2 غير المصنَّف بعد.
+    // ملاحظة حاسمة: حساب مستوى 2 يحمل فئته في حقل type نفسه لا level2Category
+    // (نفس القاعدة في كل موضع آخر بالملف) - يجب قراءته منه أولًا وإلا فاتت الفئة صمتًا
     const processed = processedRowsMap.get(code);
     if (processed) {
-      const t = canonicalizeLevel2Category(processed.level2Category) || (processed.type ? TYPE_TO_LEVEL2[processed.type] : "");
+      const t = Number(processed.level) === 2
+        ? canonicalizeLevel2Category(processed.type)
+        : (canonicalizeLevel2Category(processed.level2Category)
+          || (processed.type ? TYPE_TO_LEVEL2[canonicalizeLevel3Type(processed.type)] : ""));
       if (t) { catCache.set(code, t); return t; }
     }
     const rec = findRecordByCode(code);
@@ -1137,7 +1163,21 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
       level = String(r2.code).trim().length === 1 ? 1 : 2;
     }
 
-    const parentRow = parentCode ? (processedRowsMap.get(parentCode) || findRecordByCode(parentCode)) : null;
+    const parentRowRaw = parentCode ? (processedRowsMap.get(parentCode) || findRecordByCode(parentCode)) : null;
+    /*
+     * [إصلاح] resolveAccountTypeAndCategory يقرأ parentRow.level حرفيًا ليقرر
+     * إن كان الأب مستوى 2 (حيث الفئة تُخزَّن في حقل type نفسه لا level2Category) -
+     * لكن حساب الشجرة الحالية (ملف 1) عادةً لا يحمل عمود "المستوى" أصلاً، فيصل
+     * .level فارغًا رغم أن الحساب مستوى 2 فعليًا حسب سلسلة آبائه. hierarchyLevel
+     * أعلاه محسوب بأسلوب موثوق (getLevel: سلسلة الآباء ثم طول الرمز)، فيُفرَض هنا
+     * بدل الاعتماد على حقل قد يكون غائبًا - وإلا فشلت قراءة فئة الأب لحسابات
+     * الشجرة الحالية تحديدًا، وتسرّبت أبناؤها لعائلة عشوائية (مثال: أب "51" مستوى
+     * 2 صحيح "تكاليف تشغيلية"، لكن قراءته بلا هذا الإصلاح تفشل فيخرج الابن بفئة
+     * إيرادات لا علاقة لها بعائلة الأب إطلاقًا).
+     */
+    const parentRow = parentRowRaw && hierarchyLevel !== null
+      ? { ...parentRowRaw, level: hierarchyLevel }
+      : parentRowRaw;
 
     // الفئة المستنتجة من سلسلة الآباء (مثال: 1101 -> أبوه 11 -> الأصول المتداولة)
     const ancestorCategory = parentCode ? getLevel2Cat(parentCode) : null;
@@ -2102,8 +2142,8 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
         {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-300"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
       </td>
       <td className="px-3 py-2"><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
-      <td className="px-3 py-2"><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} /></td>
-      <td className="px-3 py-2"><EditableCell value={r.nameEn} onChange={(v) => updateRow(r.id, { nameEn: v })} /></td>
+      <td className="px-3 py-2" style={{ minWidth: 220 }}><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} wrap /></td>
+      <td className="px-3 py-2" style={{ minWidth: 200 }}><EditableCell value={r.nameEn} onChange={(v) => updateRow(r.id, { nameEn: v })} wrap /></td>
       <td className="px-3 py-2">
         <select value={r.level} onChange={(e) => updateRow(r.id, { level: e.target.value })} className="w-16 rounded border border-[#233152] bg-[#0E1830] text-[#E6EDF6] px-1 py-1">
           <option value="">—</option>{[2,3,4,5,6,7].map((l) => (<option key={l} value={l}>{l}</option>))}
@@ -2163,8 +2203,27 @@ function NotesCell({ row }) {
   );
 }
 
-function EditableCell({ value, onChange, mono }) {
-  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} className={`w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-[#E2E8F0] focus:border-blue-700 focus:bg-[#F1F5F9] focus:outline-none ${mono ? "font-mono" : ""}`} />;
+/**
+ * `wrap`: يُستخدم لحقول قد تحمل نصًا طويلًا (اسم الحساب تحديدًا) - textarea
+ * يلتف على أكثر من سطر بدل input أحادي السطر يُخفي أغلب النص خلف تمرير أفقي
+ * غير ظاهر. title يعرض النص كاملاً كتلميح أيضًا حتى قبل النقر للتحرير.
+ */
+function EditableCell({ value, onChange, mono, wrap }) {
+  const cls = `w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-[#E2E8F0] focus:border-blue-700 focus:bg-[#F1F5F9] focus:outline-none ${mono ? "font-mono" : ""}`;
+  if (wrap) {
+    return (
+      <textarea
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+        title={value || ""}
+        rows={2}
+        className={`${cls} resize-y leading-snug`}
+        style={{ minWidth: 200, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+      />
+    );
+  }
+  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} title={value || ""} className={cls} />;
 }
 
 function ExistingMatchesTable({ rows, compact }) {
