@@ -103,7 +103,7 @@ const KEYWORD_SYNONYMS = {
   "سلف موظفين": ["سلفة", "سلف", "سلفيات", "سلفة موظف", "سلف موظفين"],
   "المخزون": ["مخزون", "بضاعة", "مستودع", "خامات", "منتج تام", "مواد أولية"],
   "عهد نقدية": ["عهدة", "عهد", "عهدة نقدية", "عهدة موظف"],
-  "مصروفات مقدمة": ["مدفوع مقدمًا", "مصروف مقدم", "مصروفات مقدمة", "مصاريف مقدمة", "مصروفات مدفوعة مقدما", "مصروف مدفوع مقدما", "مدفوعة مقدما", "مدفوعات مقدمة", "إيجار مقدم", "إيجارات مقدمة", "تأمين مقدم", "اشتراكات مقدمة"],
+  "مصروفات مقدمة": ["مدفوع مقدمًا", "مصروف مقدم", "مصروفات مقدمة", "مصاريف مقدمة", "مصروفات مدفوعة مقدما", "مصروف مدفوع مقدما", "مدفوعة مقدما", "مدفوعات مقدمة", "دفعات مقدمة", "دفعة مقدمة", "إيجار مقدم", "إيجارات مقدمة", "تأمين مقدم", "اشتراكات مقدمة"],
   "مخزون قطع غيار أصول": ["قطع غيار", "قطع الغيار"],
   "أصول غير ملموسة": ["برامج", "برمجيات", "شهرة", "علامة تجارية", "براءة اختراع", "تراخيص"],
   "عقارات وآلات ومعدات": ["أراضي", "مباني", "عقار", "سيارات", "آلات", "معدات", "أثاث", "أجهزة", "كمبيوتر", "سيارة", "أصول ثابتة", "الأصول الثابتة", "موجودات ثابتة", "ممتلكات ومعدات", "عدد وأدوات"],
@@ -556,7 +556,7 @@ function inferLevel3TypeFromText(name, level2Category, candidateList) {
  * @param {string} ancestorCategory الفئة المستنتجة من سلسلة الآباء في الشجرة الحالية
  * @returns {{level2Category: string, type: string, notes: string[]}}
  */
-function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, ancestorCategory) {
+export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, ancestorCategory) {
   const level = Number(row.level);
   const notes = [];
   const rawType = String(row.type || "").trim();
@@ -922,7 +922,7 @@ function buildTree(records) {
 // المحرك الرئيسي لمقارنة واشتقاق الشجرة
 // =====================================================================================
 
-function compareTrees(file1Records, file2Records, useFile2Codes) {
+export function compareTrees(file1Records, file2Records, useFile2Codes) {
   const tree1 = buildTree(file1Records);
   const codes1 = new Set(Object.keys(tree1));
 
@@ -1002,6 +1002,13 @@ function compareTrees(file1Records, file2Records, useFile2Codes) {
     if (!code || guard.has(code)) return null;
     if (catCache.has(code)) return catCache.get(code);
     guard.add(code);
+    // حساب جديد سبقت معالجته (متاح بفضل الترتيب الهرمي أعلاه) يحمل فئة محسوبة
+    // فعليًا بالفعل - أولى بالثقة من نصه الخام في ملف 2 غير المصنَّف بعد
+    const processed = processedRowsMap.get(code);
+    if (processed) {
+      const t = canonicalizeLevel2Category(processed.level2Category) || (processed.type ? TYPE_TO_LEVEL2[processed.type] : "");
+      if (t) { catCache.set(code, t); return t; }
+    }
     const rec = findRecordByCode(code);
     if (!rec) return null;
     const lvl = getLevel(code);
@@ -1040,7 +1047,29 @@ function compareTrees(file1Records, file2Records, useFile2Codes) {
   const newCodesUsed = new Set();
   const processedRowsMap = new Map();
 
-  file2Records.forEach((r2, idx) => {
+  /*
+   * [إصلاح جذري] الرمز الهرمي أولاً: تُعالَج صفوف ملف 2 بترتيب هرمي (الآباء قبل
+   * أبنائها) لا بترتيب ورودها في الملف. بدون هذا، حساب فرعي وارد قبل أبيه في
+   * الملف كان يقرأ processedRowsMap فارغة لأبيه فيسقط على بيانات الأب الخام غير
+   * المصنَّفة بعد (لا فئتها المحسوبة الصحيحة)، فيخرج بفئة/نوع من عائلة مختلفة
+   * تمامًا عن عائلة الأب الفعلية - وهذا هو سبب ظهور حساب مثل "1103" (الأصول
+   * المتداولة) وابنه "110301" مصنَّفًا افتراضيًا ضمن "تكاليف تشغيلية" رغم عدم
+   * انتمائه لهذه العائلة إطلاقًا. طول الرمز (فالمستوى الصريح) أوثق مرجع هرمي
+   * متاح لترتيب المعالجة؛ ترتيب الصفوف في النتيجة النهائية لا يتغيّر - يُعاد فقط
+   * لترتيبه الأصلي بعد اكتمال التصنيف (انظر أسفل الحلقة).
+   */
+  const hierarchyRank = (r2) => {
+    const code = r2.code ? String(r2.code).trim() : "";
+    if (code) return code.length;
+    const lvl = parseInt(r2.level, 10);
+    return Number.isFinite(lvl) ? lvl : 99;
+  };
+  const processingOrder = file2Records
+    .map((r2, idx) => idx)
+    .sort((a, b) => (hierarchyRank(file2Records[a]) - hierarchyRank(file2Records[b])) || (a - b));
+
+  processingOrder.forEach((idx) => {
+    const r2 = file2Records[idx];
     const nameKey = r2.nameAr || r2.nameEn;
     const normNameKey = normalizeArabic(nameKey);
     let matched = null, matchType = null;
@@ -1082,7 +1111,7 @@ function compareTrees(file1Records, file2Records, useFile2Codes) {
     }
 
     if (matched) {
-      results.push({ id: `m-${idx}`, status: "existing", matchType, matchScore: matchType === "fuzzy" ? bestScore : 1, source: r2, matchedWith: matched, errors: [], warnings: [] });
+      results.push({ id: `m-${idx}`, status: "existing", matchType, matchScore: matchType === "fuzzy" ? bestScore : 1, source: r2, matchedWith: matched, errors: [], warnings: [], _origIdx: idx });
       return;
     }
 
@@ -1147,12 +1176,16 @@ function compareTrees(file1Records, file2Records, useFile2Codes) {
       nameAr: r2.nameAr || "", nameEn: r2.nameEn || r2.nameAr || "",
       level: level || "", parent: parentCode, level2Category: level2Category || "",
       type: type || "", desc: r2.desc || "", payCollect: r2.payCollect || "No",
-      deleted: false, autoParent: false, errors, warnings
+      deleted: false, autoParent: false, errors, warnings, _origIdx: idx
     };
 
     if (proposedCode) processedRowsMap.set(proposedCode, newRowObj);
     results.push(newRowObj);
   });
+
+  // إعادة النتائج إلى ترتيب ورودها الأصلي في الملف - المعالجة وحدها كانت هرمية
+  results.sort((a, b) => a._origIdx - b._origIdx);
+  results.forEach((r) => { delete r._origIdx; });
 
   const tree1Index = Object.values(tree1).filter((rec) => rec.code).map((rec) => ({
     code: rec.code, nameAr: rec.nameAr || "", nameEn: rec.nameEn || "",
