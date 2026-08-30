@@ -2040,14 +2040,14 @@ export function MergeTool() {
                   <table className="w-full text-right text-xs" style={{ minWidth: 960 }}>
                     <thead className="bg-[#F8FAFC] text-[#64748B]">
                       <tr>
-                         <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "الاسم الانجليزي", en: "English name" })}</th>
+                         <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
                          <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
                          <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {tableRows.slice(0, visibleCount).map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
-                      {tableRows.length === 0 && (<tr><td colSpan={10} className="px-3 py-6 text-center text-[#94A3B8]">{newRows.length === 0 ? t({ ar: "ما فيه حسابات جديدة - كل حسابات ملف 2 مطابقة 🎉", en: "No new accounts — all of File 2 already matches 🎉" }) : t({ ar: "ما فيه حسابات ضمن هذا الفلتر", en: "No accounts in this filter" })}</td></tr>)}
+                      {tableRows.length === 0 && (<tr><td colSpan={9} className="px-3 py-6 text-center text-[#94A3B8]">{newRows.length === 0 ? t({ ar: "ما فيه حسابات جديدة - كل حسابات ملف 2 مطابقة 🎉", en: "No new accounts — all of File 2 already matches 🎉" }) : t({ ar: "ما فيه حسابات ضمن هذا الفلتر", en: "No accounts in this filter" })}</td></tr>)}
                     </tbody>
                   </table>
                 </div>
@@ -2142,8 +2142,9 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
         {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-300"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
       </td>
       <td className="px-3 py-2"><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
-      <td className="px-3 py-2" style={{ minWidth: 220 }}><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} wrap /></td>
-      <td className="px-3 py-2" style={{ minWidth: 200 }}><EditableCell value={r.nameEn} onChange={(v) => updateRow(r.id, { nameEn: v })} wrap /></td>
+      {/* الاسم الانجليزي غير معروض عمدًا - يبقى محفوظًا في بيانات الصف ويُصدَّر كما هو،
+          حُذف فقط من هذا العرض لإتاحة عرض التنبيهات وباقي الأعمدة بلا تمرير أفقي */}
+      <td className="px-3 py-2" style={{ minWidth: 260 }}><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} wrap /></td>
       <td className="px-3 py-2">
         <select value={r.level} onChange={(e) => updateRow(r.id, { level: e.target.value })} className="w-16 rounded border border-[#233152] bg-[#0E1830] text-[#E6EDF6] px-1 py-1">
           <option value="">—</option>{[2,3,4,5,6,7].map((l) => (<option key={l} value={l}>{l}</option>))}
@@ -2301,7 +2302,7 @@ function SearchResultsView({ query, newRows, existingRows, deletedRows, updateRo
           <div className="mb-2 text-sm font-semibold text-[#64748B]">{t({ ar: `حسابات جديدة (${newRows.length})`, en: `New accounts (${newRows.length})` })}</div>
           <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-[#FFFFFF]">
             <table className="w-full text-start text-xs" style={{ minWidth: 960 }}>
-              <thead className="bg-[#F8FAFC] text-[#64748B]"><tr><th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "الاسم الانجليزي", en: "English name" })}</th><th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة", en: "Category" })}</th><th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th></tr></thead>
+              <thead className="bg-[#F8FAFC] text-[#64748B]"><tr><th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th><th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة", en: "Category" })}</th><th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th></tr></thead>
               <tbody>{newRows.slice(0, visibleCount).map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && !!missingParentCodes && missingParentCodes.has(String(r.parent).trim())} />))}</tbody>
             </table>
           </div>
@@ -2551,6 +2552,12 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     const id = requestAnimationFrame(fitToPage);
     return () => cancelAnimationFrame(id);
   }, [activeRootKey, fullView]);
+  // الدخول أو الخروج من ملء الشاشة يغيّر حجم الحاوية فعليًا - أعد ملاءمة التكبير
+  // للمساحة الجديدة تلقائيًا بدل بقاء نسبة التكبير القديمة المحسوبة للحجم الصغير
+  useEffect(() => {
+    const id = requestAnimationFrame(fitToPage);
+    return () => cancelAnimationFrame(id);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const el = treeScrollRef.current;
@@ -2565,15 +2572,34 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     return () => el.removeEventListener("wheel", handler);
   }, []);
 
+  /*
+   * [إصلاح] وضع ملء الشاشة لا يعتمد على Fullscreen API وحدها بعد الآن - كانت
+   * تفشل صامتة (بلا أي أثر مرئي) داخل أي سياق تضمين لا يسمح بها (iframe بلا
+   * allow="fullscreen"، بعض إعدادات الأمان)، فيظهر وكأن الزر "لا يعمل". الحالة
+   * isFullscreen تتحكم بالتخطيط بنفسها مباشرة (overlay يغطي الشاشة كاملة)، وطلب
+   * ملء الشاشة الحقيقي من المتصفح يبقى "أفضل جهد" فوقها فقط (يخفي شريط عنوان
+   * المتصفح نفسه إن سُمح به) - فيعمل المخطط الكبير الواضح دائمًا بصرف النظر عن
+   * نجاح الإذن من عدمه.
+   */
   useEffect(() => {
-    const handleFullscreen = () => setIsFullscreen(document.fullscreenElement === treeViewportRef.current);
+    // خروج المستخدم من ملء الشاشة الحقيقي (Esc أو زر المتصفح) يُطابق حالتنا أيضًا
+    const handleFullscreen = () => { if (!document.fullscreenElement) setIsFullscreen(false); };
     document.addEventListener("fullscreenchange", handleFullscreen);
     return () => document.removeEventListener("fullscreenchange", handleFullscreen);
   }, []);
-  const toggleFullscreen = useCallback(async () => {
-    if (!treeViewportRef.current) return;
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await treeViewportRef.current.requestFullscreen();
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e) => { if (e.key === "Escape") setIsFullscreen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => {
+      const next = !prev;
+      if (next) treeViewportRef.current?.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      return next;
+    });
   }, []);
   const handlePanStart = (event) => {
     if (event.button !== 0) return;
@@ -2590,27 +2616,37 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const handlePanEnd = () => { panRef.current = null; };
 
   return (
-    <div className="mt-5" dir={dir}>
-      <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-300"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
-      {dropMessage && (<div className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : dropMessage.type === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
+    <div className={isFullscreen ? "fixed inset-0 z-[9999] flex flex-col bg-[#FFFFFF] p-4" : "mt-5"} dir={dir}>
+      {!isFullscreen && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-300"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
+      )}
+      {dropMessage && (<div className={`mb-3 shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : dropMessage.type === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
       {bucketEntries.length === 0 ? (<div className="rounded-xl border border-dashed border-[#E2E8F0] bg-[#FFFFFF] py-8 text-center text-sm text-[#94A3B8]">{t({ ar: "ما فيه حسابات جديدة لعرضها", en: "No new accounts to display" })}</div>) : (
         <>
-          <div className="mb-3 flex flex-wrap gap-2">
+          <div className="mb-3 flex shrink-0 flex-wrap gap-2">
             {bucketEntries.map(([key, bucket]) => (
               <button key={key} onClick={() => { setFullView(false); setActiveRootKey(key); }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${!fullView && activeRootKey === key ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{bucket.label} ({bucket.items.length})</button>
             ))}
           </div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2">
             {bucketEntries.length > 1 && (
               <button onClick={() => setFullView((v) => !v)} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${fullView ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#CBD5E1] bg-[#F8FAFC] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{t({ ar: "☰ العرض الكامل للشجرة", en: "☰ View Entire Tree" })}</button>
             )}
-              <button onClick={toggleFullscreen} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-1.5 text-xs font-semibold text-[#64748B] hover:border-[#12B886] hover:text-[#15803D] transition">{isFullscreen ? t({ ar: "إلغاء ملء الشاشة", en: "Exit full screen" }) : t({ ar: "ملء الشاشة", en: "Full screen" })}</button>
+              <button onClick={toggleFullscreen} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isFullscreen ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{isFullscreen ? t({ ar: "✕ إلغاء ملء الشاشة", en: "✕ Exit full screen" }) : t({ ar: "⛶ ملء الشاشة", en: "⛶ Full screen" })}</button>
             <button onClick={resetZoom} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-1.5 text-xs font-semibold text-[#64748B] hover:border-[#12B886] hover:text-[#15803D] transition">{t({ ar: "100%", en: "100%" })}</button>
             <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-2 py-1.5 text-xs font-bold text-[#64748B] hover:border-[#12B886]">+</button>
             <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-2 py-1.5 text-xs font-bold text-[#64748B] hover:border-[#12B886]">−</button>
             <span className="text-xs text-[#94A3B8]">{Math.round(zoom * 100)}%</span>
+            {isFullscreen && (
+              <span className="text-xs text-[#94A3B8]">{t({ ar: "(Esc للخروج)", en: "(Esc to exit)" })}</span>
+            )}
           </div>
-          <div ref={(element) => { treeScrollRef.current = element; treeViewportRef.current = element; }} className="overflow-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]" style={{ maxHeight: isFullscreen ? "100vh" : 640, cursor: panRef.current ? "grabbing" : "grab" }} onPointerDown={handlePanStart} onPointerMove={handlePanMove} onPointerUp={handlePanEnd} onPointerCancel={handlePanEnd}>
+          <div
+            ref={(element) => { treeScrollRef.current = element; treeViewportRef.current = element; }}
+            className={`overflow-auto rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] ${isFullscreen ? "min-h-0 flex-1" : ""}`}
+            style={{ maxHeight: isFullscreen ? "none" : 640, cursor: panRef.current ? "grabbing" : "grab" }}
+            onPointerDown={handlePanStart} onPointerMove={handlePanMove} onPointerUp={handlePanEnd} onPointerCancel={handlePanEnd}
+          >
             <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}>
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
