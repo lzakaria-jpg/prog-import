@@ -152,7 +152,7 @@ export function validateRow(row, ctx) {
 
   if (pct && val) {
     issues.push({ ...at, code: 'DOUBLE_DISCOUNT',
-      message: 'لا يُقبل إدخال الخصم بالنسبة والقيمة معاً في نفس البند' });
+      message: 'لا يمكن استخدام قيمة الخصم ونسبة الخصم في نفس البند. اختر إحدى الطريقتين فقط.' });
   }
   if (pct !== null && (pct < 0 || pct > 100)) {
     issues.push({ ...at, code: 'DISCOUNT_PCT_RANGE', message: `نسبة الخصم يجب أن تكون بين 0 و 100 (${pct})` });

@@ -125,7 +125,7 @@ export default function Step2Source({ state, actions }) {
       )}
 
       {parsed && (
-        <Card title="نتيجة التفكيك">
+        <Card title="نتيجة التحليل">
           <div className="qii-grid-3">
             <Stat k="صفوف الملف" v={i(parsed.stats.totalRows)} />
             <Stat k="فواتير مبيعات" v={i(parsed.stats.salesInvoices)} tone="ok" />

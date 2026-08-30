@@ -13,6 +13,7 @@ import { transformAll } from './transform.js';
 import { validateAll } from './validate.js';
 import { ENGINE_DEFAULTS, LOCATION_SYNONYM_GROUPS, PAYMENT_METHOD_SYNONYM_GROUPS } from './constants.js';
 import { toStr, round } from './num.js';
+import { applyRowOverrides, recomputeReconciliation } from './overrides.js';
 
 /**
  * يجمع كل القيم التي تحتاج قراراً من المستخدم.
@@ -119,9 +120,12 @@ export function collectDecisions({ sales, references, decisions, template }) {
 
 /**
  * ينفّذ التحويل الكامل بعد استقرار القرارات.
+ * @param {object} [overrides] تعديلات يدوية من صفحة المطابقة والمراجعة — تُطبَّق
+ *   بعد التحويل وقبل التحقق، فتُعاد كل التصنيفات (صحيح/تنبيه/خطأ) والإجماليات
+ *   بناءً على القيم المعدَّلة مباشرة. راجع engine/overrides.js.
  * @returns {{rows, reconciliation, validation, stock, notes, unresolved}}
  */
-export function runPipeline({ sales, references, decisions, template, options }) {
+export function runPipeline({ sales, references, decisions, template, options, overrides }) {
   const opts = { ...ENGINE_DEFAULTS, ...(options || {}) };
   const customerIndex = buildCustomerIndex(references.customers || []);
   const productIndex = buildProductIndex(references.products || []);
@@ -243,6 +247,17 @@ export function runPipeline({ sales, references, decisions, template, options })
 
   const out = transformAll(invoices, opts);
 
+  // تعديلات صفحة المطابقة والمراجعة تُطبَّق هنا: بعد التحويل، قبل أي فحص أو تحقق،
+  // فكل ما يلي (التحقق، والإجمالي المعروض) يُبنى على القيم المعدَّلة مباشرة
+  const rows = applyRowOverrides(out.rows, overrides);
+  const reconciliation = rows === out.rows ? out.reconciliation : recomputeReconciliation(rows);
+  const summary = rows === out.rows ? out.summary : {
+    ...out.summary,
+    rows: rows.length,
+    invoices: reconciliation.length,
+    expectedGrandTotal: round(reconciliation.reduce((s, t) => s + t.expectedTotal, 0), 2),
+  };
+
   /*
    * فحص الكميات: بوجود ملف كميات حسب المواقع يُفحص رصيد كل منتج في موقع فاتورته
    * تحديداً؛ بدونه يبقى السلوك كما كان (رصيد عالمي واحد من ملف تعريف المنتجات).
@@ -253,12 +268,12 @@ export function runPipeline({ sales, references, decisions, template, options })
   const stock = canCheckStock ? checkStock(stockDemands, productIndex, locationStockIndex) : [];
 
   /*
-   * out.reconciliation/out.summary (إجمالي المصدر ومقارنته بالمحسوب) لا يُمرَّران
-   * إلى validateAll: إجمالي المصدر لا يُستخدم للتحقق إطلاقاً — تُبقى القيمتان
-   * متاحتين في نتيجة runPipeline كبيانات خام فقط (لتقرير التصدير)، لا كأساس
-   * لأي تحذير أو خطأ أو حالة فاتورة.
+   * reconciliation/summary (إجمالي المصدر ومقارنته بالمحسوب) لا يُمرَّران إلى
+   * validateAll: إجمالي المصدر لا يُستخدم للتحقق إطلاقاً — تُبقى القيمتان متاحتين
+   * في نتيجة runPipeline كبيانات خام فقط (لتقرير التصدير ونتيجة التحليل)، لا
+   * كأساس لأي تحذير أو خطأ أو حالة فاتورة.
    */
-  const validation = validateAll({ rows: out.rows, template, opts });
+  const validation = validateAll({ rows, template, opts });
 
   const extraIssues = [];
 
@@ -300,9 +315,9 @@ export function runPipeline({ sales, references, decisions, template, options })
   const allFatal = [...validation.fatal, ...extraIssues.filter(x => x.severity === 'fatal')];
 
   return {
-    rows: out.rows,
-    reconciliation: out.reconciliation,
-    summary: out.summary,
+    rows,
+    reconciliation,
+    summary,
     stock,
     stockChecked: canCheckStock,
     notes,

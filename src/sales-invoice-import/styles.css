@@ -231,7 +231,7 @@
 .qii-btn.ghost:hover:not(:disabled) { background: var(--qii-brand-soft); }
 .qii-btn.sm { padding: 5px 11px; font-size: 12.5px; }
 
-.qii-app select, .qii-app input[type=text], .qii-app input[type=number] {
+.qii-app select, .qii-app input[type=text], .qii-app input[type=number], .qii-app input[type=date] {
   border: 1px solid var(--qii-line);
   border-radius: var(--qii-r);
   padding: 6px 10px;

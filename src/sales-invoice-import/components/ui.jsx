@@ -126,6 +126,58 @@ export function ColumnSelect({ value, options, onChange, allowEmpty = true }) {
   );
 }
 
+/** علامة الحقل الإلزامي — نجمة حمراء صغيرة، بجانب اسم الحقل الرسمي مباشرة */
+export function RequiredStar() {
+  return <span style={{ color: 'var(--qii-stop)', marginInlineStart: 3 }} title="حقل إلزامي في قالب قيود">*</span>;
+}
+
+/** خيارات قائمة العملاء — نفس التسمية المستخدمة في شاشة المطابقة: الاسم — الرقم المرجعي */
+export function buildCustomerOptions(customers) {
+  return (customers || []).map(c => ({ value: c.ref, label: `${c.name || '(بلا اسم)'} — ${c.ref}` }));
+}
+
+/** خيارات قائمة المنتجات — المنتجات غير المسموح ببيعها مستبعدة دائماً من أي اختيار يدوي */
+export function buildProductOptions(products) {
+  return (products || [])
+    .filter(p => p.sellable !== false)
+    .map(p => ({
+      value: p.code,
+      label: `${p.name || '(بلا اسم)'} — ${p.code}${p.stock !== null && p.stock !== undefined ? ` · متاح ${p.stock}` : ''}`,
+    }));
+}
+
+/** قائمة اختيار عامة مقيَّدة بقيم محدَّدة — لا نص حر أبداً لحقل قيمته من بيانات النظام */
+export function ConstrainedSelect({ value, options, onChange, placeholder = '— اختر —', disabled }) {
+  return (
+    <select className={value ? 'set' : 'unset'} value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled}>
+      <option value="">{placeholder}</option>
+      {options.map(o => (
+        typeof o === 'string'
+          ? <option key={o} value={o}>{o}</option>
+          : <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+/** حقل تاريخ قياسي — {y,m,d} الداخلي ↔ input[type=date] بصيغة ISO */
+export function DateField({ value, onChange, disabled }) {
+  const iso = value ? `${value.y}-${String(value.m).padStart(2, '0')}-${String(value.d).padStart(2, '0')}` : '';
+  return (
+    <input
+      type="date"
+      value={iso}
+      disabled={disabled}
+      onChange={e => {
+        const v = e.target.value;
+        if (!v) { onChange(null); return; }
+        const [y, m, d] = v.split('-').map(Number);
+        onChange({ y, m, d });
+      }}
+    />
+  );
+}
+
 /** رقم منسّق بفواصل وخانتين — كل الأرقام في الواجهة تمر من هنا */
 export function n(v, d = 2) {
   if (v === null || v === undefined || v === '' || Number.isNaN(Number(v))) return '—';

@@ -194,6 +194,10 @@ export function buildInvoiceRows(invoice, opts = ENGINE_DEFAULTS) {
 
       _meta: {
         sourceRow: line.sourceRow,
+        // يُكتب دائماً بغض النظر عن writeInvoiceScope — هو مفتاح التجميع الثابت
+        // الذي تعتمده طبقة التعديلات اليدوية (overrides.js) وواجهة المراجعة،
+        // بخلاف row.invoiceRef الذي قد يُترك فارغاً على صفوف الاستمرار أو يُعدَّل يدوياً
+        invoiceRef: invoice.invoiceRef,
         expectedTotal: calc.expectedTotal,
         sourceTotal: calc.sourceTotal,
         drift: calc.drift,

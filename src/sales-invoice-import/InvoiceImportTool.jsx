@@ -12,23 +12,26 @@ import ReconStrip from './components/ReconStrip.jsx';
 import Step1References from './components/Step1References.jsx';
 import Step2Source from './components/Step2Source.jsx';
 import Step3Mapping from './components/Step3Mapping.jsx';
-import Step4Validate from './components/Step4Validate.jsx';
 import Step5Export from './components/Step5Export.jsx';
 
 import './styles.css';
 
+// أربع خطوات لا خمس: «المطابقة والمراجعة» تجمع الآن ما كان مفرَّقاً بين خطوتي
+// المطابقة (قرارات القيم المتكرِّرة) والتحقق (عرض الملاحظات فقط بلا تعديل) في
+// صفحة تفاعلية واحدة — تحليل، تصحيح، وإعادة تحقق فوري. انظر Step3Mapping.jsx.
 const STEPS = [
-  { id: 1, label: 'المراجع',    hint: 'قالب قيود · العملاء · المنتجات' },
-  { id: 2, label: 'ملف العميل', hint: 'الرفع وربط الأعمدة' },
-  { id: 3, label: 'المطابقة',   hint: 'العملاء · المنتجات · الدفع · المواقع' },
-  { id: 4, label: 'التحقق',     hint: 'الملاحظات والمطابقة الحسابية' },
-  { id: 5, label: 'التصدير',    hint: 'قالب قيود · المرتجعات · التقرير' },
+  { id: 1, label: 'المراجع',           hint: 'قالب قيود · العملاء · المنتجات' },
+  { id: 2, label: 'ملف العميل',        hint: 'الرفع وربط الأعمدة' },
+  { id: 3, label: 'المطابقة والمراجعة', hint: 'نتيجة التحليل · تصحيح الفواتير' },
+  { id: 4, label: 'التصدير',           hint: 'تحميل نموذج الاستيراد' },
 ];
 
 const EMPTY_DECISIONS = {
   customers: {}, products: {}, payments: {}, locations: {},
   defaultPayment: '', defaultLocation: '',
 };
+
+const EMPTY_OVERRIDES = { header: {}, lines: {} };
 
 /**
  * أداة استيراد فواتير المبيعات — المكوّن الرئيسي.
@@ -84,6 +87,10 @@ export default function InvoiceImportTool({
 
   const [decisions, setDecisions] = useState(() => loadDecisions(storageKey, initialDecisions));
   const [options, setOptions] = useState({ ...ENGINE_DEFAULTS, ...(initialOptions || {}) });
+  // تعديلات صفحة المطابقة والمراجعة اليدوية (رأس فاتورة/بند) — لا تُحفَظ محلياً
+  // عمداً: هذه تصحيحات لملف بعينه، بخلاف قرارات المطابقة العامة في `decisions`
+  // التي يُعاد استخدامها مع كل ملف قادم من نفس العميل
+  const [overrides, setOverrides] = useState(EMPTY_OVERRIDES);
 
   /* حفظ القرارات محلياً حتى لا يعيد المستخدم ربط طرق الدفع مع كل ملف */
   useEffect(() => {
@@ -122,9 +129,9 @@ export default function InvoiceImportTool({
   /* ── التحويل والتحقق ── */
   const result = useMemo(() => {
     if (!parsed || !template || !parsed.sales.length) return null;
-    try { return runPipeline({ sales: parsed.sales, references, decisions, template, options }); }
+    try { return runPipeline({ sales: parsed.sales, references, decisions, template, options, overrides }); }
     catch (e) { raise(`تعذّر التحويل: ${e.message}`); return null; }
-  }, [parsed, template, references, decisions, options, raise]);
+  }, [parsed, template, references, decisions, options, overrides, raise]);
 
   /* إبلاغ المضيف بالنتيجة بعد كل إعادة حساب */
   const lastResult = useRef(null);
@@ -214,6 +221,8 @@ export default function InvoiceImportTool({
       setSourceHeaders(wbk.headers);
       setSourceMapping(detectMapping(wbk.headers));
       setSourceFile(file.name);
+      // ملف جديد = أرقام فواتير جديدة؛ تعديلات الملف السابق لا معنى لها هنا
+      setOverrides(EMPTY_OVERRIDES);
     } catch (e) {
       raise(`تعذّرت قراءة الملف: ${e.message}`);
       setSourceRaw(null);
@@ -242,13 +251,29 @@ export default function InvoiceImportTool({
     setDefault: (key, value) => setDecisions(d => ({ ...d, [key]: value })),
     setOption: (key, value) => setOptions(o => ({ ...o, [key]: value })),
     resetDecisions: () => setDecisions({ ...EMPTY_DECISIONS }),
+    // تعديل حقل على مستوى الفاتورة (رأسها) — يُطبَّق على كل بنودها دفعة واحدة،
+    // بالمفتاح الثابت invoiceKey (= _meta.invoiceRef الأصلي)، لا رقم الفاتورة
+    // المعروض الذي قد يتغيّر هو نفسه بهذا التعديل
+    setHeaderOverride: (invoiceKey, field, value) => setOverrides(o => ({
+      ...o,
+      header: { ...o.header, [invoiceKey]: { ...o.header[invoiceKey], [field]: value } },
+    })),
+    // تعديل حقل على مستوى بند واحد فقط، بمفتاحي الفاتورة الأصلي وصف المصدر معاً
+    setLineOverride: (invoiceKey, sourceRow, field, value) => setOverrides(o => ({
+      ...o,
+      lines: {
+        ...o.lines,
+        [invoiceKey]: { ...o.lines[invoiceKey], [sourceRow]: { ...o.lines[invoiceKey]?.[sourceRow], [field]: value } },
+      },
+    })),
+    resetOverrides: () => setOverrides({ ...EMPTY_OVERRIDES }),
     notifyExport: payload => onExport?.(payload),
   }), [loadTemplate, loadReference, loadSource, loadLocationStock, clearLocationStock, setRefMappingField, onExport]);
 
   const state = {
     template, templateFile, references, refHeaders, refMapping, customersFile, productsFile,
     locationStockFile, locationStockInfo,
-    sourceFile, sourceRaw, sourceHeaders, sourceMapping, parsed, decisions, pending, result, options,
+    sourceFile, sourceRaw, sourceHeaders, sourceMapping, parsed, decisions, overrides, pending, result, options,
   };
 
   /*
@@ -267,7 +292,6 @@ export default function InvoiceImportTool({
     2: referencesReady,
     3: referencesReady && !!parsed && !!template,
     4: referencesReady && !!result,
-    5: referencesReady && !!result,
   };
 
   const openCount = pending
@@ -315,9 +339,12 @@ export default function InvoiceImportTool({
             ))}
           </ol>
 
-          <div className="qii-sidebar-foot">
+          <div className="qii-sidebar-foot" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <button type="button" className="qii-btn ghost sm" onClick={actions.resetDecisions}>
               مسح قرارات المطابقة المحفوظة
+            </button>
+            <button type="button" className="qii-btn ghost sm" onClick={actions.resetOverrides}>
+              تراجع عن كل تعديلات المراجعة اليدوية
             </button>
           </div>
         </nav>
@@ -335,8 +362,7 @@ export default function InvoiceImportTool({
           {step === 1 && <Step1References state={state} actions={actions} />}
           {step === 2 && <Step2Source     state={state} actions={actions} />}
           {step === 3 && <Step3Mapping    state={state} actions={actions} />}
-          {step === 4 && <Step4Validate   state={state} actions={actions} />}
-          {step === 5 && <Step5Export     state={state} actions={actions} />}
+          {step === 4 && <Step5Export     state={state} actions={actions} />}
 
           <div className="qii-actions">
             <button type="button" className="qii-btn" onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}>
@@ -345,8 +371,8 @@ export default function InvoiceImportTool({
             <button
               type="button"
               className="qii-btn primary"
-              onClick={() => setStep(s => Math.min(5, s + 1))}
-              disabled={step === 5 || !ready[step + 1]}
+              onClick={() => setStep(s => Math.min(4, s + 1))}
+              disabled={step === 4 || !ready[step + 1]}
             >
               التالي
             </button>
