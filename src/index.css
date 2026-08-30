@@ -5,36 +5,43 @@
 @tailwind utilities;
 
 :root {
-  /* Dark Qoyod-inspired palette */
+  /* Light Qoyod palette — matches the official Qoyod product (navy + white,
+     light-gray page background). The sidebar/header keep the brand navy on
+     purpose (--qoyod-sidebar-*); everything else — cards, tables, panels —
+     is light now. Dropdowns are the one deliberate exception and stay dark
+     (see the color-scheme rule and each <select>'s own inline style). */
   --qoyod-teal: #12B886;
-  --qoyod-teal-light: #20D9A0;
-  --qoyod-teal-dark: #0E9E74;
+  --qoyod-teal-light: #0E9E74;
+  --qoyod-teal-dark: #0A9B72;
 
-  --qoyod-navy: #1A2A4E;
-  --qoyod-navy-light: #24375F;
-  --qoyod-navy-dark: #0D1730;
+  --qoyod-navy: #162560;
+  --qoyod-navy-light: #1E3370;
+  --qoyod-navy-dark: #0F1A47;
 
   --qoyod-primary: #12B886;
-  --qoyod-primary-light: #20D9A0;
-  --qoyod-primary-dark: #0E9E74;
-  --qoyod-accent: #38BDF8;
-  --qoyod-accent-light: #74D4FA;
-  --qoyod-green: #22D38A;
-  --qoyod-amber: #FBBF24;
-  --qoyod-red: #FB7185;
-  --qoyod-bg: #0B1120;
-  --qoyod-surface: #111A2E;
-  --qoyod-surface-2: #16213A;
-  --qoyod-text: #E6EDF6;
-  --qoyod-text-secondary: #8CA3C1;
-  --qoyod-text-muted: #5C7196;
-  --qoyod-border: #233152;
-  --qoyod-border-strong: #2E4068;
+  --qoyod-primary-light: #0E9E74;
+  --qoyod-primary-dark: #0A9B72;
+  --qoyod-accent: #4A90D9;
+  --qoyod-accent-light: #74B3E8;
+  --qoyod-green: #16A34A;
+  --qoyod-amber: #D97706;
+  --qoyod-red: #DC2626;
+  --qoyod-bg: #F1F5F9;
+  --qoyod-surface: #FFFFFF;
+  --qoyod-surface-2: #F8FAFC;
+  --qoyod-text: #0F172A;
+  --qoyod-text-secondary: #64748B;
+  --qoyod-text-muted: #94A3B8;
+  --qoyod-border: #E2E8F0;
+  --qoyod-border-strong: #CBD5E1;
   --qoyod-sidebar: #0D1730;
   --qoyod-sidebar-grad-a: #0F1F3E;
   --qoyod-sidebar-grad-b: #0A1328;
-  --qoyod-input: #0E1830;
-  --qoyod-hover: #14213B;
+  --qoyod-input: #FFFFFF;
+  --qoyod-hover: #F1F5F9;
+
+  /* علامة مائية كحلية خفيفة جدًا — لا تؤثر على قراءة أي أداة */
+  --qoyod-watermark: rgba(22, 37, 96, 0.035);
 }
 
 /* Watermark layer (used behind main content) */
@@ -75,8 +82,8 @@ body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2A3A5C; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #3A4E78; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
 /* Transitions */
 .transition-smooth {
@@ -240,10 +247,10 @@ body {
   border-bottom: none;
 }
 
-/* Native form controls dark */
+/* الاستثناء الوحيد لتحويل الوضع الفاتح: القوائم المنسدلة تبقى داكنة كما كانت */
 input, textarea, select, button {
   font-family: inherit;
 }
-input, textarea, select {
+select {
   color-scheme: dark;
 }

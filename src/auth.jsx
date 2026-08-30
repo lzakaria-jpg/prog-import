@@ -511,7 +511,7 @@ export function LoginScreen() {
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #162560 0%, #0F1A47 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center", color: "#E6EDF6" }}>
+        <div style={{ textAlign: "center", color: "#0F172A" }}>
           <RefreshCw size={32} className="animate-spin" />
           <p style={{ marginTop: 12, fontSize: 14 }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</p>
         </div>
@@ -521,14 +521,14 @@ export function LoginScreen() {
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #162560 0%, #0F1A47 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Cairo, Segoe UI, sans-serif" }}>
-      <div style={{ width: 440, maxWidth: "95vw", background: "#111A2E", borderRadius: 20, padding: "40px 36px", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}>
+      <div style={{ width: 440, maxWidth: "95vw", background: "#FFFFFF", borderRadius: 20, padding: "40px 36px", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: online ? "#0D2818" : "#2D1215", fontSize: 11, fontWeight: 600, color: online ? "#16A34A" : "#EF4444" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: online ? "#DCFCE7" : "#FEE2E2", fontSize: 11, fontWeight: 600, color: online ? "#16A34A" : "#DC2626" }}>
             {online ? <Wifi size={12} /> : <WifiOff size={12} />}
             {online ? t({ ar: "متصل", en: "Online" }) : t({ ar: "غير متصل", en: "Offline" })}
           </div>
           {isConfigured && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: dbReady ? "#0D2818" : "#2D1215", fontSize: 11, fontWeight: 600, color: dbReady ? "#16A34A" : "#EF4444" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: dbReady ? "#DCFCE7" : "#FEE2E2", fontSize: 11, fontWeight: 600, color: dbReady ? "#16A34A" : "#DC2626" }}>
               {dbReady ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
               {dbReady ? t({ ar: "قاعدة البيانات متصلة", en: "DB Connected" }) : t({ ar: "قاعدة البيانات غير متصلة", en: "DB Disconnected" })}
             </div>
@@ -544,7 +544,7 @@ export function LoginScreen() {
               ? t({ ar: "تعيين مدير النظام", en: "Setup Admin" })
               : t({ ar: "أدوات قيود المحاسبية", en: "Qoyod Accounting Tools" })}
           </h1>
-          <p style={{ fontSize: 13, color: "#8CA3C1", marginTop: 6 }}>
+          <p style={{ fontSize: 13, color: "#64748B", marginTop: 6 }}>
             {needsSetup
               ? t({ ar: "أدخل إيميلك لتصبح مدير النظام", en: "Enter your email to become the admin" })
               : t({ ar: "أدخل إيميلك المصرح به للدخول", en: "Enter your authorized email to sign in" })}
@@ -552,7 +552,7 @@ export function LoginScreen() {
         </div>
 
         {!isConfigured && (
-          <div style={{ padding: "12px 16px", borderRadius: 12, background: "#2D2410", border: "1px solid #7C6A20", marginBottom: 20, fontSize: 13, color: "#FBBF24" }}>
+          <div style={{ padding: "12px 16px", borderRadius: 12, background: "#FEF3C7", border: "1px solid #FDE68A", marginBottom: 20, fontSize: 13, color: "#FBBF24" }}>
             <strong>{t({ ar: "تنبيه:", en: "Notice:" })}</strong> {t({ ar: "التطبيق غير مربوط بقاعدة البيانات بعد. راجع ملف supabase.js وأدخل معلومات المشروع.", en: "App not connected to database yet. Edit supabase.js with your project credentials." })}
           </div>
         )}
@@ -561,7 +561,7 @@ export function LoginScreen() {
             الإرسال بضغط Enter من أي منها بدل الحاجة للنقر على الزر يدوياً */}
         <form onSubmit={handleSubmit}>
           <div style={{ position: "relative", marginBottom: 16 }}>
-            <Mail size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+            <Mail size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
             <input
               type="email"
               value={email}
@@ -569,15 +569,15 @@ export function LoginScreen() {
               placeholder={t({ ar: "أدخل إيميلك هنا...", en: "Enter your email..." })}
               autoFocus
               disabled={submitting}
-              style={{ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${error ? "#EF4444" : "#233152"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", transition: "border-color 0.2s", background: "#0E1830", color: "#E6EDF6", opacity: submitting ? 0.6 : 1 }}
+              style={{ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${error ? "#DC2626" : "#E2E8F0"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", transition: "border-color 0.2s", background: "#F1F5F9", color: "#0F172A", opacity: submitting ? 0.6 : 1 }}
               onFocus={(e) => { if (!error) e.target.style.borderColor = "#12B886"; }}
-              onBlur={(e) => { if (!error) e.target.style.borderColor = "#233152"; }}
+              onBlur={(e) => { if (!error) e.target.style.borderColor = "#E2E8F0"; }}
             />
           </div>
 
           {needsPassword && (
             <div style={{ position: "relative", marginBottom: 16 }}>
-              <Shield size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+              <Shield size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
               <input
                 type="password"
                 value={adminPassword}
@@ -585,19 +585,19 @@ export function LoginScreen() {
                 placeholder={t({ ar: "كلمة مرور المدير", en: "Administrator password" })}
                 autoComplete="current-password"
                 disabled={submitting}
-                style={{ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${error ? "#EF4444" : "#233152"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#0E1830", color: "#E6EDF6" }}
+                style={{ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${error ? "#DC2626" : "#E2E8F0"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#F1F5F9", color: "#0F172A" }}
               />
             </div>
           )}
 
           {error && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: "#2D1215", color: "#EF4444", fontSize: 13, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626", fontSize: 13, marginBottom: 16 }}>
               <AlertCircle size={16} /> {error}
             </div>
           )}
 
           {success && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: "#0D2818", color: "#16A34A", fontSize: 13, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: "#DCFCE7", color: "#16A34A", fontSize: 13, marginBottom: 16 }}>
               <CheckCircle2 size={16} /> {t({ ar: "تم التعيين بنجاح!", en: "Admin setup complete!" })}
             </div>
           )}
@@ -691,7 +691,7 @@ export function AdminPanel() {
 
   return (
       <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
-      <div style={{ width: 620, maxWidth: "95vw", maxHeight: "88vh", background: "#111A2E", borderRadius: 20, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
+      <div style={{ width: 620, maxWidth: "95vw", maxHeight: "88vh", background: "#FFFFFF", borderRadius: 20, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
         {/* Header */}
         <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -709,7 +709,7 @@ export function AdminPanel() {
         {/* Body */}
         <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
           {!usersTableReady && (
-            <div style={{ padding: "10px 14px", borderRadius: 10, background: "#2D2410", border: "1px solid #7C6A20", marginBottom: 16, fontSize: 12, color: "#FBBF24" }}>
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "#FEF3C7", border: "1px solid #FDE68A", marginBottom: 16, fontSize: 12, color: "#FBBF24" }}>
               {t({
                 ar: "لم يُشغَّل جدول الأدوار والصلاحيات (users) بعد في قاعدة البيانات — شغّل database-schema-rbac-chat.sql في محرر SQL بسوبابيس لتفعيل الأدوار والصلاحيات الدقيقة. حتى ذلك الحين، كل المستخدمين المضافين هنا مستخدمون عاديون بصلاحيات الشات الأساسية فقط.",
                 en: "The roles/permissions table (users) hasn't been run yet — run database-schema-rbac-chat.sql in the Supabase SQL editor to enable fine-grained roles and permissions. Until then, every user added here is a plain user with basic chat permissions only.",
@@ -719,14 +719,14 @@ export function AdminPanel() {
 
           {/* Status */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <div style={{ flex: 1, padding: "10px 14px", borderRadius: 10, background: online && dbReady ? "#0D2818" : "#2D1215", display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, color: online && dbReady ? "#16A34A" : "#EF4444" }}>
+            <div style={{ flex: 1, padding: "10px 14px", borderRadius: 10, background: online && dbReady ? "#DCFCE7" : "#FEE2E2", display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, color: online && dbReady ? "#16A34A" : "#DC2626" }}>
               {online && dbReady ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
               {t({ ar: "متصل بقاعدة البيانات", en: "Connected to database" })}
             </div>
           </div>
 
           {/* Tab navigation */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#0E1830", borderRadius: 10, padding: 3 }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#F1F5F9", borderRadius: 10, padding: 3 }}>
             <TabBtn active={activeTab === "users"} onClick={() => setActiveTab("users")} icon={Users} label={{ ar: "المستخدمون", en: "Users" }} />
             <TabBtn active={activeTab === "analytics"} onClick={() => setActiveTab("analytics")} icon={BarChart3} label={{ ar: "الإحصائيات", en: "Analytics" }} />
             {isOwnerUser && <TabBtn active={activeTab === "audit"} onClick={() => setActiveTab("audit")} icon={ScrollText} label={{ ar: "سجل التدقيق", en: "Audit Log" }} />}
@@ -768,7 +768,7 @@ export function AdminPanel() {
 function TabBtn({ active, onClick, icon: Icon, label }) {
   const { t } = useLanguage();
   return (
-    <button onClick={onClick} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s", background: active ? "#16213A" : "transparent", color: active ? "#12B886" : "#8CA3C1", boxShadow: active ? "0 1px 3px rgba(0,0,0,0.2)" : "none" }}>
+    <button onClick={onClick} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s", background: active ? "#F8FAFC" : "transparent", color: active ? "#12B886" : "#64748B", boxShadow: active ? "0 1px 3px rgba(0,0,0,0.2)" : "none" }}>
       <Icon size={14} /> {t(label)}
     </button>
   );
@@ -776,7 +776,7 @@ function TabBtn({ active, onClick, icon: Icon, label }) {
 
 function RoleBadge({ role }) {
   const { t } = useLanguage();
-  const colors = { [ROLES.OWNER]: "#FBBF24", [ROLES.FULL_USER_MANAGER]: "#7DD3FC", [ROLES.USER]: "#8CA3C1" };
+  const colors = { [ROLES.OWNER]: "#FBBF24", [ROLES.FULL_USER_MANAGER]: "#0284C7", [ROLES.USER]: "#64748B" };
   return (
     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: `${colors[role]}22`, color: colors[role] }}>
       {t(ROLE_LABELS[role] || { ar: role, en: role })}
@@ -796,9 +796,9 @@ function UsersTab({
   return (
     <>
       {/* Owner info */}
-      <div style={{ padding: "12px 16px", borderRadius: 12, background: "#0E1830", border: "1px solid #233152", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ padding: "12px 16px", borderRadius: 12, background: "#F1F5F9", border: "1px solid #E2E8F0", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
         <Shield size={16} color="#12B886" />
-        <span style={{ fontSize: 13, color: "#20D9A0" }}>
+        <span style={{ fontSize: 13, color: "#15803D" }}>
           {t({ ar: "المالك:", en: "Owner:" })} <strong>{ownerRow?.email || "—"}</strong>
         </span>
         <span style={{ marginInlineStart: "auto" }}><RoleBadge role={ROLES.OWNER} /></span>
@@ -807,13 +807,13 @@ function UsersTab({
       {/* Add user form */}
       <form onSubmit={handleCreateUser} style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <div style={{ position: "relative", flex: 1 }}>
-          <UserPlus size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+          <UserPlus size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
           <input
             type="email"
             value={newUserEmail}
             onChange={(e) => { setNewUserEmail(e.target.value); setError(null); setSuccess(null); }}
             placeholder={t({ ar: "أضف إيميل مستخدم جديد...", en: "Add new user email..." })}
-            style={{ width: "100%", padding: "12px 12px 12px 38px", borderRadius: 10, border: "2px solid #233152", fontSize: 14, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#0E1830", color: "#E6EDF6" }}
+            style={{ width: "100%", padding: "12px 12px 12px 38px", borderRadius: 10, border: "2px solid #E2E8F0", fontSize: 14, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#F1F5F9", color: "#0F172A" }}
           />
         </div>
         <button type="submit" disabled={!online || !dbReady} style={{ padding: "12px 20px", borderRadius: 10, background: "#12B886", color: "#FFFFFF", fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", whiteSpace: "nowrap", opacity: (!online || !dbReady) ? 0.5 : 1 }}>
@@ -822,40 +822,40 @@ function UsersTab({
       </form>
 
       {error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "#2D1215", color: "#EF4444", fontSize: 13, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "#FEE2E2", color: "#DC2626", fontSize: 13, marginBottom: 12 }}>
           <AlertCircle size={14} /> {error}
         </div>
       )}
       {success && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "#0D2818", color: "#16A34A", fontSize: 13, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "#DCFCE7", color: "#16A34A", fontSize: 13, marginBottom: 12 }}>
           <CheckCircle2 size={14} /> {success}
         </div>
       )}
 
       {/* Users list */}
       <div style={{ marginTop: 8 }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: "#8CA3C1", marginBottom: 10 }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: "#64748B", marginBottom: 10 }}>
           {t({ ar: `المستخدمون (${displayUsers.length})`, en: `Users (${displayUsers.length})` })}
         </p>
 
         {displayUsers.length === 0 && (
-          <p style={{ textAlign: "center", color: "#5C7196", fontSize: 13, padding: 24 }}>
+          <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>
             {t({ ar: "لا يوجد مستخدمين بعد", en: "No users yet" })}
           </p>
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {displayUsers.map((u) => (
-            <div key={u.email} style={{ borderRadius: 10, background: "#14213B", border: "1px solid #233152", overflow: "hidden" }}>
+            <div key={u.email} style={{ borderRadius: 10, background: "#F8FAFC", border: "1px solid #E2E8F0", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", cursor: usersTableReady ? "pointer" : "default" }}
                 onClick={() => usersTableReady && setSelectedUser(selectedUser === u.email ? null : u.email)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #162560, #0F1A47)", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
                     {u.email.charAt(0).toUpperCase()}
                   </div>
-                  <span style={{ fontSize: 14, color: u.active === false ? "#5C7196" : "#E6EDF6", direction: "ltr", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: u.active === false ? "line-through" : "none" }}>{u.email}</span>
+                  <span style={{ fontSize: 14, color: u.active === false ? "#94A3B8" : "#0F172A", direction: "ltr", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: u.active === false ? "line-through" : "none" }}>{u.email}</span>
                   {usersTableReady && <RoleBadge role={u.role} />}
-                  {u.active === false && <span style={{ fontSize: 10, color: "#FB7185", fontWeight: 700 }}>{t({ ar: "معطَّل", en: "Disabled" })}</span>}
+                  {u.active === false && <span style={{ fontSize: 10, color: "#DC2626", fontWeight: 700 }}>{t({ ar: "معطَّل", en: "Disabled" })}</span>}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                   {usersTableReady && (
@@ -863,7 +863,7 @@ function UsersTab({
                       onClick={(e) => { e.stopPropagation(); setUserActive(u.email, u.active === false); }}
                       disabled={!online || !dbReady}
                       title={u.active === false ? t({ ar: "تفعيل", en: "Activate" }) : t({ ar: "تعطيل", en: "Deactivate" })}
-                      style={{ background: "none", border: `1px solid ${u.active === false ? "#1B4332" : "#5C4A1E"}`, color: u.active === false ? "#34E0A0" : "#FBBF24", width: 30, height: 30, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      style={{ background: "none", border: `1px solid ${u.active === false ? "#1B4332" : "#FDE68A"}`, color: u.active === false ? "#15803D" : "#FBBF24", width: 30, height: 30, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     >
                       {u.active === false ? <Play size={13} /> : <Ban size={13} />}
                     </button>
@@ -871,12 +871,12 @@ function UsersTab({
                   <button
                     onClick={(e) => { e.stopPropagation(); if (window.confirm(t({ ar: `حذف ${u.email}؟ لا يمكن التراجع.`, en: `Delete ${u.email}? This cannot be undone.` }))) deleteUser(u.email); }}
                     disabled={!online || !dbReady}
-                    style={{ background: "none", border: "1px solid #5C2A30", color: "#FB7185", width: 30, height: 30, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ background: "none", border: "1px solid #FCA5A5", color: "#DC2626", width: 30, height: 30, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     title={t({ ar: "حذف", en: "Remove" })}
                   >
                     <Trash2 size={13} />
                   </button>
-                  {usersTableReady && (selectedUser === u.email ? <ChevronUp size={16} color="#5C7196" /> : <ChevronDown size={16} color="#5C7196" />)}
+                  {usersTableReady && (selectedUser === u.email ? <ChevronUp size={16} color="#94A3B8" /> : <ChevronDown size={16} color="#94A3B8" />)}
                 </div>
               </div>
 
@@ -892,14 +892,14 @@ function UsersTab({
       </div>
 
       {/* Gemini AI Key Section */}
-      <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#1A1530", border: "1px solid #4C3A8A" }}>
+      <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#F5F3FF", border: "1px solid #DDD6FE" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <Bot size={16} color="#A78BFA" />
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#A78BFA", margin: 0 }}>
+          <Bot size={16} color="#7C3AED" />
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#7C3AED", margin: 0 }}>
             {t({ ar: "إعداد المساعد الذكي (Gemini AI)", en: "AI Assistant Setup (Gemini AI)" })}
           </p>
         </div>
-        <p style={{ fontSize: 11, color: "#8CA3C1", marginBottom: 10 }}>
+        <p style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>
           {t({
             ar: "مجاني: أدخل مفتاح Gemini من Google AI Studio لتفعيل المساعد الذكي في الشات",
             en: "Free: Enter Gemini key from Google AI Studio to enable AI assistant in chat",
@@ -911,7 +911,7 @@ function UsersTab({
             value={geminiKey}
             onChange={(e) => { setGeminiKey(e.target.value); setGeminiStatus(null); }}
             placeholder="AIza..."
-            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #4C3A8A", fontSize: 13, outline: "none", direction: "ltr", background: "#0E1830", color: "#E6EDF6" }}
+            style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #DDD6FE", fontSize: 13, outline: "none", direction: "ltr", background: "#F1F5F9", color: "#0F172A" }}
           />
           <button
             onClick={async () => {
@@ -934,11 +934,11 @@ function UsersTab({
           </p>
         )}
         {geminiStatus === "error" && (
-          <p style={{ fontSize: 11, color: "#EF4444", marginTop: 6 }}>
+          <p style={{ fontSize: 11, color: "#DC2626", marginTop: 6 }}>
             {t({ ar: "فشل الحفظ. تحقق من الاتصال", en: "Save failed. Check connection" })}
           </p>
         )}
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#A78BFA", marginTop: 6, display: "inline-block" }}>
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#7C3AED", marginTop: 6, display: "inline-block" }}>
           {t({ ar: "← احصل على مفتاح مجاني من هنا", en: "← Get free key from here" })}
         </a>
       </div>
@@ -967,28 +967,29 @@ function UserPermissionEditor({ t, user, updateUserPermissions, updateUserRole }
   };
 
   return (
-    <div style={{ padding: "14px 16px", borderTop: "1px solid #233152", background: "#0E1830" }} onClick={(e) => e.stopPropagation()}>
-      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#8CA3C1", marginBottom: 6 }}>
+    <div style={{ padding: "14px 16px", borderTop: "1px solid #E2E8F0", background: "#F1F5F9" }} onClick={(e) => e.stopPropagation()}>
+      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748B", marginBottom: 6 }}>
         {t({ ar: "الدور", en: "Role" })}
       </label>
-      <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #233152", background: "#111A2E", color: "#E6EDF6", fontSize: 13, marginBottom: 14 }}>
+      {/* استثناء التصميم الفاتح: القوائم المنسدلة تبقى داكنة كما كانت */}
+      <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #233152", background: "#0E1830", color: "#E6EDF6", fontSize: 13, marginBottom: 14 }}>
         <option value={ROLES.USER}>{t(ROLE_LABELS[ROLES.USER])}</option>
         <option value={ROLES.FULL_USER_MANAGER}>{t(ROLE_LABELS[ROLES.FULL_USER_MANAGER])}</option>
       </select>
 
-      <p style={{ fontSize: 12, fontWeight: 700, color: "#7DD3FC", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الأدوات", en: "Tool Permissions" })}</p>
+      <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الأدوات", en: "Tool Permissions" })}</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
         {TOOL_PERMISSIONS.map((p) => (
-          <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#E6EDF6", cursor: "pointer" }}>
+          <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
             <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
           </label>
         ))}
       </div>
 
-      <p style={{ fontSize: 12, fontWeight: 700, color: "#7DD3FC", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الشات", en: "Chat Permissions" })}</p>
+      <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الشات", en: "Chat Permissions" })}</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
         {CHAT_PERMISSIONS.map((p) => (
-          <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#E6EDF6", cursor: "pointer" }}>
+          <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
             <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
           </label>
         ))}
@@ -1006,62 +1007,62 @@ function AnalyticsTab({ t, loadingStats, userStats, loadStats }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: "#E6EDF6", margin: 0 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
           {t({ ar: "إحصائيات استخدام التطبيق", en: "App Usage Analytics" })}
         </p>
-        <button onClick={loadStats} disabled={loadingStats} style={{ padding: "6px 12px", borderRadius: 8, background: "#16213A", border: "1px solid #233152", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#8CA3C1" }}>
+        <button onClick={loadStats} disabled={loadingStats} style={{ padding: "6px 12px", borderRadius: 8, background: "#F8FAFC", border: "1px solid #E2E8F0", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#64748B" }}>
           <RefreshCw size={12} className={loadingStats ? "animate-spin" : ""} /> {t({ ar: "تحديث", en: "Refresh" })}
         </button>
       </div>
 
       {loadingStats ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#5C7196" }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</div>
       ) : userStats.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#5C7196" }}>
+        <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>
           <Activity size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
           <p style={{ margin: 0, fontSize: 13 }}>{t({ ar: "لا يوجد نشاط بعد", en: "No activity yet" })}</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {userStats.map((u) => (
-            <div key={u.email} style={{ padding: 14, borderRadius: 12, background: "#14213B", border: "1px solid #233152" }}>
+            <div key={u.email} style={{ padding: 14, borderRadius: 12, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #162560, #0F1A47)", color: "#FFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
                     {u.email.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: "#E6EDF6", margin: 0, direction: "ltr", textAlign: "left" }}>{u.email}</p>
-                    <p style={{ fontSize: 10, color: "#5C7196", margin: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#0F172A", margin: 0, direction: "ltr", textAlign: "left" }}>{u.email}</p>
+                    <p style={{ fontSize: 10, color: "#94A3B8", margin: 0 }}>
                       <Clock size={10} style={{ display: "inline", verticalAlign: "middle" }} /> {t({ ar: "آخر نشاط:", en: "Last:" })} {new Date(u.lastActivity).toLocaleString()}
                     </p>
                   </div>
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#0E1830", textAlign: "center" }}>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: "#7DD3FC", margin: 0 }}>{u.logins}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "دخول", en: "Logins" })}</p>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "#0284C7", margin: 0 }}>{u.logins}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "دخول", en: "Logins" })}</p>
                 </div>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#0E1830", textAlign: "center" }}>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: "#34E0A0", margin: 0 }}>{u.journalImports + u.mergeImports}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "استيراد", en: "Imports" })}</p>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "#15803D", margin: 0 }}>{u.journalImports + u.mergeImports}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "استيراد", en: "Imports" })}</p>
                 </div>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#0E1830", textAlign: "center" }}>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
                   <p style={{ fontSize: 16, fontWeight: 700, color: "#FBBF24", margin: 0 }}>{u.journalExports + u.mergeExports}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "تصدير", en: "Exports" })}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "تصدير", en: "Exports" })}</p>
                 </div>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#0E1830", textAlign: "center" }}>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: "#34E0A0", margin: 0 }}>{u.journalImports}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "قيود", en: "Journals" })}</p>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "#15803D", margin: 0 }}>{u.journalImports}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "قيود", en: "Journals" })}</p>
                 </div>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#0E1830", textAlign: "center" }}>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: "#A78BFA", margin: 0 }}>{u.mergeImports}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "شجرة", en: "Merges" })}</p>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "#7C3AED", margin: 0 }}>{u.mergeImports}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "شجرة", en: "Merges" })}</p>
                 </div>
-                <div style={{ padding: "6px 8px", borderRadius: 8, background: u.journalErrors + u.mergeErrors > 0 ? "#2D1215" : "#14213B", textAlign: "center" }}>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: u.journalErrors + u.mergeErrors > 0 ? "#FB7185" : "#5C7196", margin: 0 }}>{u.journalErrors + u.mergeErrors}</p>
-                  <p style={{ fontSize: 9, color: "#8CA3C1", margin: 0 }}>{t({ ar: "أخطاء", en: "Errors" })}</p>
+                <div style={{ padding: "6px 8px", borderRadius: 8, background: u.journalErrors + u.mergeErrors > 0 ? "#FEE2E2" : "#F8FAFC", textAlign: "center" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: u.journalErrors + u.mergeErrors > 0 ? "#DC2626" : "#94A3B8", margin: 0 }}>{u.journalErrors + u.mergeErrors}</p>
+                  <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "أخطاء", en: "Errors" })}</p>
                 </div>
               </div>
             </div>
@@ -1086,33 +1087,33 @@ function AuditTab({ t, loadingAudit, auditRows, loadAudit }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <p style={{ fontSize: 12, color: "#8CA3C1", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "#64748B", margin: 0 }}>
           {t({ ar: "يظهر هذا السجل للمالك فقط، ولا يمكن لأي مستخدم تعديله أو حذفه.", en: "Only visible to the owner. No one can edit or delete these records." })}
         </p>
-        <button onClick={loadAudit} disabled={loadingAudit} style={{ padding: "6px 12px", borderRadius: 8, background: "#16213A", border: "1px solid #233152", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#8CA3C1", flexShrink: 0 }}>
+        <button onClick={loadAudit} disabled={loadingAudit} style={{ padding: "6px 12px", borderRadius: 8, background: "#F8FAFC", border: "1px solid #E2E8F0", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#64748B", flexShrink: 0 }}>
           <RefreshCw size={12} className={loadingAudit ? "animate-spin" : ""} /> {t({ ar: "تحديث", en: "Refresh" })}
         </button>
       </div>
       {loadingAudit ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#5C7196" }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>{t({ ar: "جاري التحميل...", en: "Loading..." })}</div>
       ) : auditRows.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#5C7196" }}>
+        <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>
           <ScrollText size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
           <p style={{ margin: 0, fontSize: 13 }}>{t({ ar: "لا توجد سجلات بعد", en: "No records yet" })}</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 420, overflow: "auto" }}>
           {auditRows.map((row) => (
-            <div key={row.id} style={{ padding: "10px 12px", borderRadius: 8, background: "#14213B", border: "1px solid #233152", fontSize: 12 }}>
+            <div key={row.id} style={{ padding: "10px 12px", borderRadius: 8, background: "#F8FAFC", border: "1px solid #E2E8F0", fontSize: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontWeight: 700, color: "#7DD3FC" }}>{t(actionLabels[row.action] || { ar: row.action, en: row.action })}</span>
-                <span style={{ color: "#5C7196", fontSize: 10 }}>{new Date(row.created_at).toLocaleString()}</span>
+                <span style={{ fontWeight: 700, color: "#0284C7" }}>{t(actionLabels[row.action] || { ar: row.action, en: row.action })}</span>
+                <span style={{ color: "#94A3B8", fontSize: 10 }}>{new Date(row.created_at).toLocaleString()}</span>
               </div>
-              <p style={{ margin: "0 0 2px", color: "#E6EDF6", direction: "ltr", textAlign: "left" }}>
+              <p style={{ margin: "0 0 2px", color: "#0F172A", direction: "ltr", textAlign: "left" }}>
                 <strong>{row.actor_email}</strong> {row.target_email ? <>→ {row.target_email}</> : null}
               </p>
               {row.details && (
-                <pre style={{ margin: "6px 0 0", fontSize: 10, color: "#8CA3C1", whiteSpace: "pre-wrap", wordBreak: "break-word", direction: "ltr", textAlign: "left" }}>
+                <pre style={{ margin: "6px 0 0", fontSize: 10, color: "#64748B", whiteSpace: "pre-wrap", wordBreak: "break-word", direction: "ltr", textAlign: "left" }}>
                   {JSON.stringify(row.details)}
                 </pre>
               )}
@@ -1154,16 +1155,16 @@ function OwnerSettingsTab({ t, adminEmail, changeOwnerEmail, generateSalt, hashP
   };
 
   return (
-    <div style={{ padding: 16, borderRadius: 12, background: "#0E1830", border: "1px solid #233152" }}>
+    <div style={{ padding: 16, borderRadius: 12, background: "#F1F5F9", border: "1px solid #E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <Lock size={16} color="#12B886" />
         <p style={{ fontSize: 13, fontWeight: 700, color: "#12B886", margin: 0 }}>
           {t({ ar: "حماية وتعديل بيانات المالك — أنت وحدك من يمكنه تغيير بريدك", en: "Owner security settings — only you can change your own email" })}
         </p>
       </div>
-      <p style={{ fontSize: 11, color: "#8CA3C1", marginBottom: 10, direction: "ltr", textAlign: "left" }}>{t({ar:"البريد الحالي:",en:"Current email:"})} {adminEmail}</p>
+      <p style={{ fontSize: 11, color: "#64748B", marginBottom: 10, direction: "ltr", textAlign: "left" }}>{t({ar:"البريد الحالي:",en:"Current email:"})} {adminEmail}</p>
       {msg && (
-        <div style={{ padding: "8px 12px", borderRadius: 8, background: "#0D2818", color: "#16A34A", fontSize: 12, marginBottom: 10 }}>
+        <div style={{ padding: "8px 12px", borderRadius: 8, background: "#DCFCE7", color: "#16A34A", fontSize: 12, marginBottom: 10 }}>
           {msg}
         </div>
       )}
@@ -1173,14 +1174,14 @@ function OwnerSettingsTab({ t, adminEmail, changeOwnerEmail, generateSalt, hashP
           placeholder={t({ ar: "تغيير بريد المالك الإلكتروني...", en: "Change owner email..." })}
           value={newAdminEmail}
           onChange={(e) => setNewAdminEmail(e.target.value)}
-          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #233152", fontSize: 13, outline: "none", direction: "ltr", background: "#14213B", color: "#E6EDF6" }}
+          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", direction: "ltr", background: "#F8FAFC", color: "#0F172A" }}
         />
         <input
           type="password"
           placeholder={t({ ar: "تغيير كلمة مرور المالك...", en: "Change owner password..." })}
           value={newAdminPass}
           onChange={(e) => setNewAdminPass(e.target.value)}
-          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #233152", fontSize: 13, outline: "none", direction: "ltr", background: "#14213B", color: "#E6EDF6" }}
+          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", direction: "ltr", background: "#F8FAFC", color: "#0F172A" }}
         />
         <button
           onClick={handleUpdate}

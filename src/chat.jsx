@@ -69,7 +69,7 @@ function fileIcon(fileName) {
   if (["pdf"].includes(ext)) return <FileText size={16} color="#DC2626" />;
   if (["docx", "doc"].includes(ext)) return <FileText size={16} color="#2563EB" />;
   if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return <Image size={16} color="#D97706" />;
-  return <FileText size={16} color="#8CA3C1" />;
+  return <FileText size={16} color="#64748B" />;
 }
 
 const SPREADSHEET_EXT = /\.(xlsx|xls|csv)$/i;
@@ -93,7 +93,7 @@ function renderWithMentions(text, isOwn) {
   const parts = text.split(/(@[\w.+-]+@[\w.-]+\.\w+|@[\p{L}\d_]+)/gu);
   return parts.map((part, i) => {
     if (/^@/.test(part)) {
-      return <span key={i} style={{ color: isOwn ? "#BFDBFE" : "#7DD3FC", fontWeight: 700 }}>{part}</span>;
+      return <span key={i} style={{ color: isOwn ? "#BFDBFE" : "#0284C7", fontWeight: 700 }}>{part}</span>;
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
@@ -105,14 +105,14 @@ function ConfirmDialog({ title, message, confirmLabel, danger = true, onConfirm,
   const { t } = useLanguage();
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", background: "#111A2E", borderRadius: 16, border: "1px solid #233152", padding: 20, boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20, boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <AlertTriangle size={18} color={danger ? "#FB7185" : "#FBBF24"} />
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E6EDF6" }}>{title}</p>
+          <AlertTriangle size={18} color={danger ? "#DC2626" : "#FBBF24"} />
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{title}</p>
         </div>
-        <p style={{ fontSize: 12.5, color: "#8CA3C1", marginBottom: 18, lineHeight: 1.6 }}>{message}</p>
+        <p style={{ fontSize: 12.5, color: "#64748B", marginBottom: 18, lineHeight: 1.6 }}>{message}</p>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: "9px", borderRadius: 8, border: "1px solid #233152", background: "transparent", color: "#8CA3C1", fontSize: 12.5, cursor: "pointer" }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "9px", borderRadius: 8, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 12.5, cursor: "pointer" }}>
             {t({ ar: "إلغاء", en: "Cancel" })}
           </button>
           <button onClick={onConfirm} style={{ flex: 1, padding: "9px", borderRadius: 8, border: "none", background: danger ? "#DC2626" : "#12B886", color: "#FFF", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
@@ -146,15 +146,15 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
   };
 
   const isAgentMsg = msg.sender_email === AI_AGENT_EMAIL;
-  const bubbleColor = isOwn ? "linear-gradient(135deg, #162560, #1E3370)" : isAgentMsg ? "linear-gradient(135deg, #3B2A6B, #2A1F52)" : "#0E1830";
-  const textColor = isOwn ? "#FFF" : "#E6EDF6";
+  const bubbleColor = isOwn ? "linear-gradient(135deg, #162560, #1E3370)" : isAgentMsg ? "linear-gradient(135deg, #3B2A6B, #2A1F52)" : "#F1F5F9";
+  const textColor = isOwn ? "#FFF" : "#0F172A";
   const align = isOwn ? "flex-end" : "flex-start";
   const hasMenu = (isOwn && (canDeleteThis || canEditThis)) || (!isOwn && canDeleteThis) || canPin;
 
   return (
     <div className="flex w-full" style={{ justifyContent: align, marginBottom: 4, gap: 6, alignItems: "flex-start" }}>
       {selectMode && (
-        <button onClick={() => onToggleSelect(msg.id)} style={{ background: "none", border: "none", cursor: "pointer", color: selected ? "#4A90D9" : "#5C7196", marginTop: 8 }}>
+        <button onClick={() => onToggleSelect(msg.id)} style={{ background: "none", border: "none", cursor: "pointer", color: selected ? "#4A90D9" : "#94A3B8", marginTop: 8 }}>
           {selected ? <CheckSquare size={16} /> : <Square size={16} />}
         </button>
       )}
@@ -175,7 +175,7 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
         )}
 
         {!isOwn && !isArchivedView && (
-          <p style={{ fontSize: 11, fontWeight: 700, color: isAgentMsg ? "#A78BFA" : emailToColor(msg.sender_email), marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: isAgentMsg ? "#7C3AED" : emailToColor(msg.sender_email), marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}>
             {isAgentMsg && <Bot size={11} />} {isAgentMsg ? (lang === "ar" ? AI_AGENT_NAME_AR : AI_AGENT_NAME_EN) : emailToName(msg.sender_email)}
           </p>
         )}
@@ -185,22 +185,22 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
             onClick={() => onDownload && onDownload(msg)}
             style={{
               display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
-              background: isOwn ? "rgba(255,255,255,0.15)" : "#16213A", marginBottom: msg.content ? 6 : 0,
+              background: isOwn ? "rgba(255,255,255,0.15)" : "#F8FAFC", marginBottom: msg.content ? 6 : 0,
               cursor: "pointer", transition: "background 0.15s",
             }}
           >
             {fileIcon(msg.file_name)}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: isOwn ? "#FFF" : "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: isOwn ? "#FFF" : "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {msg.file_name}
               </p>
               {msg.file_size && (
-                <p style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.6)" : "#5C7196", margin: 0 }}>
+                <p style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.6)" : "#94A3B8", margin: 0 }}>
                   {msg.file_size > 1048576 ? `${(msg.file_size / 1048576).toFixed(1)} MB` : `${(msg.file_size / 1024).toFixed(0)} KB`}
                 </p>
               )}
             </div>
-            <Download size={14} color={isOwn ? "rgba(255,255,255,0.7)" : "#8CA3C1"} />
+            <Download size={14} color={isOwn ? "rgba(255,255,255,0.7)" : "#64748B"} />
           </div>
         )}
 
@@ -211,7 +211,7 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSaveEdit(); if (e.key === "Escape") setEditing(false); }}
               autoFocus
-              style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 6, border: "1px solid #233152", background: "#111A2E", color: "#E6EDF6", outline: "none" }}
+              style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#FFFFFF", color: "#0F172A", outline: "none" }}
             />
             <button onClick={handleSaveEdit} style={{ padding: "4px 8px", borderRadius: 6, background: "#16A34A", color: "#FFF", border: "none", fontSize: 11, cursor: "pointer" }}>
               <Check size={12} />
@@ -227,11 +227,11 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start", gap: 4, marginTop: 4 }}>
           {msg.is_edited && (
-            <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#5C7196", fontStyle: "italic" }}>
+            <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8", fontStyle: "italic" }}>
               {lang === "ar" ? "تم التعديل" : "edited"}
             </span>
           )}
-          <span style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.5)" : "#5C7196" }}>
+          <span style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8" }}>
             {formatFullTime(msg.created_at)}
           </span>
           {isOwn && (
@@ -250,18 +250,18 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
               }}
               className="group-hover:opacity-100"
             >
-              <MoreVertical size={12} color="#8CA3C1" />
+              <MoreVertical size={12} color="#64748B" />
             </button>
             {showMenu && (
               <div style={{
                 position: "absolute", top: 28, [isRTL ? "left" : "right"]: 0, zIndex: 50,
-                background: "#111A2E", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-                border: "1px solid #233152", overflow: "hidden", minWidth: 150,
+                background: "#FFFFFF", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                border: "1px solid #E2E8F0", overflow: "hidden", minWidth: 150,
               }}>
                 {isOwn && canEditThis && (
                   <button
                     onClick={() => { setEditing(true); setShowMenu(false); }}
-                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#E6EDF6", textAlign: isRTL ? "right" : "left" }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#0F172A", textAlign: isRTL ? "right" : "left" }}
                   >
                     <Edit3 size={14} /> {lang === "ar" ? "تعديل" : "Edit"}
                   </button>
@@ -277,17 +277,17 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
                 {isOwn && (
                   <button
                     onClick={() => { onArchive(msg.id); setShowMenu(false); }}
-                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#E6EDF6", textAlign: isRTL ? "right" : "left" }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#0F172A", textAlign: isRTL ? "right" : "left" }}
                   >
                     <Archive size={14} /> {lang === "ar" ? "أرشفة" : "Archive"}
                   </button>
                 )}
                 {canDeleteThis && (
                   <>
-                    <div style={{ height: 1, background: "#16213A" }} />
+                    <div style={{ height: 1, background: "#F8FAFC" }} />
                     <button
                       onClick={() => { onDelete(msg); setShowMenu(false); }}
-                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#FB7185", textAlign: isRTL ? "right" : "left" }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 12, color: "#DC2626", textAlign: isRTL ? "right" : "left" }}
                     >
                       <Trash2 size={14} /> {lang === "ar" ? "حذف" : "Delete"}
                     </button>
@@ -862,7 +862,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         position: "fixed", bottom: 16, [isRTL ? "left" : "right"]: 16, width: 400, height: 600, zIndex: 1000,
         display: "flex", flexDirection: "column", borderRadius: 20, overflow: "hidden",
         boxShadow: "0 12px 48px rgba(22, 37, 96, 0.25), 0 0 0 1px rgba(22, 37, 96, 0.08)",
-        fontFamily: "Cairo, sans-serif", background: "#111A2E",
+        fontFamily: "Cairo, sans-serif", background: "#FFFFFF",
       }}
     >
       {confirmState && (
@@ -932,7 +932,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* Sidebar */}
         {showOnline && (
-          <div style={{ width: 130, borderRight: isRTL ? "none" : "1px solid #16213A", borderLeft: isRTL ? "1px solid #16213A" : "none", background: "#0E1830", overflow: "auto", flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ width: 130, borderRight: isRTL ? "none" : "1px solid #F8FAFC", borderLeft: isRTL ? "1px solid #F8FAFC" : "none", background: "#F1F5F9", overflow: "auto", flexShrink: 0, display: "flex", flexDirection: "column" }}>
             {canViewPublic && (
             <button
               onClick={() => switchChannel("public")}
@@ -942,12 +942,12 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
                 <Hash size={14} color="#FFF" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t({ ar: "عام", en: "Public" })}</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t({ ar: "عام", en: "Public" })}</p>
               </div>
             </button>
             )}
 
-            <div style={{ height: 1, background: "#233152", margin: "4px 12px" }} />
+            <div style={{ height: 1, background: "#E2E8F0", margin: "4px 12px" }} />
 
             {groups.map((g) => (
               <button
@@ -958,7 +958,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
                 <div style={{ width: 32, height: 32, borderRadius: 16, background: "linear-gradient(135deg, #0891B2, #0E7490)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
                   <Users size={14} />
                 </div>
-                <p style={{ fontSize: 11, fontWeight: 600, color: "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{g.name}</p>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{g.name}</p>
               </button>
             ))}
 
@@ -968,7 +968,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
               </button>
             )}
 
-            <div style={{ height: 1, background: "#233152", margin: "4px 12px" }} />
+            <div style={{ height: 1, background: "#E2E8F0", margin: "4px 12px" }} />
 
             {participants.map((email) => {
               const isAgent = email === AI_AGENT_EMAIL;
@@ -984,10 +984,10 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: isAgent ? "linear-gradient(135deg, #7C3AED, #4A90D9)" : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
                       {isAgent ? <Bot size={16} /> : email.charAt(0).toUpperCase()}
                     </div>
-                    <div style={{ position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, background: isOnline ? "#16A34A" : "#5C7196", border: "2px solid #0E1830" }} />
+                    <div style={{ position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, background: isOnline ? "#16A34A" : "#94A3B8", border: "2px solid #F1F5F9" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#A78BFA" : "#E6EDF6", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#7C3AED" : "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
                     </p>
                   </div>
@@ -999,21 +999,21 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
         {/* Messages */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid #16213A", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#16213A" }}>
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #F8FAFC", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#F8FAFC" }}>
             <div style={{ flex: 1, position: "relative" }}>
-              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}
-                style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8, border: "1px solid #233152", fontSize: 11, outline: "none", background: "#0E1830", color: "#E6EDF6" }}
+                style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 11, outline: "none", background: "#F1F5F9", color: "#0F172A" }}
               />
             </div>
             {(canDeleteOwn || canDeleteOthers || canClearChat) && !showArchive && (
               <button
                 onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); }}
                 title={t({ ar: "تحديد رسائل للحذف", en: "Select messages to delete" })}
-                style={{ background: selectMode ? "#4A90D9" : "#0E1830", border: "1px solid #233152", borderRadius: 8, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: selectMode ? "#FFF" : "#8CA3C1", flexShrink: 0 }}
+                style={{ background: selectMode ? "#4A90D9" : "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 8, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: selectMode ? "#FFF" : "#64748B", flexShrink: 0 }}
               >
                 <CheckSquare size={13} />
               </button>
@@ -1022,13 +1022,13 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
           {/* شريط إجراءات الحذف الجماعي */}
           {selectMode && (
-            <div style={{ padding: "8px 12px", borderBottom: "1px solid #16213A", background: "#16213A", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
-              <span style={{ fontSize: 11, color: "#8CA3C1", alignSelf: "center" }}>{t({ ar: `محدَّد: ${selectedIds.size}`, en: `Selected: ${selectedIds.size}` })}</span>
-              <button onClick={requestDeleteSelected} disabled={!selectedIds.size} style={{ padding: "4px 10px", borderRadius: 6, background: "#2D1215", color: "#FB7185", border: "1px solid #5C2A30", fontSize: 11, cursor: "pointer", opacity: selectedIds.size ? 1 : 0.5 }}>
+            <div style={{ padding: "8px 12px", borderBottom: "1px solid #F8FAFC", background: "#F8FAFC", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: "#64748B", alignSelf: "center" }}>{t({ ar: `محدَّد: ${selectedIds.size}`, en: `Selected: ${selectedIds.size}` })}</span>
+              <button onClick={requestDeleteSelected} disabled={!selectedIds.size} style={{ padding: "4px 10px", borderRadius: 6, background: "#FEE2E2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 11, cursor: "pointer", opacity: selectedIds.size ? 1 : 0.5 }}>
                 {t({ ar: "حذف المحدَّد", en: "Delete selected" })}
               </button>
               {canDeleteOwn && (
-                <button onClick={requestDeleteAllMine} style={{ padding: "4px 10px", borderRadius: 6, background: "#2D1215", color: "#FB7185", border: "1px solid #5C2A30", fontSize: 11, cursor: "pointer" }}>
+                <button onClick={requestDeleteAllMine} style={{ padding: "4px 10px", borderRadius: 6, background: "#FEE2E2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 11, cursor: "pointer" }}>
                   {t({ ar: "حذف كل رسائلي", en: "Delete all my messages" })}
                 </button>
               )}
@@ -1042,11 +1042,11 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
           {/* الرسائل المثبَّتة */}
           {pinnedMessages.length > 0 && !showArchive && (
-            <div style={{ padding: "6px 12px", borderBottom: "1px solid #16213A", background: "rgba(251,191,36,0.06)", flexShrink: 0, maxHeight: 70, overflow: "auto" }}>
+            <div style={{ padding: "6px 12px", borderBottom: "1px solid #F8FAFC", background: "rgba(251,191,36,0.06)", flexShrink: 0, maxHeight: 70, overflow: "auto" }}>
               {pinnedMessages.map((m) => (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#FBBF24", padding: "2px 0" }}>
                   <Pin size={10} /> <span style={{ fontWeight: 600 }}>{emailToName(m.sender_email)}:</span>
-                  <span style={{ color: "#E6EDF6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.content || m.file_name}</span>
+                  <span style={{ color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.content || m.file_name}</span>
                 </div>
               ))}
             </div>
@@ -1055,12 +1055,12 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           <div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 4 }}>
             {loading ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 24, height: 24, border: "3px solid #233152", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                <div style={{ width: 24, height: 24, border: "3px solid #E2E8F0", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
               </div>
             ) : filteredMessages.length === 0 ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
-                <MessageCircle size={32} color="#5C7196" />
-                <p style={{ fontSize: 13, color: "#5C7196", margin: 0 }}>{t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}</p>
+                <MessageCircle size={32} color="#94A3B8" />
+                <p style={{ fontSize: 13, color: "#94A3B8", margin: 0 }}>{t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}</p>
               </div>
             ) : (
               filteredMessages.map((msg) => {
@@ -1093,26 +1093,26 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           </div>
 
           {(pendingAttachments.length > 0 || attachError) && (
-            <div style={{ padding: "8px 12px 0", flexShrink: 0, background: "#16213A" }}>
+            <div style={{ padding: "8px 12px 0", flexShrink: 0, background: "#F8FAFC" }}>
               {attachError && (
-                <p style={{ fontSize: 11, color: "#FB7185", margin: "0 0 6px" }}>{attachError}</p>
+                <p style={{ fontSize: 11, color: "#DC2626", margin: "0 0 6px" }}>{attachError}</p>
               )}
               {pendingAttachments.length > 0 && (
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
                   {pendingAttachments.map((att) => (
                     <div key={att.id} style={{ position: "relative", flexShrink: 0 }}>
                       {att.isImage ? (
-                        <img src={att.dataUrl} alt={att.name} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", border: "1px solid #233152", display: "block" }} />
+                        <img src={att.dataUrl} alt={att.name} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", border: "1px solid #E2E8F0", display: "block" }} />
                       ) : (
-                        <div style={{ width: 48, height: 48, borderRadius: 8, background: "#0E1830", border: "1px solid #233152", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 4, gap: 2 }}>
+                        <div style={{ width: 48, height: 48, borderRadius: 8, background: "#F1F5F9", border: "1px solid #E2E8F0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 4, gap: 2 }}>
                           {fileIcon(att.name)}
-                          <span style={{ fontSize: 8, color: "#8CA3C1", maxWidth: 44, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
+                          <span style={{ fontSize: 8, color: "#64748B", maxWidth: 44, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
                         </div>
                       )}
                       <button
                         onClick={() => removeAttachment(att.id)}
                         title={t({ ar: "إزالة", en: "Remove" })}
-                        style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 9, background: "#DC2626", border: "2px solid #16213A", color: "#FFF", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                        style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 9, background: "#DC2626", border: "2px solid #F8FAFC", color: "#FFF", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
                       >
                         <X size={10} />
                       </button>
@@ -1124,19 +1124,19 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           )}
 
           {/* Input */}
-          <div style={{ padding: "10px 12px", borderTop: "1px solid #16213A", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, background: "#16213A", position: "relative" }}>
+          <div style={{ padding: "10px 12px", borderTop: "1px solid #F8FAFC", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, background: "#F8FAFC", position: "relative" }}>
             {mentionSuggestions.length > 0 && (
-              <div style={{ position: "absolute", bottom: "100%", left: 12, right: 12, marginBottom: 6, background: "#111A2E", border: "1px solid #233152", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden", zIndex: 20 }}>
+              <div style={{ position: "absolute", bottom: "100%", left: 12, right: 12, marginBottom: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden", zIndex: 20 }}>
                 {mentionSuggestions.map((s) => (
                   <button key={s.email} onClick={() => applyMention(s.isAi ? "AI" : s.email)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", textAlign: isRTL ? "right" : "left" }}>
-                    {s.isAi ? <Bot size={14} color="#A78BFA" /> : <div style={{ width: 20, height: 20, borderRadius: 10, background: emailToColor(s.email), color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{s.email.charAt(0).toUpperCase()}</div>}
-                    <span style={{ fontSize: 12, color: "#E6EDF6" }}>{s.isAi ? "AI" : emailToName(s.email)}</span>
+                    {s.isAi ? <Bot size={14} color="#7C3AED" /> : <div style={{ width: 20, height: 20, borderRadius: 10, background: emailToColor(s.email), color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{s.email.charAt(0).toUpperCase()}</div>}
+                    <span style={{ fontSize: 12, color: "#0F172A" }}>{s.isAi ? "AI" : emailToName(s.email)}</span>
                   </button>
                 ))}
               </div>
             )}
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSelect} style={{ display: "none" }} />
-            <button onClick={() => fileInputRef.current?.click()} disabled={sending || !canSend} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#16213A", color: "#8CA3C1", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}>
+            <button onClick={() => fileInputRef.current?.click()} disabled={sending || !canSend} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#F8FAFC", color: "#64748B", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}>
               <Paperclip size={16} />
             </button>
             <input
@@ -1147,9 +1147,9 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key === "Escape") setMentionQuery(null); }}
               placeholder={canSend ? t({ ar: "اكتب رسالة، أو @ لإشارة، أو الصق صورة/ملف...", en: "Type a message, @ to mention, or paste an image/file..." }) : t({ ar: "لا تملك صلاحية الإرسال في هذا الشات", en: "You don't have permission to send here" })}
               disabled={!canSend}
-              style={{ flex: 1, padding: "8px 14px", borderRadius: 12, border: "1px solid #233152", fontSize: 13, outline: "none", background: "#0E1830", color: "#E6EDF6", opacity: canSend ? 1 : 0.6 }}
+              style={{ flex: 1, padding: "8px 14px", borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#F1F5F9", color: "#0F172A", opacity: canSend ? 1 : 0.6 }}
             />
-            <button onClick={handleSend} disabled={sending || !canSend || (!inputText.trim() && pendingAttachments.length === 0)} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "linear-gradient(135deg, #162560, #4A90D9)" : "#233152", color: (inputText.trim() || pendingAttachments.length > 0) ? "#FFF" : "#5C7196", cursor: sending ? "wait" : (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={handleSend} disabled={sending || !canSend || (!inputText.trim() && pendingAttachments.length === 0)} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "linear-gradient(135deg, #162560, #4A90D9)" : "#E2E8F0", color: (inputText.trim() || pendingAttachments.length > 0) ? "#FFF" : "#94A3B8", cursor: sending ? "wait" : (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {sending ? <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#FFF", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />}
             </button>
           </div>
@@ -1164,20 +1164,20 @@ function NewGroupDialog({ t, isRTL, knownEmails, currentUser, onClose, onCreate 
   const [selected, setSelected] = useState(new Set());
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", maxHeight: "80vh", background: "#111A2E", borderRadius: 16, border: "1px solid #233152", padding: 20, display: "flex", flexDirection: "column" }}>
-        <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#E6EDF6" }}>{t({ ar: "مجموعة جديدة", en: "New group" })}</p>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t({ ar: "اسم المجموعة", en: "Group name" })} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #233152", background: "#0E1830", color: "#E6EDF6", fontSize: 13, marginBottom: 12 }} />
-        <p style={{ fontSize: 12, color: "#8CA3C1", marginBottom: 6 }}>{t({ ar: "الأعضاء", en: "Members" })}</p>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", maxHeight: "80vh", background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20, display: "flex", flexDirection: "column" }}>
+        <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{t({ ar: "مجموعة جديدة", en: "New group" })}</p>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t({ ar: "اسم المجموعة", en: "Group name" })} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#F1F5F9", color: "#0F172A", fontSize: 13, marginBottom: 12 }} />
+        <p style={{ fontSize: 12, color: "#64748B", marginBottom: 6 }}>{t({ ar: "الأعضاء", en: "Members" })}</p>
         <div style={{ overflowY: "auto", flex: 1, marginBottom: 14 }}>
           {knownEmails.map((email) => (
-            <label key={email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 12, color: "#E6EDF6", cursor: "pointer" }}>
+            <label key={email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
               <input type="checkbox" checked={selected.has(email)} onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(email) ? n.delete(email) : n.add(email); return n; })} />
               {emailToName(email)}
             </label>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: 9, borderRadius: 8, border: "1px solid #233152", background: "transparent", color: "#8CA3C1", fontSize: 12.5, cursor: "pointer" }}>{t({ ar: "إلغاء", en: "Cancel" })}</button>
+          <button onClick={onClose} style={{ flex: 1, padding: 9, borderRadius: 8, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 12.5, cursor: "pointer" }}>{t({ ar: "إلغاء", en: "Cancel" })}</button>
           <button onClick={() => name.trim() && onCreate(name.trim(), [...selected])} disabled={!name.trim()} style={{ flex: 1, padding: 9, borderRadius: 8, border: "none", background: "#12B886", color: "#FFF", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: name.trim() ? 1 : 0.5 }}>{t({ ar: "إنشاء", en: "Create" })}</button>
         </div>
       </div>
@@ -1190,14 +1190,14 @@ function GroupMembersDialog({ t, group, members, knownEmails, canManageMembers, 
   const addable = knownEmails.filter((e) => !members.includes(e));
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", maxHeight: "80vh", background: "#111A2E", borderRadius: 16, border: "1px solid #233152", padding: 20, display: "flex", flexDirection: "column" }}>
-        <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#E6EDF6" }}>{t({ ar: `أعضاء ${group.name}`, en: `${group.name} members` })}</p>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", maxHeight: "80vh", background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20, display: "flex", flexDirection: "column" }}>
+        <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{t({ ar: `أعضاء ${group.name}`, en: `${group.name} members` })}</p>
         <div style={{ overflowY: "auto", flex: 1, marginBottom: 12 }}>
           {members.map((email) => (
-            <div key={email} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: "#E6EDF6" }}>
+            <div key={email} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: "#0F172A" }}>
               <span>{emailToName(email)}{email === currentUser ? ` (${t({ ar: "أنت", en: "you" })})` : ""}</span>
               {canManageMembers && email !== currentUser && (
-                <button onClick={() => onRemove(email)} style={{ background: "none", border: "none", color: "#FB7185", cursor: "pointer" }}><UserMinus size={13} /></button>
+                <button onClick={() => onRemove(email)} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer" }}><UserMinus size={13} /></button>
               )}
             </div>
           ))}
@@ -1211,7 +1211,7 @@ function GroupMembersDialog({ t, group, members, knownEmails, canManageMembers, 
             <button onClick={() => { if (addEmail) { onAdd(addEmail); setAddEmail(""); } }} disabled={!addEmail} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#12B886", color: "#FFF", cursor: "pointer", opacity: addEmail ? 1 : 0.5 }}><UserPlus size={13} /></button>
           </div>
         )}
-        <button onClick={onClose} style={{ padding: 9, borderRadius: 8, border: "1px solid #233152", background: "transparent", color: "#8CA3C1", fontSize: 12.5, cursor: "pointer" }}>{t({ ar: "إغلاق", en: "Close" })}</button>
+        <button onClick={onClose} style={{ padding: 9, borderRadius: 8, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 12.5, cursor: "pointer" }}>{t({ ar: "إغلاق", en: "Close" })}</button>
       </div>
     </div>
   );

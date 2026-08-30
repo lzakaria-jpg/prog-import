@@ -11,8 +11,8 @@ import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
 
 const COLORS = {
-  paper: "#0B1120", ink: "#E6EDF6", teal: "#12B886", tealLight: "#20D9A0",
-  gold: "#FBBF24", amber: "#FBBF24", red: "#FB7185", green: "#34E0A0", line: "#233152",
+  paper: "#F1F5F9", ink: "#0F172A", teal: "#12B886", tealLight: "#15803D",
+  gold: "#FBBF24", amber: "#FBBF24", red: "#DC2626", green: "#15803D", line: "#E2E8F0",
 };
 
 const PAGE_SIZE = 50;
@@ -32,7 +32,7 @@ function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept
   return (
     <div
       className="upload-zone rounded-lg border-2 border-dashed p-4 text-center transition cursor-pointer"
-      style={{ borderColor: ok ? COLORS.green : COLORS.line, background: "#111A2E" }}
+      style={{ borderColor: ok ? COLORS.green : COLORS.line, background: "#FFFFFF" }}
       onClick={() => inputRef.current?.click()}
     >
       <input ref={inputRef} type="file" accept={accept || ".xlsx,.xls"} className="hidden"
@@ -41,7 +41,7 @@ function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept
         {busy ? <Loader2 size={26} className="animate-spin" style={{ color: COLORS.teal }} />
           : ok ? <CheckCircle2 size={26} style={{ color: COLORS.green }} /> : <Upload size={26} style={{ color: COLORS.teal }} />}
         <p className="text-sm font-semibold">{t(title)}</p>
-        <p className="text-xs" style={{ color: "#8CA3C1" }}>{t(subtitle)}</p>
+        <p className="text-xs" style={{ color: "#64748B" }}>{t(subtitle)}</p>
         {fileName && (
           <p className="mt-1 flex items-center gap-1 text-xs" style={{ color: COLORS.tealLight }}>
             <FileSpreadsheet size={12} /> {fileName} {count && `— ${count}`}
@@ -60,11 +60,11 @@ function SummaryStat({ label, value, color, onClick, active }) {
         className="card rounded-lg border px-4 py-3 text-center transition"
         style={{
           borderColor: active ? COLORS.teal : COLORS.line,
-          background: active ? "rgba(18,184,134,0.12)" : "#111A2E",
+          background: active ? "rgba(18,184,134,0.12)" : "#FFFFFF",
           boxShadow: active ? "0 0 0 2px rgba(18,184,134,.35)" : "none",
         }}>
         <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-        <p className="text-xs" style={{ color: "#8CA3C1" }}>{t(label)}</p>
+        <p className="text-xs" style={{ color: "#64748B" }}>{t(label)}</p>
       </div>
     </button>
   );
@@ -95,13 +95,13 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={t({ ar: "رمز الحساب", en: "Account code" })} dir="ltr"
         className="w-full rounded-md border px-2 py-1.5 text-sm font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500"
-        style={{ borderColor: hasError ? COLORS.red : COLORS.line, background: "#0E1830", color: "#E6EDF6" }}
+        style={{ borderColor: hasError ? COLORS.red : COLORS.line, background: "#F1F5F9", color: "#0F172A" }}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border shadow-lg" style={{ borderColor: COLORS.line, background: "#111A2E", insetInlineStart: 0 }}>
+        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border shadow-lg" style={{ borderColor: COLORS.line, background: "#FFFFFF", insetInlineStart: 0 }}>
           {filtered.map((a) => (
             <div key={a.code} onMouseDown={() => { onChange(a.code); setQuery(""); setOpen(false); }}
-              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-[#14213B] text-start">
+              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-[#F8FAFC] text-start">
               <span className="font-mono me-2" style={{ color: COLORS.teal }}>{a.code}</span> {a.name}
             </div>
           ))}
@@ -118,15 +118,15 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
   const statusColor = hasErrors ? COLORS.red : COLORS.green;
   const T = { ar: "قيد", en: "Entry" };
   return (
-    <div className="card overflow-hidden rounded-lg border transition-all" style={{ borderColor: COLORS.line, background: "#111A2E" }}>
-      <button onClick={onToggle} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start hover:bg-[#14213B] transition-colors">
+    <div className="card overflow-hidden rounded-lg border transition-all" style={{ borderColor: COLORS.line, background: "#FFFFFF" }}>
+      <button onClick={onToggle} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start hover:bg-[#F8FAFC] transition-colors">
         <div className="flex items-center gap-3">
           <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: statusColor }}>
             {issues.length === 0 ? <CheckCircle2 size={14} /> : issues.length}
           </span>
           <div>
             <p className="text-sm font-semibold">{t(T)} #{entry.seq} — {entry.desc || t({ ar: "بدون وصف", en: "No description" })}</p>
-            <p className="text-xs" style={{ color: "#8CA3C1" }}>{entry.date || t({ ar: "بدون تاريخ", en: "No date" })}</p>
+            <p className="text-xs" style={{ color: "#64748B" }}>{entry.date || t({ ar: "بدون تاريخ", en: "No date" })}</p>
           </div>
         </div>
         {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -136,15 +136,15 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
           <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
             <label className="flex items-center gap-1">{t({ ar: "التاريخ:", en: "Date:" })}
               <input dir="ltr" value={entry.date || ""} onChange={(e) => onUpdateMeta(entry.seq, "date", e.target.value)}
-                placeholder="dd/mm/yyyy" className="rounded border px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6", width: 100 }} />
+                placeholder="dd/mm/yyyy" className="rounded border px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A", width: 100 }} />
             </label>
             <label className="flex flex-1 items-center gap-1">{t({ ar: "الوصف:", en: "Description:" })}
               <input value={entry.desc || ""} onChange={(e) => onUpdateMeta(entry.seq, "desc", e.target.value)}
-                className="flex-1 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }} />
+                className="flex-1 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
             </label>
           </div>
           <table className="mb-3 w-full text-xs">
-            <thead><tr style={{ color: "#8CA3C1" }}>
+            <thead><tr style={{ color: "#64748B" }}>
               <th className="pb-1 text-start font-medium">{t({ ar: "الرمز", en: "Code" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "اسم الحساب", en: "Account" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "مدين", en: "Debit" })}</th>
@@ -166,15 +166,15 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                     </td>
                     <td className="py-1.5 pe-2">
                       <input dir="ltr" value={r.debit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "debit", e.target.value === "" ? null : parseFloat(e.target.value))}
-                        className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }} />
+                        className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5 pe-2">
                       <input dir="ltr" value={r.credit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "credit", e.target.value === "" ? null : parseFloat(e.target.value))}
-                        className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }} />
+                        className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5">
                       <input value={r.comment || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "comment", e.target.value)}
-                        className="w-full rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }} />
+                        className="w-full rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                   </tr>
                 );
@@ -213,7 +213,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                   <div className="flex flex-wrap items-center gap-1.5" style={{ maxWidth: 280 }}>
                     {issue.suggestions.map((s) => (
                       <div key={s.code} className="flex items-center gap-2 rounded border px-2 py-1.5" style={{ borderColor: s.confidence === "high" ? "#2F8F5B" : "#A16207", background: s.confidence === "high" ? "rgba(34,211,138,0.12)" : "rgba(251,191,36,0.12)" }}>
-                        <span className="text-left text-[11px] font-semibold" style={{ direction: "ltr", color: s.confidence === "high" ? "#34E0A0" : "#FBBF24" }}>{s.code} — {s.name}</span>
+                        <span className="text-left text-[11px] font-semibold" style={{ direction: "ltr", color: s.confidence === "high" ? "#15803D" : "#FBBF24" }}>{s.code} — {s.name}</span>
                         <button onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)} className="rounded px-2 py-1 text-[11px] font-semibold text-white" style={{ background: "#287653" }}>
                           {t({ ar: "تنفيذ المقترح", en: "Apply suggestion" })}
                         </button>
@@ -228,7 +228,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                   <div className="flex flex-wrap items-center gap-1.5" style={{ maxWidth: 420 }}>
                     {issue.suggestions.slice(0, showAllSuggestions ? issue.suggestions.length : 8).map((s) => (
                       <div key={s.code} className="flex items-center gap-2 rounded border px-2 py-1.5" style={{ direction: "ltr", background: "rgba(34,211,138,0.12)", borderColor: "#2F8F5B" }}>
-                        <span className="text-left text-[11px] font-semibold" style={{ color: "#34E0A0" }}>{s.code} — {s.name}</span>
+                        <span className="text-left text-[11px] font-semibold" style={{ color: "#15803D" }}>{s.code} — {s.name}</span>
                         <button onClick={() => onApplySuggestion(entry.seq, issue.rowIndex, s.code, issue.id)} className="rounded px-2 py-1 text-[11px] font-semibold text-white" style={{ background: "#287653" }}>
                           {t({ ar: "تنفيذ المقترح", en: "Apply suggestion" })}
                         </button>
@@ -579,7 +579,7 @@ export default function JournalTool() {
         <div className="mb-6 flex items-center justify-between border-b pb-4" style={{ borderColor: COLORS.line }}>
           <div>
             <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" })}</h1>
-            <p className="mt-1 text-sm" style={{ color: "#8CA3C1" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
+            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
           </div>
           {(chartAccounts || entries) && (
             <button onClick={resetAll} className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: COLORS.tealLight }}>
@@ -588,9 +588,9 @@ export default function JournalTool() {
           )}
         </div>
 
-        <div className="mb-6 flex items-start gap-2 rounded-lg border px-4 py-3 text-xs leading-relaxed" style={{ borderColor: "#2E4068", background: "rgba(125,211,252,0.08)" }}>
-          <Info size={16} className="mt-0.5 shrink-0" style={{ color: "#7DD3FC" }} />
-          <div style={{ color: "#8CA3C1" }}>
+        <div className="mb-6 flex items-start gap-2 rounded-lg border px-4 py-3 text-xs leading-relaxed" style={{ borderColor: "#CBD5E1", background: "rgba(125,211,252,0.08)" }}>
+          <Info size={16} className="mt-0.5 shrink-0" style={{ color: "#0284C7" }} />
+          <div style={{ color: "#64748B" }}>
             {t({ ar: "المعايير المعتمدة: صيغة التاريخ dd/mm/yyyy · مدين = دائن لكل قيد · إجمالي القيد لا يجوز أن يكون صفراً · لا يجوز الترحيل على حساب رئيسي له حسابات فرعية.", en: "Accepted rules: date format dd/mm/yyyy · debit = credit per entry · entry total may not be zero · posting to a parent account with children is not allowed." })}
           </div>
         </div>
@@ -623,24 +623,24 @@ export default function JournalTool() {
 
             <div className="mb-3">
               <div className="relative">
-                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2" style={{ color: "#5C7196" }} />
+                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
                 <input ref={searchInputRef} type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
                   placeholder={t({ ar: "بحث بالرمز، اسم الحساب، التاريخ، التعليق...", en: "Search by code, account name, date, comment..." })}
-                  className="w-full rounded-lg border border-[#233152] bg-[#0E1830] py-2 pe-3 ps-9 text-xs text-[#E6EDF6] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] py-2 pe-3 ps-9 text-xs text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   style={{ direction: dir }} />
                 {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setPage(0); }} className="absolute end-3 top-1/2 -translate-y-1/2 text-[#5C7196] hover:text-[#8CA3C1]">
+                  <button onClick={() => { setSearchQuery(""); setPage(0); }} className="absolute end-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#64748B]">
                     <X size={14} />
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-xs text-[#5C7196]">{t({ ar: "Ctrl+F للبحث السريع", en: "Ctrl+F for quick search" })}</p>
+              <p className="mt-1 text-xs text-[#94A3B8]">{t({ ar: "Ctrl+F للبحث السريع", en: "Ctrl+F for quick search" })}</p>
             </div>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {filters.map(({ key, label }) => (
                 <button key={key} onClick={() => { setFilter(key); setPage(0); }}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                    filter === key ? "border-[#12B886] bg-[#12B886] text-white" : "border-[#233152] bg-[#111A2E] text-[#8CA3C1] hover:border-[#20D9A0]"
+                    filter === key ? "border-[#12B886] bg-[#12B886] text-white" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#15803D]"
                   }`}>
                   {t(label)}
                 </button>
@@ -651,7 +651,7 @@ export default function JournalTool() {
                     className="rounded border p-1 disabled:opacity-30" style={{ borderColor: COLORS.line }}>
                     <ChevronRight size={14} />
                   </button>
-                  <span className="px-2 text-xs font-medium" style={{ color: "#8CA3C1" }}>
+                  <span className="px-2 text-xs font-medium" style={{ color: "#64748B" }}>
                     {page + 1} / {totalPages}
                   </span>
                   <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
@@ -681,7 +681,7 @@ export default function JournalTool() {
                   className="btn-secondary rounded border px-3 py-1.5 text-xs disabled:opacity-30" style={{ borderColor: COLORS.line }}>
                   <ChevronRight size={14} /> {t({ ar: "السابق", en: "Previous" })}
                 </button>
-                <span className="px-3 text-xs font-medium" style={{ color: "#8CA3C1" }}>
+                <span className="px-3 text-xs font-medium" style={{ color: "#64748B" }}>
                   {t({ ar: `صفحة ${page + 1} من ${totalPages}`, en: `Page ${page + 1} of ${totalPages}` })}
                 </span>
                 <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
@@ -698,9 +698,9 @@ export default function JournalTool() {
                 </p>
               )}
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <label className="flex items-center gap-2 text-xs" style={{ color: "#8CA3C1" }}>
+                <label className="flex items-center gap-2 text-xs" style={{ color: "#64748B" }}>
                   {t({ ar: "ترتيب التصدير:", en: "Export order:" })}
-                  <select value={exportSort} onChange={(event) => setExportSort(event.target.value)} className="rounded border px-2 py-1" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }}>
+                  <select value={exportSort} onChange={(event) => setExportSort(event.target.value)} className="rounded border px-2 py-1" style={{ borderColor: "#233152", background: "#0E1830", color: "#E6EDF6" }}>
                     <option value="number">{t({ ar: "رقم القيد", en: "Entry number" })}</option>
                     <option value="date">{t({ ar: "التاريخ", en: "Date" })}</option>
                   </select>
@@ -716,9 +716,9 @@ export default function JournalTool() {
               {copyStatus === "copied" && <span className="flex items-center gap-1 text-xs" style={{ color: COLORS.green }}><CheckCircle2 size={14} /> {t({ ar: "تم النسخ", en: "Copied" })}</span>}
               {showManualCopy && (
                 <textarea readOnly dir="ltr" value={buildPasteText(entries)} onFocus={(e) => e.target.select()}
-                  className="mt-1 h-32 w-full max-w-md rounded border p-2 font-mono text-xs" style={{ borderColor: COLORS.line, background: "#0E1830", color: "#E6EDF6" }} />
+                  className="mt-1 h-32 w-full max-w-md rounded border p-2 font-mono text-xs" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
               )}
-              <p className="mx-auto mt-1 max-w-md text-center text-[11px] leading-relaxed" style={{ color: "#5C7196" }}>
+              <p className="mx-auto mt-1 max-w-md text-center text-[11px] leading-relaxed" style={{ color: "#94A3B8" }}>
                 {t({ ar: "الملف مبني مباشرة فوق نسخة قالب قيود الرسمي — التنسيق محفوظ 100% تلقائياً.", en: "The file is built directly on Qoyod's official import template — formatting is preserved 100% automatically." })}
               </p>
             </div>

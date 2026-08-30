@@ -74,14 +74,14 @@ export function NotificationBell({ currentUser, isRTL }) {
         onClick={() => setOpen((v) => !v)}
         style={{
           width: 44, height: 44, borderRadius: 22, border: "none", cursor: "pointer",
-          background: "#111A2E", boxShadow: "0 6px 24px rgba(0,0,0,0.35)", color: "#E6EDF6",
+          background: "#FFFFFF", boxShadow: "0 6px 24px rgba(0,0,0,0.35)", color: "#0F172A",
           display: "flex", alignItems: "center", justifyContent: "center", position: "relative",
         }}
         title={t({ ar: "الإشعارات", en: "Notifications" })}
       >
         <Bell size={18} />
         {unread > 0 && (
-          <span style={{ position: "absolute", top: -2, [isRTL ? "left" : "right"]: -2, minWidth: 16, height: 16, padding: "0 3px", borderRadius: 8, background: "#EF4444", color: "#FFF", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ position: "absolute", top: -2, [isRTL ? "left" : "right"]: -2, minWidth: 16, height: 16, padding: "0 3px", borderRadius: 8, background: "#DC2626", color: "#FFF", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {unread > 9 ? "9+" : unread}
           </span>
         )}
@@ -90,23 +90,23 @@ export function NotificationBell({ currentUser, isRTL }) {
       {open && (
         <div style={{
           position: "absolute", bottom: 52, [isRTL ? "left" : "right"]: 0, width: 320, maxHeight: 400,
-          background: "#111A2E", border: "1px solid #233152", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+          background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
           overflow: "hidden", display: "flex", flexDirection: "column",
         }}>
-          <div style={{ padding: "12px 14px", borderBottom: "1px solid #233152", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#E6EDF6" }}>{t({ ar: "الإشعارات", en: "Notifications" })}</p>
+          <div style={{ padding: "12px 14px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{t({ ar: "الإشعارات", en: "Notifications" })}</p>
             <div style={{ display: "flex", gap: 6 }}>
               {unread > 0 && (
-                <button onClick={markAllRead} style={{ background: "none", border: "none", color: "#7DD3FC", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+                <button onClick={markAllRead} style={{ background: "none", border: "none", color: "#0284C7", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
                   <Check size={12} /> {t({ ar: "تعليم الكل كمقروء", en: "Mark all read" })}
                 </button>
               )}
-              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#5C7196", cursor: "pointer" }}><X size={14} /></button>
+              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer" }}><X size={14} /></button>
             </div>
           </div>
           <div style={{ overflowY: "auto", flex: 1 }}>
             {items.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "#5C7196", fontSize: 12 }}>
+              <div style={{ padding: 24, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>
                 {t({ ar: "لا توجد إشعارات", en: "No notifications" })}
               </div>
             ) : items.map((n) => (
@@ -115,20 +115,20 @@ export function NotificationBell({ currentUser, isRTL }) {
                 onClick={() => markRead(n.id)}
                 style={{
                   display: "flex", gap: 8, width: "100%", padding: "10px 14px", border: "none",
-                  borderBottom: "1px solid #16213A", background: n.is_read ? "transparent" : "rgba(74,144,217,0.08)",
+                  borderBottom: "1px solid #F8FAFC", background: n.is_read ? "transparent" : "rgba(74,144,217,0.08)",
                   cursor: "pointer", textAlign: isRTL ? "right" : "left",
                 }}
               >
                 <AtSign size={14} color="#4A90D9" style={{ flexShrink: 0, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 12, color: "#E6EDF6" }}>
+                  <p style={{ margin: 0, fontSize: 12, color: "#0F172A" }}>
                     <strong>{n.actor_email?.split("@")[0]}</strong> {t({ ar: "أشار إليك", en: "mentioned you" })}
                     {n.channel_label ? ` ${lang === "ar" ? "في" : "in"} ${n.channel_label}` : ""}
                   </p>
                   {n.content_preview && (
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8CA3C1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.content_preview}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.content_preview}</p>
                   )}
-                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#5C7196" }}>{new Date(n.created_at).toLocaleString()}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#94A3B8" }}>{new Date(n.created_at).toLocaleString()}</p>
                 </div>
                 {!n.is_read && <span style={{ width: 7, height: 7, borderRadius: 4, background: "#4A90D9", flexShrink: 0, marginTop: 4 }} />}
               </button>
