@@ -5,16 +5,18 @@ import { LanguageProvider, useLanguage } from "./language";
 import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
+import { NotificationBell } from "./lib/notifications.jsx";
 import { Watermark } from "./Watermark";
 import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
+import { can } from "./lib/permissions";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { id: "journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز واستيراد القيود", en: "Review, prepare & import journal entries" } },
-  { id: "merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
-  { id: "bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
-  { id: "sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
+  { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
+  { id: "merge", permKey: "tool.merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
+  { id: "bills", permKey: "tool.bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
+  { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
 ];
 
 function LanguageToggle({ compact }) {
@@ -141,10 +143,22 @@ function AppShell() {
   const [tab, setTab] = useState("journal");
   const [collapsed, setCollapsed] = useState(false);
   const { lang, dir, t } = useLanguage();
-  const { currentUser, isAdmin, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
+  const { currentUser, isAdmin, isUserManager, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => can(currentUserRecord, item.permKey));
+  const visibleNavKey = visibleNavItems.map((i) => i.id).join(",");
+
+  // إن فقد التبويب المفتوح صلاحيته (تعديل مباشر من مالك آخر)، انتقل لأول أداة متاحة بدل شاشة فارغة.
+  // Hooks كلها قبل أي return مشروط، فلا يتغيّر ترتيب استدعائها بين الأجيال.
+  useEffect(() => {
+    if (visibleNavItems.length && !visibleNavItems.some((i) => i.id === tab)) {
+      setTab(visibleNavItems[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleNavKey, tab]);
 
   if (loading || !currentUser) return <LoginScreen />;
 
@@ -153,11 +167,12 @@ function AppShell() {
   const chevTotal = chevBase + chevRot;
 
   const currentVersion = "1.5.2";
+  const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
-      {showAdmin && isAdmin && <AdminPanel />}
-      {showAISettings && <AISettings onClose={() => setShowAISettings(false)} />}
+      {showAdmin && isUserManager && <AdminPanel />}
+      {showAISettings && canUseAI && <AISettings onClose={() => setShowAISettings(false)} />}
 
       {/* Sidebar */}
       <aside
@@ -183,7 +198,7 @@ function AppShell() {
 
         {/* Nav */}
         <nav className="flex-1 py-3 px-2 space-y-1">
-          {NAV_ITEMS.map(({ id, label, icon: Icon, desc }) => {
+          {visibleNavItems.map(({ id, label, icon: Icon, desc }) => {
             const active = tab === id;
             return (
               <button
@@ -209,8 +224,8 @@ function AppShell() {
             );
           })}
 
-          {/* Admin button (only for admin) */}
-          {isAdmin && (
+          {/* Admin button (owner + full user managers only) */}
+          {isUserManager && (
             <button
               onClick={() => setShowAdmin(true)}
               className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
@@ -226,13 +241,14 @@ function AppShell() {
               {!collapsed && (
                 <div className="text-start animate-fadeIn">
                   <p className="text-sm font-semibold leading-tight text-slate-300 group-hover:text-white">{t({ ar: "إدارة المستخدمين", en: "Manage Users" })}</p>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t({ ar: "إضافة/حذف إيميلات", en: "Add/remove emails" })}</p>
+                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t({ ar: "الأدوار والصلاحيات وسجل التدقيق", en: "Roles, permissions & audit log" })}</p>
                 </div>
               )}
             </button>
           )}
 
           {/* AI Settings button */}
+          {canUseAI && (
           <button
             onClick={() => setShowAISettings(true)}
             className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
@@ -252,6 +268,7 @@ function AppShell() {
               </div>
             )}
           </button>
+          )}
         </nav>
 
         {/* User info */}
@@ -263,7 +280,8 @@ function AppShell() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-slate-300 truncate" style={{ direction: "ltr" }}>{currentUser}</p>
-                {isAdmin && <p className="text-[10px] text-blue-300">{t({ ar: "مدير", en: "Admin" })}</p>}
+                {isAdmin && <p className="text-[10px] text-blue-300">{t({ ar: "المالك", en: "Owner" })}</p>}
+                {!isAdmin && isUserManager && <p className="text-[10px] text-blue-300">{t({ ar: "مدير مستخدمين", en: "User Manager" })}</p>}
               </div>
               <button onClick={logout} className="text-slate-500 hover:text-red-400 transition-colors" title={t({ ar: "خروج", en: "Logout" })}>
                 <LogOut size={14} />
@@ -305,18 +323,45 @@ function AppShell() {
         <Watermark type={tab === "merge" ? "tree" : tab === "bills" ? "bill" : tab === "sales" ? "sale" : "journal"} lang={lang} />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
-          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
-            <JournalTool />
-          </div>
-          <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
-          <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport showHeader={false} /></div>
-          <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool showHeader={false} /></div>
+          {/*
+            كل أداة تُركَّب (mount) فقط إن كانت مسموحة فعلياً — لا تكفي CSS
+            display:none لإخفائها، لأن المكوّن يبقى حياً في الـ DOM ويمكن
+            كشفه بأدوات المطوّر. التنفيذ الفعلي هنا هو الإنفاذ الحقيقي الوحيد
+            المتاح في تطبيق بلا خادم خلفي مستقل (انظر تعليق hasPermission في auth.jsx).
+          */}
+          {can(currentUserRecord, "tool.journal") && (
+            <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
+              <JournalTool />
+            </div>
+          )}
+          {can(currentUserRecord, "tool.merge") && (
+            <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
+          )}
+          {can(currentUserRecord, "tool.bills") && (
+            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport showHeader={false} /></div>
+          )}
+          {can(currentUserRecord, "tool.sales") && (
+            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool showHeader={false} /></div>
+          )}
+          {visibleNavItems.length === 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#94A3B8", fontSize: 14, textAlign: "center" }}>
+              {t({ ar: "لا تملك صلاحية الوصول لأي أداة حالياً. تواصل مع مدير النظام.", en: "You don't have access to any tool yet. Contact your admin." })}
+            </div>
+          )}
         </div>
       </main>
 
-      {/* Chat */}
-      {!chatOpen && <ChatToggle onClick={() => { setChatOpen(true); setChatUnread(0); }} isRTL={dir === "rtl"} unreadCount={chatUnread} />}
-      <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} onUnreadChange={setChatUnread} />
+      {/* Notifications */}
+      <NotificationBell currentUser={currentUser} isRTL={dir === "rtl"} />
+
+      {/* Chat — يتطلب صلاحية tool.chat على الأقل؛ عرض القناة العامة نفسها
+          مُتحكَّم فيه داخل ChatPanel بصلاحية chat.view_public المنفصلة */}
+      {can(currentUserRecord, "tool.chat") && (
+        <>
+          {!chatOpen && <ChatToggle onClick={() => { setChatOpen(true); setChatUnread(0); }} isRTL={dir === "rtl"} unreadCount={chatUnread} />}
+          <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} onUnreadChange={setChatUnread} />
+        </>
+      )}
     </div>
   );
 }
