@@ -149,41 +149,10 @@
 .qbi-guide ul { margin: 10px 0 2px; padding-inline-start: 20px; font-size: 13px; color: var(--qbi-ink-2); }
 .qbi-guide li { margin-bottom: 6px; }
 
-/* Host application dark theme, scoped to the bill tool. */
-.qbi {
-  --qbi-paper: #0B1120; --qbi-card: #111A2E; --qbi-ink: #E6EDF6; --qbi-ink-2: #8CA3C1;
-  --qbi-line: #233152; --qbi-accent: #12B886; --qbi-accent-soft: rgba(18,184,134,0.12);
-  --qbi-warn: #FBBF24; --qbi-warn-soft: rgba(251,191,36,0.12); --qbi-err: #FB7185;
-  --qbi-err-soft: rgba(251,113,133,0.12); --qbi-ok: #34E0A0; --qbi-r: 8px;
-  background: var(--qbi-paper); color: var(--qbi-ink); font-family: "Cairo", "Segoe UI", Tahoma, sans-serif;
+/* الاستثناء الوحيد للتصميم الفاتح: القوائم المنسدلة (select) تبقى داكنة كما كانت */
+.qbi select {
+  background: #0E1830;
+  border-color: #233152;
+  color: #E6EDF6;
 }
-.qbi-header { background: linear-gradient(135deg, #0F1F3E, #0A1328); border-bottom: 1px solid var(--qbi-line); }
-.qbi-header .sub, .qbi-card > .hint, .qbi label.f > span, .qbi-pick-help, .qbi .count { color: var(--qbi-ink-2); }
-.qbi-steps button { background: #16213A; border-color: var(--qbi-line); color: var(--qbi-ink-2); }
-.qbi-steps button .n { background: #0E1830; border-color: var(--qbi-line); color: var(--qbi-ink-2); }
-.qbi-steps button[aria-selected="true"] { background: #162560; border-color: #2E4068; color: var(--qbi-ink); }
-.qbi-steps button.done .n { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); color: var(--qbi-ok); }
-.qbi-card, .qbi-box, .qbi-guide { background: var(--qbi-card); border-color: var(--qbi-line); box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
-.qbi input[type=text], .qbi input[type=password], .qbi input[type=number], .qbi select, .qbi textarea { background: #0E1830; border-color: var(--qbi-line); color: var(--qbi-ink); }
-.qbi input::placeholder, .qbi textarea::placeholder { color: #5C7196; }
-.qbi-btn { background: var(--qbi-accent); border-color: var(--qbi-accent); color: #04120C; }
-.qbi-btn:hover { background: #20D9A0; }
-.qbi-btn.ghost { background: #16213A; border-color: var(--qbi-line); color: var(--qbi-ink); }
-.qbi-btn.dark { background: #162560; border-color: #2E4068; color: var(--qbi-ink); }
-.qbi-drop, .qbi-pick { background: #0E1830; border-color: #2E4068; color: var(--qbi-ink-2); }
-.qbi-drop:hover, .qbi-drop.over { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); color: var(--qbi-ink); }
-.qbi-chips .chip, .qbi-pick .fld, .qbi-list { background: #0E1830; border-color: var(--qbi-line); color: var(--qbi-ink); }
-.qbi-chips .chip.ok, .qbi-pick .fld.mapped { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); }
-.qbi-msg.info { background: rgba(56,189,248,0.1); border-color: #2E4068; color: #7DD3FC; }
-.qbi-msg.warn { background: var(--qbi-warn-soft); border-color: rgba(251,191,36,0.35); color: var(--qbi-warn); }
-.qbi-msg.err { background: var(--qbi-err-soft); border-color: rgba(251,113,133,0.35); color: var(--qbi-err); }
-.qbi-msg.ok { background: rgba(52,224,160,0.1); border-color: rgba(52,224,160,0.35); color: var(--qbi-ok); }
-.qbi-scroll { background: #0E1830; border-color: var(--qbi-line); }
-.qbi th, .qbi td { border-color: var(--qbi-line); }
-.qbi th, .qbi-grid th.h-col { background: #16213A; color: var(--qbi-ink-2); }
-.qbi tbody tr:nth-child(even) td { background: rgba(22,33,58,0.45); }
-.qbi tr.r-err td { background: var(--qbi-err-soft) !important; }
-.qbi tr.r-warn td { background: var(--qbi-warn-soft) !important; }
-.qbi td.c-assigned { background: rgba(18,184,134,0.08) !important; }
-.qbi-box.need { background: var(--qbi-warn-soft); }
-.qbi-guide ul { color: var(--qbi-ink-2); }
+.qbi-grid th.h-col select { background: transparent; color: inherit; }

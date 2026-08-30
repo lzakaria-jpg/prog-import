@@ -89,11 +89,11 @@ function extractMentions(text, knownEmails) {
 }
 
 /** يلوّن رموز @mention داخل نص الرسالة المعروضة */
-function renderWithMentions(text, isOwn) {
+function renderWithMentions(text) {
   const parts = text.split(/(@[\w.+-]+@[\w.-]+\.\w+|@[\p{L}\d_]+)/gu);
   return parts.map((part, i) => {
     if (/^@/.test(part)) {
-      return <span key={i} style={{ color: isOwn ? "#BFDBFE" : "#0284C7", fontWeight: 700 }}>{part}</span>;
+      return <span key={i} style={{ color: "#0284C7", fontWeight: 700 }}>{part}</span>;
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
@@ -146,8 +146,9 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
   };
 
   const isAgentMsg = msg.sender_email === AI_AGENT_EMAIL;
-  const bubbleColor = isOwn ? "linear-gradient(135deg, #162560, #1E3370)" : isAgentMsg ? "linear-gradient(135deg, #3B2A6B, #2A1F52)" : "#F1F5F9";
-  const textColor = isOwn ? "#FFF" : "#0F172A";
+  // خلفيات فاتحة دائمًا ونص كحلي غامق دائمًا — لون خفيف مميّز لكل جهة فقط للتفريق البصري
+  const bubbleColor = isOwn ? "#E3EAF7" : isAgentMsg ? "#F1EBFB" : "#F1F5F9";
+  const textColor = "#0F172A";
   const align = isOwn ? "flex-end" : "flex-start";
   const hasMenu = (isOwn && (canDeleteThis || canEditThis)) || (!isOwn && canDeleteThis) || canPin;
 
@@ -185,22 +186,22 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
             onClick={() => onDownload && onDownload(msg)}
             style={{
               display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
-              background: isOwn ? "rgba(255,255,255,0.15)" : "#F8FAFC", marginBottom: msg.content ? 6 : 0,
+              background: "rgba(15,23,42,0.05)", marginBottom: msg.content ? 6 : 0,
               cursor: "pointer", transition: "background 0.15s",
             }}
           >
             {fileIcon(msg.file_name)}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: isOwn ? "#FFF" : "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {msg.file_name}
               </p>
               {msg.file_size && (
-                <p style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.6)" : "#94A3B8", margin: 0 }}>
+                <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>
                   {msg.file_size > 1048576 ? `${(msg.file_size / 1048576).toFixed(1)} MB` : `${(msg.file_size / 1024).toFixed(0)} KB`}
                 </p>
               )}
             </div>
-            <Download size={14} color={isOwn ? "rgba(255,255,255,0.7)" : "#64748B"} />
+            <Download size={13} color="#64748B" />
           </div>
         )}
 
@@ -211,7 +212,7 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSaveEdit(); if (e.key === "Escape") setEditing(false); }}
               autoFocus
-              style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#FFFFFF", color: "#0F172A", outline: "none" }}
+              style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#FFFFFF", color: "#0F172A", outline: "none" }}
             />
             <button onClick={handleSaveEdit} style={{ padding: "4px 8px", borderRadius: 6, background: "#16A34A", color: "#FFF", border: "none", fontSize: 11, cursor: "pointer" }}>
               <Check size={12} />
@@ -219,23 +220,23 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
           </div>
         ) : (
           msg.content && (
-            <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0, color: textColor, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
-              {renderWithMentions(msg.content, isOwn)}
+            <p style={{ fontSize: 12, lineHeight: 1.5, margin: 0, color: textColor, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+              {renderWithMentions(msg.content)}
             </p>
           )
         )}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start", gap: 4, marginTop: 4 }}>
           {msg.is_edited && (
-            <span style={{ fontSize: 9, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8", fontStyle: "italic" }}>
+            <span style={{ fontSize: 9, color: "#94A3B8", fontStyle: "italic" }}>
               {lang === "ar" ? "تم التعديل" : "edited"}
             </span>
           )}
-          <span style={{ fontSize: 10, color: isOwn ? "rgba(255,255,255,0.5)" : "#94A3B8" }}>
+          <span style={{ fontSize: 9, color: "#94A3B8" }}>
             {formatFullTime(msg.created_at)}
           </span>
           {isOwn && (
-            <CheckCheck size={12} color="rgba(255,255,255,0.6)" />
+            <CheckCheck size={12} color="#94A3B8" />
           )}
         </div>
 
