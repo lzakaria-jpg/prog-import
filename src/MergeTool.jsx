@@ -2338,6 +2338,45 @@ function isDescendantCode(node, targetCode) {
   return false;
 }
 
+/**
+ * [نقل حساب من المخطط] الرمز التالي المتاح لحساب فرعي تحت أب معيّن، بنفس منطق
+ * nextSiblingCode في compareTrees بالضبط (أعلى رمز شقيق موجود + 1 بنفس عرض
+ * الأرقام) - من الشجرة الحالية (tree1Index) ومن حسابات هذا الملف الجديدة معًا،
+ * حتى يُبنى الترقيم الهرمي تلقائيًا بعد أي نقل بنفس قاعدة الآباء والأبناء
+ * المعتمدة في بقية الأداة، لا بمنطق منفصل.
+ */
+export function nextChildCodeForParent(parentCode, rows, tree1Index) {
+  const siblings = new Set();
+  (rows || []).forEach((r) => {
+    if (r.status === "new" && !r.deleted && String(r.parent || "").trim() === parentCode) {
+      const c = String(r.code || "").trim();
+      if (c) siblings.add(c);
+    }
+  });
+  (tree1Index || []).forEach((r) => {
+    if (String(r.parent || "").trim() === parentCode) {
+      const c = String(r.code || "").trim();
+      if (c) siblings.add(c);
+    }
+  });
+  if (siblings.size === 0) return "";
+  const maxCodeStr = [...siblings].reduce((a, b) => (a > b ? a : b));
+  const numeric = parseInt(maxCodeStr, 10);
+  if (isNaN(numeric)) return "";
+  const width = maxCodeStr.length;
+  return String(numeric + 1).padStart(width, "0");
+}
+
+/** كل صفوف الحسابات الجديدة (لا الأساسات/الحسابات الموجودة) الواقعة تحت عقدة معيّنة، بأي عمق */
+function collectNewDescendantRows(node) {
+  const acc = [];
+  for (const child of node.children) {
+    if (!child.isAnchor) acc.push(child.row);
+    acc.push(...collectNewDescendantRows(child));
+  }
+  return acc;
+}
+
 const NODE_W = 172, NODE_H = 56;
 
 const TreeNodeBox = React.memo(function TreeNodeBox({
@@ -2375,16 +2414,16 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
           <span className="truncate font-mono text-[10px] text-[#94A3B8]">{code}</span>
           <div className="flex items-center gap-1">
             {!node.isAnchor && <StatusBadge row={node.row} compact />}
-            <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-[#94A3B8] hover:text-blue-700"><Plus size={12} /></button>
-            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-[#94A3B8] hover:text-blue-700"><Pencil size={11} /></button>)}
-            {!node.isAnchor && (<button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#94A3B8] hover:text-red-400"><Trash2 size={11} /></button>)}
+            <button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-[#94A3B8] hover:text-blue-700"><Plus size={12} /></button>
+            {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-[#94A3B8] hover:text-blue-700"><Pencil size={11} /></button>)}
+            {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#94A3B8] hover:text-red-400"><Trash2 size={11} /></button>)}
           </div>
         </div>
         <div className={`truncate ${node.isAnchor ? "italic" : "font-semibold text-[#0F172A]"}`}>{name}</div>
       </div>
-      {hasChildren && (<button onClick={() => onToggle(nodeKey)} title={isOpen ? t({ ar: "طيّ", en: "Collapse" }) : t({ ar: "عرض", en: "Expand" })} className="z-10 -mt-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#E2E8F0] bg-[#FFFFFF] text-[10px] text-[#64748B] shadow-sm hover:border-blue-600 hover:text-blue-700">{isOpen ? "−" : "+"}</button>)}
+      {hasChildren && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggle(nodeKey); }} title={isOpen ? t({ ar: "طيّ", en: "Collapse" }) : t({ ar: "عرض", en: "Expand" })} className="z-10 -mt-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#E2E8F0] bg-[#FFFFFF] text-[10px] text-[#64748B] shadow-sm hover:border-blue-600 hover:text-blue-700">{isOpen ? "−" : "+"}</button>)}
       {isEditing && (
-        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} className="absolute right-0 z-30 w-60 rounded-xl border border-blue-500/40 bg-[#FFFFFF] p-3 text-start shadow-xl" style={{ top: NODE_H + 6 }}>
+        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} className="absolute right-0 z-30 w-60 rounded-xl border border-blue-500/40 bg-[#FFFFFF] p-3 text-start shadow-xl" style={{ top: NODE_H + 6 }}>
           <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-[#64748B]">{t({ ar: "تعديل الحساب", en: "Edit account" })}</span><button onClick={() => onToggleEditing(null)} className="text-[#94A3B8] hover:text-[#0F172A]"><X size={13} /></button></div>
           <label className="mb-0.5 block text-[10px] text-[#94A3B8]">{t({ ar: "الرمز", en: "Code" })}</label><EditableCell value={node.row.code} onChange={(v) => updateRow(node.row.id, { code: v })} mono />
           <label className="mb-0.5 mt-2 block text-[10px] text-[#94A3B8]">{t({ ar: "الاسم العربي", en: "Arabic name" })}</label><EditableCell value={node.row.nameAr} onChange={(v) => updateRow(node.row.id, { nameAr: v })} />
@@ -2469,11 +2508,42 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     const targetType = targetNode.isAnchor ? (LEVEL3_MAP[targetCategory]?.[0] || "") : targetNode.row.type;
     patch.type = targetType;
 
-    setDropMessage({ type: "success", text: `تم نقل "${draggedNode.row.nameAr}" بنجاح` });
+    /*
+     * [رمز الحساب يُعاد ترقيمه تلقائيًا عند النقل] الاسم يُتجاهل هنا عمدًا -
+     * موضع الحساب الجديد تحت أبيه هو ما يحدد رمزه، لا اسمه: يأخذ أول رمز شاغر
+     * تالٍ لأبناء الأب الجديد فعليًا (بنفس قاعدة الآباء والأبناء الهرمية
+     * المعتمدة في كل الأداة)، بدل إبقاء رمزه القديم الذي كان يعكس موضعه في
+     * الفئة السابقة. أي حساب فرعي تحته (من حسابات هذا الملف) يُعاد ترقيمه معه
+     * بنفس الإزاحة حتى تبقى الشجرة متّسقة (الرمز القديم لم يعد له معنى أصلًا).
+     */
+    const oldCode = draggedNode.row.code;
+    const newCode = nextChildCodeForParent(targetCode, rows, treeMeta?.tree1Index);
+    const descendantRows = newCode && newCode !== oldCode ? collectNewDescendantRows(draggedNode) : [];
+    if (newCode && newCode !== oldCode) patch.code = newCode;
+
+    setDropMessage({
+      type: "success",
+      text: newCode && newCode !== oldCode
+        ? `تم نقل "${draggedNode.row.nameAr}" بنجاح - رمزه الجديد ${newCode}`
+        : `تم نقل "${draggedNode.row.nameAr}" بنجاح`,
+    });
     updateRow(draggedNode.row.id, patch);
+    if (newCode && newCode !== oldCode) {
+      // كل ذرية الحساب المنقول تُعاد ترقيمها بنفس الإزاحة - الرمز نفسه، وحقل
+      // "الحساب الرئيسي" أيضًا لأنه قد يشير لرمز الحساب المنقول القديم مباشرة
+      // (أبناؤه المباشرون) أو لرمز حفيد آخر أُعيد ترقيمه للتو (أحفاده الأعمق)
+      descendantRows.forEach((childRow) => {
+        const childPatch = {};
+        const childCode = String(childRow.code || "").trim();
+        if (childCode && childCode.startsWith(oldCode)) childPatch.code = newCode + childCode.slice(oldCode.length);
+        const childParent = String(childRow.parent || "").trim();
+        if (childParent && childParent.startsWith(oldCode)) childPatch.parent = newCode + childParent.slice(oldCode.length);
+        if (Object.keys(childPatch).length) updateRow(childRow.id, childPatch);
+      });
+    }
     setExpanded((prev) => new Set(prev).add(nodeKeyOf(targetNode)));
-    setDraggedCode(null); setRecentlyMovedCode(draggedCode);
-    setTimeout(() => setRecentlyMovedCode((c) => (c === draggedCode ? null : c)), 1800);
+    setDraggedCode(null); setRecentlyMovedCode(newCode && newCode !== oldCode ? newCode : draggedCode);
+    setTimeout(() => setRecentlyMovedCode((c) => (c === (newCode || draggedCode) ? null : c)), 1800);
   };
 
   const handleAddChild = (node) => {
