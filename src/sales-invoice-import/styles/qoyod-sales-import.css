@@ -1,0 +1,121 @@
+/* نسخ وتحويل حرفي لنطاق .qsv-app من qoyod_validator_styles.css — كل قيمة (ألوان، مسافات،
+   أحجام) محفوظة كما هي، فقط الأسماء بادئتها qsv- لتفادي أي تعارض مع --qoyod-* الخاصة بهيكل
+   الموقع (App.jsx/الشريط الجانبي) — هذه الأداة، كبقية أدوات الاستيراد، لها نطاق CSS مستقل تمامًا. */
+
+.qsv-app{
+  --qsv-bg:#f6f7f9; --qsv-panel:#ffffff; --qsv-border:#e2e5ea; --qsv-text:#1f2430; --qsv-muted:#6b7280;
+  --qsv-brand:#0f6db8; --qsv-brand-dark:#0b5590; --qsv-ok:#1c8a4a; --qsv-ok-bg:#e8f7ee;
+  --qsv-warn:#a86a00; --qsv-warn-bg:#fff6e0; --qsv-err:#c62828; --qsv-err-bg:#fdecec;
+  --qsv-step-inactive:#c9cdd4;
+  direction:rtl; font-family:"Segoe UI",Tahoma,Arial,sans-serif; background:var(--qsv-bg); color:var(--qsv-text);
+  line-height:1.6; height:100%; overflow:auto; box-sizing:border-box;
+}
+.qsv-app *{box-sizing:border-box;}
+
+.qsv-topbar{background:linear-gradient(135deg,var(--qsv-brand),var(--qsv-brand-dark));color:#fff;padding:22px 28px;}
+.qsv-topbar h1{margin:0 0 4px;font-size:22px;}
+.qsv-topbar p{margin:0;opacity:.92;font-size:14px;}
+
+.qsv-wrap{max-width:1180px;margin:0 auto;padding:20px;}
+
+.qsv-steps{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.qsv-step-tab{flex:1;min-width:140px;background:var(--qsv-panel);border:2px solid var(--qsv-border);border-radius:10px;padding:10px 14px;cursor:pointer;text-align:center;font-size:13px;font-weight:600;color:var(--qsv-muted);transition:.15s;font-family:inherit;}
+.qsv-step-tab .qsv-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--qsv-step-inactive);color:#fff;font-size:12px;margin-left:6px;}
+.qsv-step-tab.active{border-color:var(--qsv-brand);color:var(--qsv-brand-dark);background:#eef7fd;}
+.qsv-step-tab.active .qsv-num{background:var(--qsv-brand);}
+.qsv-step-tab.done .qsv-num{background:var(--qsv-ok);}
+.qsv-step-tab.done{color:var(--qsv-ok);}
+.qsv-step-tab:disabled{opacity:.55;cursor:not-allowed;}
+
+.qsv-panel{background:var(--qsv-panel);border:1px solid var(--qsv-border);border-radius:12px;padding:22px;margin-bottom:18px;}
+.qsv-panel h2{margin-top:0;font-size:17px;}
+.qsv-panel h3{font-size:14px;color:var(--qsv-brand-dark);margin:18px 0 8px;}
+.qsv-hint{color:var(--qsv-muted);font-size:12.5px;}
+
+.qsv-grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;}
+.qsv-upcard{border:2px dashed var(--qsv-border);border-radius:10px;padding:16px;text-align:center;background:#fbfcfd;}
+.qsv-upcard.required{border-color:#f0b7b7;}
+.qsv-upcard.loaded{border-color:var(--qsv-ok);background:var(--qsv-ok-bg);}
+.qsv-upcard h4{margin:0 0 4px;font-size:14px;}
+.qsv-upcard .qsv-tag{font-size:11px;color:#fff;background:#e57373;border-radius:6px;padding:1px 8px;display:inline-block;margin-bottom:6px;}
+.qsv-upcard.loaded .qsv-tag{background:var(--qsv-ok);}
+.qsv-upcard .qsv-optional-tag{font-size:11px;color:#666;background:#e2e5ea;border-radius:6px;padding:1px 8px;display:inline-block;margin-bottom:6px;}
+.qsv-upcard input[type=file]{display:none;}
+
+.qsv-btn{display:inline-block;background:var(--qsv-brand);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13.5px;cursor:pointer;font-weight:600;font-family:inherit;}
+.qsv-btn:hover{background:var(--qsv-brand-dark);}
+.qsv-btn.secondary{background:#fff;color:var(--qsv-brand-dark);border:1.5px solid var(--qsv-brand);}
+.qsv-btn.secondary:hover{background:#eef7fd;}
+.qsv-btn.ghost{background:none;color:var(--qsv-muted);border:1px solid var(--qsv-border);}
+.qsv-btn.danger{background:#fff;color:var(--qsv-err);border:1.5px solid var(--qsv-err);padding:4px 10px;font-size:12px;}
+.qsv-btn:disabled{opacity:.5;cursor:not-allowed;}
+
+.qsv-status-line{font-size:12.5px;margin-top:8px;}
+.qsv-mapping-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;}
+.qsv-mapping-table td{padding:6px 8px;border-bottom:1px solid var(--qsv-border);}
+.qsv-app select,.qsv-app input[type=text],.qsv-app input[type=number],.qsv-app input[type=date]{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--qsv-border);border-radius:6px;width:100%;background:#fff;color:var(--qsv-text);}
+
+.qsv-actions-bar{display:flex;gap:10px;justify-content:space-between;margin-top:20px;flex-wrap:wrap;}
+.qsv-actions-bar .qsv-right{display:flex;gap:10px;}
+
+table.qsv-grid{border-collapse:collapse;width:100%;font-size:12.5px;}
+table.qsv-grid th{background:#f1f3f6;padding:6px 5px;border:1px solid var(--qsv-border);white-space:nowrap;font-size:11.5px;position:sticky;top:0;}
+table.qsv-grid td{border:1px solid var(--qsv-border);padding:2px;min-width:90px;}
+table.qsv-grid td input, table.qsv-grid td select{border:none;border-radius:0;padding:5px 4px;font-size:12.5px;}
+table.qsv-grid td input:focus, table.qsv-grid td select:focus{outline:2px solid var(--qsv-brand);position:relative;z-index:2;}
+.qsv-grid-scroll{overflow:auto;max-height:520px;border:1px solid var(--qsv-border);border-radius:8px;}
+.qsv-req-star{color:var(--qsv-err);}
+.qsv-cell-err{background:var(--qsv-err-bg) !important;}
+.qsv-cell-warn{background:var(--qsv-warn-bg) !important;}
+.qsv-row-num-col{background:#f1f3f6;text-align:center;color:var(--qsv-muted);position:sticky;right:0;}
+.qsv-del-col{text-align:center;}
+
+.qsv-badge{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600;}
+.qsv-badge.err{background:var(--qsv-err-bg);color:var(--qsv-err);}
+.qsv-badge.warn{background:var(--qsv-warn-bg);color:var(--qsv-warn);}
+.qsv-badge.ok{background:var(--qsv-ok-bg);color:var(--qsv-ok);}
+
+.qsv-issues-list{max-height:340px;overflow:auto;border:1px solid var(--qsv-border);border-radius:8px;margin-top:12px;}
+.qsv-issue-item{padding:10px 14px;border-bottom:1px solid var(--qsv-border);font-size:13px;cursor:pointer;}
+.qsv-issue-item:hover{background:#f8f9fb;}
+.qsv-issue-item.err{border-right:4px solid var(--qsv-err);}
+.qsv-issue-item.warn{border-right:4px solid var(--qsv-warn);}
+.qsv-issue-item b{display:block;font-size:12.5px;color:var(--qsv-muted);margin-bottom:2px;}
+
+.qsv-summary-cards{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px;}
+.qsv-scard{flex:1;min-width:140px;border-radius:10px;padding:14px;text-align:center;}
+.qsv-scard .qsv-n{font-size:26px;font-weight:800;}
+.qsv-scard.total{background:#eef2f7;}
+.qsv-scard.err{background:var(--qsv-err-bg);color:var(--qsv-err);}
+.qsv-scard.warn{background:var(--qsv-warn-bg);color:var(--qsv-warn);}
+.qsv-scard.ok{background:var(--qsv-ok-bg);color:var(--qsv-ok);}
+
+.qsv-toolbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}
+.qsv-flex-space{flex:1;}
+.qsv-note-box{background:#eef7fd;border:1px solid #cfe6f7;border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:14px;}
+.qsv-note-box.warn{background:var(--qsv-warn-bg);border-color:#f0d9a0;}
+.qsv-note-box.err{background:var(--qsv-err-bg);border-color:#e8a6a6;color:#8c1c1c;}
+
+.qsv-final-box{text-align:center;padding:30px 10px;}
+.qsv-final-box .qsv-big-icon{font-size:52px;}
+.qsv-kv{font-size:12.5px;color:var(--qsv-muted);}
+.qsv-col-group-header{background:#e9eef5 !important;}
+.qsv-col-group-item{background:#f6f9ef !important;}
+
+/* لوحة تعارض الأسماء (ambiguity box) — نفس لون تنبيه اختياري في الأصل */
+.qsv-ambiguity-box{background:#fff9ec;border:1.5px solid #f0d9a0;}
+
+/* صندوق الفواتير بدون موقع — نفس التنسيق الأصلي */
+.qsv-missing-loc-box{background:#fff9ec;border:1.5px solid #f0d9a0;}
+.qsv-missing-loc-list{max-height:200px;overflow:auto;border:1px solid var(--qsv-border);border-radius:8px;padding:8px;margin-bottom:10px;background:#fff;}
+.qsv-missing-loc-list label{display:block;padding:4px 0;}
+
+/* نافذة تأكيد بسيطة (ConfirmDialog) — بديل داخل التطبيق لـ window.confirm الأصلية، حفاظًا على
+   هوية الموقع البصرية بدلًا من نافذة المتصفح الافتراضية غير المنسّقة. */
+.qsv-modal-overlay{position:fixed;inset:0;background:rgba(15,20,30,.45);display:flex;align-items:center;justify-content:center;z-index:1000;}
+.qsv-modal{background:var(--qsv-panel);border-radius:12px;padding:22px;max-width:440px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+.qsv-modal h3{margin:0 0 10px;font-size:15px;}
+.qsv-modal p{margin:0 0 18px;font-size:13.5px;color:var(--qsv-text);line-height:1.7;}
+.qsv-modal .qsv-modal-actions{display:flex;gap:10px;justify-content:flex-end;}
+
+footer.qsv-footer{text-align:center;color:var(--qsv-muted);font-size:12px;padding:26px 10px;}

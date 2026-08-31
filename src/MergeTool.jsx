@@ -500,10 +500,13 @@ function level3TypesForRoot(root) {
 
 function extractParentCode(raw) {
   if (raw === null || raw === undefined) return "";
-  const s = String(raw).trim();
+  let s = String(raw).trim();
   const dashIdx = s.indexOf(" - ");
-  if (dashIdx !== -1) return s.slice(0, dashIdx).trim();
-  return s;
+  if (dashIdx !== -1) s = s.slice(0, dashIdx).trim();
+  // حماية جوهرية: رمز الحساب الأب يجب أن يكون أرقامًا فقط - أي نص (اسم حساب
+  // تسرّب من عمود خاطئ مثلاً) يُرفض هنا فورًا بدل أن يتحول لاحقًا لحساب أب
+  // مزيف بكود حروف عند "إنشاء الآباء المفقودة".
+  return /^\d+$/.test(s) ? s : "";
 }
 
 function findParentByCodeTruncation(childCode, codeMap) {
@@ -843,7 +846,7 @@ const COLUMN_CANDIDATES = {
   nameAr: ["الاسم العربي", "اسم الحساب بالعربي", "الاسم", "اسم الحساب"],
   nameEn: ["الاسم الانجليزي", "الاسم الإنجليزي", "english name", "name (en)", "name"],
   level: ["المستوى", "مستوى", "level"],
-  parent: ["الحساب الرئيسي", "رئيسي", "parent", "الحساب الاب", "الحساب الأب"],
+  parent: ["رقم الحساب الرئيسي", "رقم الحساب الاب", "رقم الحساب الأب", "كود الحساب الرئيسي", "رمز الحساب الرئيسي", "parent code", "parent account code", "الحساب الرئيسي", "رئيسي", "parent", "الحساب الاب", "الحساب الأب"],
   type: ["نوع الحساب", "النوع", "type", "account type"],
   desc: ["الوصف", "وصف", "description", "ملاحظات"],
   debit: ["مدين", "debit"],
@@ -851,7 +854,7 @@ const COLUMN_CANDIDATES = {
   payCollect: ["يمكن الدفع", "دفع وتحصيل", "payment"],
 };
 
-function autoDetectMapping(headerRow) {
+export function autoDetectMapping(headerRow) {
   const norm = headerRow.map((h) => normalizeArabic(h));
   const mapping = {}; const claimed = new Set();
   const fields = Object.keys(COLUMN_CANDIDATES);
@@ -875,7 +878,7 @@ function autoDetectMapping(headerRow) {
   return mapping;
 }
 
-function findHeaderRowIndex(rows) {
+export function findHeaderRowIndex(rows) {
   let bestIdx = 0, bestScore = -1;
   for (let i = 0; i < Math.min(6, rows.length); i++) {
     const mapping = autoDetectMapping(rows[i].map((c) => (c === undefined ? "" : c)));
@@ -892,14 +895,14 @@ async function readWorkbookFile(file) {
   return XLSX.read(buf, { type: "array" });
 }
 
-function sheetToRows(workbook) {
+export function sheetToRows(workbook) {
   const sheetName = workbook.SheetNames.includes("Accounts Upload Template") ? "Accounts Upload Template" : workbook.SheetNames[0];
   const ws = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
   return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
 }
 
-function buildRecords(rows, mapping) {
+export function buildRecords(rows, mapping) {
   const headerIdx = findHeaderRowIndexFromMapping(rows, mapping);
   const headerRow = rows[headerIdx] || [];
   const usedIdx = new Set(Object.values(mapping).filter((v) => v !== -1));
@@ -974,8 +977,24 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     let maxCodeStr = runningMaxByParent.get(parentCode);
     if (maxCodeStr === undefined) {
       const initial = siblingsByParent.get(parentCode);
-      if (!initial || initial.length === 0) return "";
-      maxCodeStr = initial.reduce((a, b) => (a > b ? a : b));
+      if (initial && initial.length > 0) {
+        maxCodeStr = initial.reduce((a, b) => (a > b ? a : b));
+      } else {
+        // لا يوجد أي ابن سابق لهذا الأب إطلاقًا (لا بالشجرة الحالية ولا بين
+        // حسابات جديدة سابقة) - نبني أول رمز منطقي له حسب قاعدة الأرقام بدل
+        // إرجاع فراغ، وإلا خرج الحساب الجديد بلا رمز نهائي إطلاقًا.
+        const firstCandidate = firstChildCodeForParent(parentCode, getLevel(parentCode));
+        if (!firstCandidate) return "";
+        let numeric = parseInt(firstCandidate, 10);
+        const width = firstCandidate.length;
+        let candidate = firstCandidate;
+        let guard = 0;
+        while ((codes1.has(candidate) || newCodesUsed.has(candidate)) && guard < 100000) {
+          numeric += 1; candidate = String(numeric).padStart(width, "0"); guard++;
+        }
+        runningMaxByParent.set(parentCode, candidate);
+        return candidate;
+      }
     }
     const numeric = parseInt(maxCodeStr, 10);
     if (isNaN(numeric)) return "";
@@ -1072,6 +1091,12 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
   const results = [];
   const newCodesUsed = new Set();
   const processedRowsMap = new Map();
+  // [إصلاح تكرار الآباء] رمز أصلي (من ملف 2) -> الرمز النهائي الحقيقي الذي
+  // حصل عليه فعليًا (يختلف عن الأصلي فقط حين "استخدام أرقام ملف 2" غير مفعّل).
+  // بدونه، حساب أب له بيانات كاملة بملف 2 لكنه غير موجود بالشجرة الحالية كان
+  // يظهر مرتين: مرة كـ"حساب جديد" برمز عشوائي متولّد، ومرة ثانية كـ"أب مُنشأ
+  // تلقائيًا" برمزه الأصلي - لأن حقل .parent لأبنائه بقي يشير لرمزه القديم.
+  const codeRemap = new Map();
 
   /*
    * [إصلاح جذري] الرمز الهرمي أولاً: تُعالَج صفوف ملف 2 بترتيب هرمي (الآباء قبل
@@ -1211,15 +1236,24 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     if (!parentCode && level > 1) warnings.push("الحساب الرئيسي (الرمز) غير محدد");
     if (isParentInFile2 && bestScore >= 0.85) warnings.push("يشبه حسابًا موجودًا بالشجرة لكنه أب لحسابات فرعية - تم إبقاؤه كحساب مستقل");
 
+    // رمز الأب الحقيقي النهائي (بعد أي إعادة ترقيم لأبيه) - يُستخدم فقط في
+    // القيمة المكتوبة أخيرًا لحقل .parent؛ كل التصنيف أعلاه ظل يعتمد على
+    // parentCode الأصلي كما هو (بدون أي تغيير في منطقه).
+    const finalParentCode = parentCode && codeRemap.has(parentCode) ? codeRemap.get(parentCode) : parentCode;
+
     const newRowObj = {
       id: `n-${idx}`, status: "new", source: r2, code: proposedCode,
       nameAr: r2.nameAr || "", nameEn: r2.nameEn || r2.nameAr || "",
-      level: level || "", parent: parentCode, level2Category: level2Category || "",
+      level: level || "", parent: finalParentCode, level2Category: level2Category || "",
       type: type || "", desc: r2.desc || "", payCollect: r2.payCollect || "No",
       deleted: false, autoParent: false, errors, warnings, _origIdx: idx
     };
 
     if (proposedCode) processedRowsMap.set(proposedCode, newRowObj);
+    const originalOwnCode = r2.code ? String(r2.code).trim() : "";
+    if (originalOwnCode && proposedCode && proposedCode !== originalOwnCode) {
+      codeRemap.set(originalOwnCode, proposedCode);
+    }
     results.push(newRowObj);
   });
 
@@ -1256,12 +1290,22 @@ function levelOfCode(code, rowsList, tree1Index) {
   return NaN;
 }
 
+/** اسم حساب موجود (جديد أو من الشجرة الحالية) عبر رمزه - يُستخدم لتسمية أب مُنشأ تلقائيًا بدون بيانات */
+function nameOfCode(code, rowsList, tree1Index) {
+  if (!code) return { ar: "", en: "" };
+  const fromNew = rowsList.find((r) => !r.deleted && String(r.code || "").trim() === code);
+  if (fromNew) return { ar: fromNew.nameAr || fromNew.nameEn || "", en: fromNew.nameEn || fromNew.nameAr || "" };
+  const fromOld = (tree1Index || []).find((r) => String(r.code).trim() === code);
+  if (fromOld) return { ar: fromOld.nameAr || fromOld.nameEn || "", en: fromOld.nameEn || fromOld.nameAr || "" };
+  return { ar: "", en: "" };
+}
+
 /**
  * يمر على كل الحسابات الجديدة، ويكتشف أي "حساب رئيسي" مذكور ولا وجود له
  * لا في الشجرة الحالية (ملف 1) ولا ضمن الحسابات الجديدة، ثم ينشئه تلقائيًا.
  * يعمل بشكل تكراري حتى يكتمل السلسلة كاملة حتى تصل لحساب موجود فعليًا.
  */
-function ensureParentsExist(rows, ctx) {
+export function ensureParentsExist(rows, ctx) {
   const existing = new Set(ctx.existingCodes || []);
   const file2ByCode = ctx.file2ByCode || new Map();
   const tree1Index = ctx.tree1Index || [];
@@ -1299,12 +1343,9 @@ function ensureParentsExist(rows, ctx) {
         ownParent = extractParentCode(src.parent) || "";
         warnings.push("أُنشئ تلقائيًا لأن الحساب الأب كان مفقودًا (بياناته مأخوذة من ملف 2)");
       } else {
-        nameAr = `حساب رئيسي ${parentCode}`;
-        nameEn = `Parent Account ${parentCode}`;
         type = child.type || "";
         desc = "";
         ownParent = "";
-        warnings.push("أُنشئ تلقائيًا بدون بيانات من ملف 2 - راجع اسمه ونوعه يدويًا");
       }
 
       // نحتفظ بالأب الأصلي من ملف 2 حتى لو لم يُنشأ بعد، لأنه سيُنشأ ضمن نفس العملية
@@ -1312,6 +1353,19 @@ function ensureParentsExist(rows, ctx) {
       if (!ownParentWillExist) {
         const guessed = guessAncestorCode(parentCode, codes);
         ownParent = guessed || "";
+      }
+
+      if (!src) {
+        // بدون بيانات من ملف 2: نسمي الحساب المُنشأ باسم أبيه (الجد) + نقطة، حسب الطلب
+        const grandParentName = nameOfCode(ownParent, out, tree1Index);
+        if (grandParentName.ar) {
+          nameAr = `${grandParentName.ar}.`;
+          nameEn = `${grandParentName.en || grandParentName.ar}.`;
+        } else {
+          nameAr = `حساب رئيسي ${parentCode}`;
+          nameEn = `Parent Account ${parentCode}`;
+        }
+        warnings.push("أُنشئ تلقائيًا بدون بيانات من ملف 2 - راجع اسمه ونوعه يدويًا");
       }
 
       // المستوى = مستوى الأب + 1 (أدق من المستوى المكتوب بالملف)
@@ -1937,7 +1991,25 @@ export function MergeTool() {
         {results && (
           <div className="relative mb-6">
             <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t({ ar: "ابحث برمز الحساب أو اسمه (عربي/انجليزي) أو نوعه...", en: "Search by account code, name (AR/EN) or type..." })} className="w-full rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] py-2.5 pl-9 pr-9 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={t({ ar: "ابحث برمز الحساب أو اسمه (عربي/انجليزي) أو نوعه...", en: "Search by account code, name (AR/EN) or type..." })}
+              className="w-full rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] py-2.5 pl-9 pr-9 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              /* [إصلاح] المتصفح كان يعبّي هذا الحقل تلقائيًا ببريد المستخدم
+                 المحفوظ (autofill) بدون أي تدخل منه، فيتحول لبحث فعلي يخطف
+                 الشاشة كاملة لنتائج بحث فاضية - نمنع أي اقتراح/تعبئة تلقائية
+                 هنا بكل الطرق المعروفة لمختلف المتصفحات ومدراء كلمات المرور. */
+              name="qoyod-tree-search-no-autofill"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
+            />
             {searchInput && (<button onClick={() => { setSearchInput(""); setSearchQuery(""); }} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#64748B]" title={t({ ar: "مسح البحث", en: "Clear search" })}><X size={16} /></button>)}
           </div>
         )}
@@ -2006,10 +2078,13 @@ export function MergeTool() {
               <button onClick={runRepairLevels} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-blue-700 hover:text-blue-700"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
             </div>
 
-            {searchActive ? (
-              <SearchResultsView query={searchQuery} newRows={searchedActiveNewRows} existingRows={searchedExistingRows} deletedRows={searchedDeletedRows} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} missingParentCodes={missingParentCodes} />
-            ) : activeFilter === "tree" ? (
+            {activeFilter === "tree" ? (
+              /* [إصلاح] مخطط الشجرة أولوية مطلقة على البحث - كان أي بحث (حتى
+                 لو تعبّى تلقائيًا بالخطأ) يقفل المخطط فورًا ويرجّع لنتائج
+                 البحث بدون أي تفاعل حقيقي من المستخدم. */
               <AccountsTreeView rows={activeNewRows} treeMeta={treeMetaRef.current} updateRow={updateRow} setRowDeleted={setRowDeleted} addChildAccount={addChildAccount} availableTypesFor={availableTypesFor} />
+            ) : searchActive ? (
+              <SearchResultsView query={searchQuery} newRows={searchedActiveNewRows} existingRows={searchedExistingRows} deletedRows={searchedDeletedRows} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} missingParentCodes={missingParentCodes} />
             ) : activeFilter === "existing" ? (
               <ExistingMatchesTable rows={existingRows} />
             ) : activeFilter === "deleted" ? (
@@ -2182,9 +2257,12 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
   );
 }, (prev, next) => prev.row === next.row && prev.parentMissing === next.parentMissing);
 
-function StatusBadge({ row, compact }) {
+function StatusBadge({ row, compact, reviewed }) {
   const { t } = useLanguage();
   if (compact) {
+    // "reviewed" (تم المراجعة من مخطط الشجرة فقط) يُظهر الحساب سليمًا بصريًا هنا
+    // فقط - بدون أي تغيير على row.errors/row.warnings الحقيقية نفسها.
+    if (reviewed) return <span title={t({ ar: "تمت مراجعته ✓", en: "Reviewed ✓" })} className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" />;
     const color = row.errors.length > 0 ? "bg-red-500" : row.autoParent ? "bg-violet-500" : row.warnings.length > 0 ? "bg-amber-500" : "bg-emerald-500";
     const title = row.errors.length > 0 ? t({ ar: "خطأ", en: "Error" }) : row.autoParent ? t({ ar: "أب أُنشئ تلقائيًا", en: "Auto-created parent" }) : row.warnings.length > 0 ? t({ ar: "تنبيه", en: "Warning" }) : t({ ar: "سليم", en: "OK" });
     return <span title={title} className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} />;
@@ -2221,10 +2299,15 @@ function EditableCell({ value, onChange, mono, wrap }) {
         rows={2}
         className={`${cls} resize-y leading-snug`}
         style={{ minWidth: 200, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        autoComplete="off"
+        data-lpignore="true"
+        data-1p-ignore="true"
       />
     );
   }
-  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} title={value || ""} className={cls} />;
+  // [إصلاح] بدون autoComplete="off" كان المتصفح قد يعبّي هذا الحقل تلقائيًا
+  // ببيانات محفوظة غير متعلقة - خطر هنا لأنه يحرر بيانات حساب حقيقية (رمز/اسم).
+  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} title={value || ""} className={cls} autoComplete="off" data-lpignore="true" data-1p-ignore="true" />;
 }
 
 function ExistingMatchesTable({ rows, compact }) {
@@ -2367,6 +2450,42 @@ export function nextChildCodeForParent(parentCode, rows, tree1Index) {
   return String(numeric + 1).padStart(width, "0");
 }
 
+/** هل هذا الرمز مستخدم فعليًا (بالشجرة الحالية أو ضمن الحسابات الجديدة)؟ */
+function isCodeInUse(code, rows, tree1Index) {
+  if (!code) return false;
+  const inNew = (rows || []).some((r) => r.status === "new" && !r.deleted && String(r.code || "").trim() === code);
+  if (inNew) return true;
+  return (tree1Index || []).some((r) => String(r.code || "").trim() === code);
+}
+
+/** أول رمز فرعي منطقي تحت أب لا يوجد له أبناء بعد، حسب قاعدة أرقام قيود
+ * الثابتة: مستوى 2 يضيف رقمًا واحدًا فقط على أبيه (1 -> 11)، وما بعده يضيف
+ * رقمين يبدآن من 01 (11 -> 1101، 1101 -> 110101). */
+function firstChildCodeForParent(parentCode, parentLevel) {
+  const p = String(parentCode || "").trim();
+  if (!p) return "";
+  return Number(parentLevel) === 1 ? `${p}1` : `${p}01`;
+}
+
+/**
+ * الرمز التالي المتاح تحت أب معيّن - بضمان مطلق عدم التعارض مع أي رمز
+ * موجود فعليًا (سواء بالشجرة الحالية أو بين الحسابات الجديدة)، مع دعم حالة
+ * الأب الذي لا يوجد له أبناء بعد أصلًا (لا يعيد رمزًا فارغًا كما كان سابقًا).
+ */
+export function nextAvailableCodeForParent(parentCode, parentLevel, rows, tree1Index) {
+  let candidate = nextChildCodeForParent(parentCode, rows, tree1Index) || firstChildCodeForParent(parentCode, parentLevel);
+  if (!candidate) return "";
+  const width = candidate.length;
+  let numeric = parseInt(candidate, 10);
+  let guard = 0;
+  while (isCodeInUse(candidate, rows, tree1Index) && guard < 100000) {
+    numeric += 1;
+    candidate = String(numeric).padStart(width, "0");
+    guard += 1;
+  }
+  return candidate;
+}
+
 /** كل صفوف الحسابات الجديدة (لا الأساسات/الحسابات الموجودة) الواقعة تحت عقدة معيّنة، بأي عمق */
 function collectNewDescendantRows(node) {
   const acc = [];
@@ -2389,8 +2508,29 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
   const hasChildren = node.children.length > 0;
   const isDraggable = !node.isAnchor && Number(node.row.level) >= 3;
   const isAutoParent = !node.isAnchor && node.row.autoParent;
+  const isReviewed = !node.isAnchor && !!node.row.reviewed;
+  const issueList = !node.isAnchor ? [...(node.row.errors || []), ...(node.row.warnings || [])] : [];
+  const [isHovering, setIsHovering] = useState(false);
   return (
-    <div className="absolute flex flex-col items-center" style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : isBeingDragged ? 20 : 1 }}>
+    <div className="absolute flex flex-col items-center" style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : isHovering ? 25 : isBeingDragged ? 20 : 1 }}
+      onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+      {isHovering && !isReviewed && issueList.length > 0 && (
+        <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+          className="absolute z-40 w-56 rounded-lg border border-[#E2E8F0] bg-white/95 p-2 text-start text-[10.5px] leading-relaxed text-[#475569] shadow-lg backdrop-blur-sm"
+          style={{ bottom: NODE_H + 8 }}>
+          <ul className="space-y-0.5">
+            {(node.row.errors || []).map((e, i) => (<li key={`e${i}`} className="text-red-500">• {e}</li>))}
+            {(node.row.warnings || []).map((w, i) => (<li key={`w${i}`} className="text-amber-600">• {w}</li>))}
+          </ul>
+          <button
+            onClick={(e) => { e.stopPropagation(); updateRow(node.row.id, { reviewed: true }); }}
+            className="mt-1.5 w-full rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-semibold text-emerald-600 hover:bg-emerald-500/20"
+          >
+            {t({ ar: "تم المراجعة", en: "Reviewed" })}
+          </button>
+          <div className="absolute right-6 top-full h-2 w-2 -translate-y-1 rotate-45 border-b border-r border-[#E2E8F0] bg-white/95" />
+        </div>
+      )}
       <div draggable={isDraggable}
         onDragStart={(e) => { e.stopPropagation(); onSetDragged(code); onClearDropMessage(); onToggleEditing(null); }}
         onDragEnd={() => { onSetDragged(null); onSetDragOver(null); }}
@@ -2413,7 +2553,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
         <div className="flex items-center justify-between gap-1">
           <span className="truncate font-mono text-[10px] text-[#94A3B8]">{code}</span>
           <div className="flex items-center gap-1">
-            {!node.isAnchor && <StatusBadge row={node.row} compact />}
+            {!node.isAnchor && <StatusBadge row={node.row} compact reviewed={isReviewed} />}
             <button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-[#94A3B8] hover:text-blue-700"><Plus size={12} /></button>
             {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-[#94A3B8] hover:text-blue-700"><Pencil size={11} /></button>)}
             {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#94A3B8] hover:text-red-400"><Trash2 size={11} /></button>)}
@@ -2517,7 +2657,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
      * بنفس الإزاحة حتى تبقى الشجرة متّسقة (الرمز القديم لم يعد له معنى أصلًا).
      */
     const oldCode = draggedNode.row.code;
-    const newCode = nextChildCodeForParent(targetCode, rows, treeMeta?.tree1Index);
+    const newCode = nextAvailableCodeForParent(targetCode, targetLevel, rows, treeMeta?.tree1Index);
     const descendantRows = newCode && newCode !== oldCode ? collectNewDescendantRows(draggedNode) : [];
     if (newCode && newCode !== oldCode) patch.code = newCode;
 
@@ -2643,20 +2783,16 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   }, []);
 
   /*
-   * [إصلاح] وضع ملء الشاشة لا يعتمد على Fullscreen API وحدها بعد الآن - كانت
-   * تفشل صامتة (بلا أي أثر مرئي) داخل أي سياق تضمين لا يسمح بها (iframe بلا
-   * allow="fullscreen"، بعض إعدادات الأمان)، فيظهر وكأن الزر "لا يعمل". الحالة
-   * isFullscreen تتحكم بالتخطيط بنفسها مباشرة (overlay يغطي الشاشة كاملة)، وطلب
-   * ملء الشاشة الحقيقي من المتصفح يبقى "أفضل جهد" فوقها فقط (يخفي شريط عنوان
-   * المتصفح نفسه إن سُمح به) - فيعمل المخطط الكبير الواضح دائمًا بصرف النظر عن
-   * نجاح الإذن من عدمه.
+   * [إصلاح] وضع ملء الشاشة أصبح يعتمد فقط على حالة isFullscreen (overlay
+   * بCSS يغطي الشاشة كاملة عبر fixed inset-0 z-[9999]) - وأُلغي استدعاء
+   * Fullscreen API الحقيقي من المتصفح (requestFullscreen/exitFullscreen)
+   * كليًا. كان هذا الاستدعاء يفشل صامتًا في بعض السياقات (iframe بلا
+   * allow="fullscreen"، بعض إعدادات الأمان)، وفي متصفحات أخرى يسبب وميض/تأثير
+   * بصري لحظي غريب (حدود متصلة/منقطة تظهر وتختفي) لأنه يُستدعى على عنصر فرعي
+   * (مربّع التمرير) لا على الصفحة كاملة. حالة isFullscreen وحدها كافية تمامًا
+   * لعرض المخطط بحجمه الكامل بشكل موثوق 100% في كل المتصفحات، فلا حاجة لأي
+   * طلب إذن حقيقي من المتصفح إطلاقًا.
    */
-  useEffect(() => {
-    // خروج المستخدم من ملء الشاشة الحقيقي (Esc أو زر المتصفح) يُطابق حالتنا أيضًا
-    const handleFullscreen = () => { if (!document.fullscreenElement) setIsFullscreen(false); };
-    document.addEventListener("fullscreenchange", handleFullscreen);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreen);
-  }, []);
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e) => { if (e.key === "Escape") setIsFullscreen(false); };
@@ -2664,12 +2800,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     return () => window.removeEventListener("keydown", onKey);
   }, [isFullscreen]);
   const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => {
-      const next = !prev;
-      if (next) treeViewportRef.current?.requestFullscreen?.().catch(() => {});
-      else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      return next;
-    });
+    setIsFullscreen((prev) => !prev);
   }, []);
   const handlePanStart = (event) => {
     if (event.button !== 0) return;
