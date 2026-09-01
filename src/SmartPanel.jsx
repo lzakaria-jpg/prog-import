@@ -267,7 +267,10 @@ export function SmartAccountSearch({ chartOfAccounts, onSelect }) {
     <div style={{ position: "relative" }}>
       <div style={{ position: "relative" }}>
         <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
+        {/* [إصلاح] autoComplete="off" + name فريد يمنعان تعبية المتصفح لهذا الحقل تلقائيًا
+            بإيميل المستخدم المحفوظ (نفس بق حقل البحث المُصلَح بـMergeTool.jsx/JournalTool.jsx) */}
         <input
+          type="text" name="qoyod-smartpanel-search-no-autofill" autoComplete="off" data-lpignore="true" data-1p-ignore="true"
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           placeholder={t({ ar: "بحث ذكي عن حساب...", en: "Smart account search..." })}

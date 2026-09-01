@@ -636,7 +636,13 @@ export default function JournalTool() {
             <div className="mb-3">
               <div className="relative">
                 <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
-                <input ref={searchInputRef} type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+                {/* [إصلاح] بدون autoComplete="off" كان المتصفح يعبّي هذا الحقل تلقائيًا بإيميل
+                    المستخدم المحفوظ (نفس البق المُصلَح بالأمس بمخطط الشجرة MergeTool.jsx —
+                    انظر تعليقه). name فريد + data-lpignore/data-1p-ignore يمنعان أيضًا أي
+                    اقتراح من مدير كلمات مرور (LastPass/1Password) لحقل بحث لا علاقة له بذلك. */}
+                <input ref={searchInputRef} type="text" name="qoyod-journal-search-no-autofill"
+                  autoComplete="off" data-lpignore="true" data-1p-ignore="true"
+                  value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
                   placeholder={t({ ar: "بحث بالرمز، اسم الحساب، التاريخ، التعليق...", en: "Search by code, account name, date, comment..." })}
                   className="w-full rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] py-2 pe-3 ps-9 text-xs text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   style={{ direction: dir }} />

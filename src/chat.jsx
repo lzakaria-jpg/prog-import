@@ -1182,7 +1182,10 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           <div style={{ padding: "8px 12px", borderBottom: "1px solid #ECEEF2", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#FFFFFF" }}>
             <div style={{ flex: 1, position: "relative" }}>
               <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#9AA3AF" }} />
+              {/* [إصلاح] autoComplete="off" + name فريد يمنعان تعبية المتصفح لهذا الحقل تلقائيًا
+                  بإيميل المستخدم المحفوظ (نفس بق حقل البحث المُصلَح بـMergeTool.jsx/JournalTool.jsx) */}
               <input
+                type="text" name="qoyod-chat-search-no-autofill" autoComplete="off" data-lpignore="true" data-1p-ignore="true"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}
