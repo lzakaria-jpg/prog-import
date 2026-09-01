@@ -255,6 +255,9 @@ export function SmartAccountSearch({ chartOfAccounts, onSelect }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  // [إصلاح أقوى — انظر تعليق حقل البحث أدناه] readOnly حتى أول focus هو المضمون عملياً لمنع
+  // تعبية Chrome التلقائية بإيميل محفوظ (autoComplete="off" وحده غير كافٍ عملياً).
+  const [searchUnlocked, setSearchUnlocked] = useState(false);
 
   const handleSearch = (val) => {
     setQuery(val);
@@ -267,10 +270,13 @@ export function SmartAccountSearch({ chartOfAccounts, onSelect }) {
     <div style={{ position: "relative" }}>
       <div style={{ position: "relative" }}>
         <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
-        {/* [إصلاح] autoComplete="off" + name فريد يمنعان تعبية المتصفح لهذا الحقل تلقائيًا
-            بإيميل المستخدم المحفوظ (نفس بق حقل البحث المُصلَح بـMergeTool.jsx/JournalTool.jsx) */}
+        {/* [إصلاح أقوى] readOnly حتى أول focus + type="search" يمنعان فعلياً تعبية Chrome
+            التلقائية بإيميل المستخدم المحفوظ (autoComplete="off" وحده غير كافٍ عملياً) */}
         <input
-          type="text" name="qoyod-smartpanel-search-no-autofill" autoComplete="off" data-lpignore="true" data-1p-ignore="true"
+          type="search" name="qoyod-smartpanel-search-no-autofill"
+          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
+          data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+          readOnly={!searchUnlocked} onFocus={() => setSearchUnlocked(true)}
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           placeholder={t({ ar: "بحث ذكي عن حساب...", en: "Smart account search..." })}

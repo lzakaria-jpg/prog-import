@@ -418,6 +418,9 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const [muted, setMuted] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // [إصلاح أقوى — انظر تعليق حقل البحث أدناه] Chrome يتجاوز autoComplete="off" فعلياً لحقول
+  // يظنها معلومات اتصال؛ readOnly حتى أول focus هو المضمون عملياً لمنع التعبية التلقائية.
+  const [chatSearchUnlocked, setChatSearchUnlocked] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [unreadCounts, setUnreadCounts] = useState({});
   const [sending, setSending] = useState(false);
@@ -1182,10 +1185,13 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           <div style={{ padding: "8px 12px", borderBottom: "1px solid #ECEEF2", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#FFFFFF" }}>
             <div style={{ flex: 1, position: "relative" }}>
               <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#9AA3AF" }} />
-              {/* [إصلاح] autoComplete="off" + name فريد يمنعان تعبية المتصفح لهذا الحقل تلقائيًا
-                  بإيميل المستخدم المحفوظ (نفس بق حقل البحث المُصلَح بـMergeTool.jsx/JournalTool.jsx) */}
+              {/* [إصلاح أقوى] readOnly حتى أول focus + type="search" يمنعان فعلياً تعبية Chrome
+                  التلقائية بإيميل المستخدم المحفوظ (autoComplete="off" وحده غير كافٍ عملياً) */}
               <input
-                type="text" name="qoyod-chat-search-no-autofill" autoComplete="off" data-lpignore="true" data-1p-ignore="true"
+                type="search" name="qoyod-chat-search-no-autofill"
+                autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
+                data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+                readOnly={!chatSearchUnlocked} onFocus={() => setChatSearchUnlocked(true)}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}

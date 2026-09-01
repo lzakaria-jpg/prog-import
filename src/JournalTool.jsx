@@ -289,6 +289,11 @@ export default function JournalTool() {
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  // [إصلاح أقوى] autoComplete="off" وحده لا يكفي — Chrome يتجاوزه فعلياً لحقول يظنها معلومات
+  // اتصال (إيميل محفوظ)، بدليل تكرار نفس البلاغ. الحل المضمون عملياً: يبدأ الحقل readOnly
+  // (فمتصفحات Chrome لا تعبّي حقلاً كذلك تلقائياً)، ويُزال القيد فور تركيز المستخدم عليه
+  // (focus)، فيصبح قابلاً للكتابة كالمعتاد قبل أي محاولة كتابة فعلية من المستخدم.
+  const [searchUnlocked, setSearchUnlocked] = useState(false);
   const [exportSort, setExportSort] = useState("number");
   const [auditVersion, setAuditVersion] = useState(0);
   const searchInputRef = useRef(null);
@@ -636,12 +641,13 @@ export default function JournalTool() {
             <div className="mb-3">
               <div className="relative">
                 <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
-                {/* [إصلاح] بدون autoComplete="off" كان المتصفح يعبّي هذا الحقل تلقائيًا بإيميل
-                    المستخدم المحفوظ (نفس البق المُصلَح بالأمس بمخطط الشجرة MergeTool.jsx —
-                    انظر تعليقه). name فريد + data-lpignore/data-1p-ignore يمنعان أيضًا أي
-                    اقتراح من مدير كلمات مرور (LastPass/1Password) لحقل بحث لا علاقة له بذلك. */}
-                <input ref={searchInputRef} type="text" name="qoyod-journal-search-no-autofill"
-                  autoComplete="off" data-lpignore="true" data-1p-ignore="true"
+                {/* [إصلاح أقوى — انظر تعليق searchUnlocked أعلاه] readOnly حتى أول focus + type="search"
+                    (بدل text) يمنعان فعلياً تعبية Chrome التلقائية بإيميل المستخدم المحفوظ؛
+                    autoComplete="off" + name فريد + data-lpignore/data-1p-ignore إضافة احترازية. */}
+                <input ref={searchInputRef} type="search" name="qoyod-journal-search-no-autofill"
+                  autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
+                  data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+                  readOnly={!searchUnlocked} onFocus={() => setSearchUnlocked(true)}
                   value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
                   placeholder={t({ ar: "بحث بالرمز، اسم الحساب، التاريخ، التعليق...", en: "Search by code, account name, date, comment..." })}
                   className="w-full rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] py-2 pe-3 ps-9 text-xs text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"

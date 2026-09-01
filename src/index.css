@@ -4,6 +4,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* input[type=search] بلا زر "×" الأصلي بالمتصفح — كل خانات البحث بالموقع لها زر مسح خاص
+   بها مصمَّم يدوياً (position:absolute)، فزر Chrome/Safari المدمج يتكرر بصرياً فوقه. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 :root {
   /* Light Qoyod palette — matches the official Qoyod product (navy + white,
      light-gray page background). The sidebar/header keep the brand navy on
