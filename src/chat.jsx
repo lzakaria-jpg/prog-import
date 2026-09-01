@@ -7,11 +7,13 @@ import {
   AI_AGENT_EMAIL, AI_AGENT_NAME_AR, AI_AGENT_NAME_EN
 } from "./aiAgent";
 import { runAIExcelWorkflow } from "./lib/aiExcelAgent";
+import { organizeChartOfAccounts, isChartOrganizeRequest } from "./lib/chartOrganizerAgent";
+import { resolveAmbiguousTypesWithClaude, resolveColumnMappingWithClaude } from "./lib/chartOrganizerAiResolver";
 import {
   MessageCircle, X, Send, Paperclip, Image, FileSpreadsheet, FileText,
   ChevronLeft, ChevronRight, Volume2, VolumeX, Archive, Trash2, Edit3,
   Check, CheckCheck, Smile, Search, MoreVertical, Download, Eye, EyeOff,
-  Bell, BellOff, Users, Hash, Lock, ArrowDown, Bot, Pin, PinOff, Plus,
+  Bell, BellOff, Users, Hash, Lock, ArrowDown, ArrowUp, Bot, Pin, PinOff, Plus,
   CheckSquare, Square, UserPlus, UserMinus, AlertTriangle,
 } from "lucide-react";
 
@@ -73,6 +75,30 @@ function fileIcon(fileName) {
 }
 
 const SPREADSHEET_EXT = /\.(xlsx|xls|csv)$/i;
+
+/**
+ * هل رسالة m تخص محادثتي الخاصة الحالية (currentUser ⇄ activeChannel)؟
+ * الحالة الاعتيادية: رسالة مباشرة من/إلى الطرف الآخر. الحالة الإضافية: رد
+ * الذكاء الصناعي على منشن @AI داخل هذي المحادثة الخاصة بالذات - يخص الطرفين
+ * معاً (موجَّه لأيّهما)، لا لمحادثة خاصة أخرى ولا لقناة "العام" (activeChannel
+ * هنا دائماً بريد بشري حقيقي، لا "public"). انظر التعليق بجانب aiReplyRecipient
+ * بـhandleSend وبجانب استعلام loadMessages للسياق الكامل.
+ *
+ * قيد معروف ومقصود: لا عمود بقاعدة البيانات يربط رد الذكاء الصناعي بطرفَي
+ * محادثته بدقة (فقط sender/recipient) - فلو شخص واحد (مثلاً "سارة") له
+ * محادثتان خاصتان منفصلتان مع شخصين مختلفين، وسأل كل منهما @AI بمحادثته معها،
+ * يظهر رد كل منهما للآخر أيضاً عند فتحه محادثته مع سارة (تطابق شكلي بالصف
+ * نفسه). لا يتسرّب هذا لغير المعنيين إطلاقاً (لا للعام ولا لطرف ثالث حقيقي) -
+ * فقط بين شخصين يتشاركان جهة ثالثة واحدة. حل جذري يحتاج عمود مخصص (مثل
+ * dm_thread_id) لو أصبح هذا مهماً فعلياً.
+ */
+export function isDmRelevant(m, currentUser, activeChannel) {
+  return (
+    (m.sender_email === currentUser && m.recipient_email === activeChannel) ||
+    (m.sender_email === activeChannel && m.recipient_email === currentUser) ||
+    (m.sender_email === AI_AGENT_EMAIL && (m.recipient_email === activeChannel || m.recipient_email === currentUser))
+  );
+}
 
 /** يستخرج أسماء/إيميلات مذكورة بـ @ من نص الرسالة، مقارنةً بقائمة مستخدمين معروفة */
 function extractMentions(text, knownEmails) {
@@ -146,9 +172,10 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
   };
 
   const isAgentMsg = msg.sender_email === AI_AGENT_EMAIL;
-  // خلفيات فاتحة دائمًا ونص كحلي غامق دائمًا — لون خفيف مميّز لكل جهة فقط للتفريق البصري
-  const bubbleColor = isOwn ? "#E3EAF7" : isAgentMsg ? "#F1EBFB" : "#F1F5F9";
-  const textColor = "#0F172A";
+  // رسائلي: كبسولة كحلية معبأة بالكامل. رسائل الآخرين/الذكاء الصناعي: بطاقة بيضاء بظل خفيف.
+  const bubbleColor = isOwn ? "#162560" : "#FFFFFF";
+  const textColor = isOwn ? "#FFFFFF" : "#0F172A";
+  const metaColor = isOwn ? "rgba(255,255,255,0.62)" : "#9AA3AF";
   const align = isOwn ? "flex-end" : "flex-start";
   const hasMenu = (isOwn && (canDeleteThis || canEditThis)) || (!isOwn && canDeleteThis) || canPin;
 
@@ -163,8 +190,10 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
         className="relative group"
         style={{
           maxWidth: "78%", minWidth: 60, background: bubbleColor,
-          borderRadius: isOwn ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-          padding: "8px 12px", boxShadow: "0 1px 2px rgba(0,0,0,0.08)", position: "relative",
+          borderRadius: isOwn ? 20 : 18,
+          padding: isOwn ? "10px 16px" : "10px 14px",
+          boxShadow: isOwn ? "none" : "0 2px 10px rgba(15,23,42,0.06)",
+          position: "relative",
           outline: msg.pinned ? "1px solid #FBBF24" : "none",
         }}
       >
@@ -185,23 +214,23 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
           <div
             onClick={() => onDownload && onDownload(msg)}
             style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
-              background: "rgba(15,23,42,0.05)", marginBottom: msg.content ? 6 : 0,
+              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 12,
+              background: isOwn ? "rgba(255,255,255,0.12)" : "#F1F2F5", marginBottom: msg.content ? 6 : 0,
               cursor: "pointer", transition: "background 0.15s",
             }}
           >
             {fileIcon(msg.file_name)}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: textColor, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {msg.file_name}
               </p>
               {msg.file_size && (
-                <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>
+                <p style={{ fontSize: 9, color: metaColor, margin: 0 }}>
                   {msg.file_size > 1048576 ? `${(msg.file_size / 1048576).toFixed(1)} MB` : `${(msg.file_size / 1024).toFixed(0)} KB`}
                 </p>
               )}
             </div>
-            <Download size={13} color="#64748B" />
+            <Download size={13} color={metaColor} />
           </div>
         )}
 
@@ -228,15 +257,15 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: isOwn ? "flex-end" : "flex-start", gap: 4, marginTop: 4 }}>
           {msg.is_edited && (
-            <span style={{ fontSize: 9, color: "#94A3B8", fontStyle: "italic" }}>
+            <span style={{ fontSize: 9, color: metaColor, fontStyle: "italic" }}>
               {lang === "ar" ? "تم التعديل" : "edited"}
             </span>
           )}
-          <span style={{ fontSize: 9, color: "#94A3B8" }}>
+          <span style={{ fontSize: 9, color: metaColor }}>
             {formatFullTime(msg.created_at)}
           </span>
           {isOwn && (
-            <CheckCheck size={12} color="#94A3B8" />
+            <CheckCheck size={12} color={metaColor} />
           )}
         </div>
 
@@ -382,7 +411,9 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const [activeGroup, setActiveGroup] = useState(null); // {id, name} | null
   const [groups, setGroups] = useState([]);
   const [groupMembersMap, setGroupMembersMap] = useState({}); // group_id -> [email]
-  const [showOnline, setShowOnline] = useState(true);
+  // لا تُفتح قائمة المستخدمين تلقائياً عند فتح الشات - فقط عند الضغط على أيقونة
+  // "المستخدمين" بالهيدر (setShowOnline أدناه) - كانت true فتُفرَض القائمة فوراً.
+  const [showOnline, setShowOnline] = useState(false);
   const [muted, setMuted] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -399,10 +430,12 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const [showMembers, setShowMembers] = useState(false);
   const [mentionQuery, setMentionQuery] = useState(null); // string | null — نص بعد @ الحالي
   const [aiWorking, setAiWorking] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
+  const dragDepthRef = useRef(0); // عداد دخول/خروج السحب — dragenter/dragleave تُطلَق أيضاً على العناصر الداخلية
   const channelRef = useRef(null);
 
   const canViewPublic = hasPermission("chat.view_public");
@@ -467,15 +500,20 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
       if (activeChannel === "public") {
         query = query.is("recipient_email", null);
       } else {
-        query = query.not("recipient_email", "is", null).or(`sender_email.eq.${currentUser},recipient_email.eq.${currentUser}`);
+        // محادثة خاصة: رسائل الطرفين المباشرة بينهما + أي رد من الذكاء الصناعي
+        // موجَّه لأحدهما (منشن @AI داخل هذي المحادثة الخاصة بالذات - يظهر للطرفين
+        // معاً، لا لقناة "العام" ولا يختفي من هذي المحادثة).
+        query = query.not("recipient_email", "is", null).or(
+          `and(sender_email.eq.${currentUser},recipient_email.eq.${activeChannel}),` +
+          `and(sender_email.eq.${activeChannel},recipient_email.eq.${currentUser}),` +
+          `and(sender_email.eq.${AI_AGENT_EMAIL},recipient_email.eq.${activeChannel}),` +
+          `and(sender_email.eq.${AI_AGENT_EMAIL},recipient_email.eq.${currentUser})`
+        );
       }
       const { data, error } = await query.order("created_at", { ascending: true }).limit(500);
       if (data) {
         if (activeChannel !== "public") {
-          const filtered = data.filter((m) =>
-            (m.sender_email === currentUser && m.recipient_email === activeChannel) ||
-            (m.sender_email === activeChannel && m.recipient_email === currentUser)
-          );
+          const filtered = data.filter((m) => isDmRelevant(m, currentUser, activeChannel));
           setMessages(filtered);
         } else {
           setMessages(data);
@@ -508,8 +546,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           ? msg.group_id === activeGroup.id
           : (!msg.group_id && (!msg.recipient_email
               ? activeChannel === "public"
-              : (msg.sender_email === currentUser || msg.recipient_email === currentUser)
-                && (msg.sender_email === activeChannel || msg.recipient_email === activeChannel || msg.sender_email === currentUser)));
+              : isDmRelevant(msg, currentUser, activeChannel)));
         if (!isRelevant) return;
 
         setMessages((prev) => {
@@ -604,6 +641,36 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
+  // ── سحب وإفلات (Drag & Drop): إسقاط ملف/صورة خارجي في أي مكان بمنطقة الشات ──
+  // dragenter/dragleave تُطلَق أيضاً عند عبور كل عنصر ابن، فلا يمكن الاعتماد على
+  // dragleave وحدها لإخفاء المؤشر (تسبب رمشة/اختفاء مبكر) - لذا عدّاد عمق بسيط.
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    if (!canSend) return;
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    dragDepthRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleDragOver = (e) => {
+    // preventDefault إلزامي هنا وإلا يرفض المتصفح onDrop بالكامل ويفتح الملف بتبويب جديد
+    e.preventDefault();
+  };
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFile(false);
+    if (!canSend) return;
+    const files = Array.from(e.dataTransfer?.files || []);
+    for (const file of files) {
+      await queueAttachment(file);
+    }
+  };
+
   // ── @mention: يكتشف رمز @ الحالي أثناء الكتابة لعرض قائمة اقتراح ──
   const handleInputChange = (e) => {
     const val = e.target.value;
@@ -644,7 +711,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     const mentionsAgent = !isDMWithAgent && /@AI\b/i.test(text);
     const isForAgent = isDMWithAgent || mentionsAgent;
     const groupId = activeGroup?.id || null;
-    const recipientForDB = groupId ? null : (isDMWithAgent ? AI_AGENT_EMAIL : (mentionsAgent ? null : (activeChannel === "public" ? null : activeChannel)));
+    // رسالتي الخاصة تبقى جزءاً طبيعياً من نفس محادثتي الخاصة بصرف النظر عن
+    // وجود منشن @AI فيها أم لا - كانت قبل هذا الإصلاح تُخزَّن بـrecipient_email:
+    // null (نفس معرِّف قناة "العام" الحصري) لمجرد وجود @AI بالنص، فتختفي فوراً
+    // من محادثتي الخاصة مع الطرف الآخر وتظهر فقط بالعام (تسرّب فعلي مؤكَّد).
+    const recipientForDB = groupId ? null : (isDMWithAgent ? AI_AGENT_EMAIL : (activeChannel === "public" ? null : activeChannel));
+    // رد الذكاء الصناعي على منشن داخل محادثة خاصة حقيقية (لا القناة المخصصة
+    // للذكاء الصناعي ولا العام) يبقى بنفس تلك المحادثة الخاصة - يظهر للطرفين
+    // معاً بقرار المستخدم الصريح (لا كإشعار خاص لمن كتب المنشن فقط).
+    const aiReplyRecipient = groupId ? null : (isDMWithAgent ? currentUser : (activeChannel === "public" ? null : activeChannel));
     const mentionedEmails = extractMentions(text, knownEmails);
 
     setSending(true);
@@ -696,6 +771,49 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
       // ملف جدول بيانات + طلب موجَّه لـ@AI → مسار تحويل الملفات (يبني ملفاً
       // جديداً ويرسله كرسالة، لا يستبدل الأصلي)، وإلا المسار المتعدد الوسائط المعتاد
       const spreadsheetAtt = attachments.find((a) => SPREADSHEET_EXT.test(a.name));
+
+      // طلب "تنظيم شجرة حسابات" تحديداً → محرك chartOrganizerAgent الحتمي
+      // المتخصص (يُعيد ملف شجرة كامل بترقيم/تصنيف/توريث قيود الصحيح + ورقة
+      // تدقيق)، لا المسار العام runAIExcelWorkflow أدناه (مصمم لتحويلات جدول
+      // بيانات عامة، لا لبناء شجرة حسابات كاملة بقواعدها الخاصة).
+      if (spreadsheetAtt && text && isChartOrganizeRequest(text)) {
+        setAiWorking(true);
+        try {
+          const result = await organizeChartOfAccounts(spreadsheetAtt.file, {
+            aiTypeResolver: resolveAmbiguousTypesWithClaude,
+            aiColumnMappingResolver: resolveColumnMappingWithClaude,
+          });
+          const outFile = new File([result.blob], result.filename, { type: result.blob.type });
+          const { url } = await uploadChatFile(outFile, AI_AGENT_EMAIL);
+          await supabase.from("chat_messages").insert({
+            sender_email: AI_AGENT_EMAIL,
+            recipient_email: aiReplyRecipient,
+            group_id: groupId,
+            content: result.summary,
+            message_type: "text",
+          });
+          await supabase.from("chat_messages").insert({
+            sender_email: AI_AGENT_EMAIL,
+            recipient_email: aiReplyRecipient,
+            group_id: groupId,
+            message_type: "file",
+            file_name: result.filename,
+            file_url: url,
+          });
+        } catch (err) {
+          await supabase.from("chat_messages").insert({
+            sender_email: AI_AGENT_EMAIL,
+            recipient_email: aiReplyRecipient,
+            group_id: groupId,
+            content: `⚠️ ${err.message || (lang === "ar" ? "تعذّر تنظيم شجرة الحسابات" : "Could not organize the chart of accounts")}`,
+            message_type: "text",
+          });
+        }
+        setAiWorking(false);
+        setAgentTyping(false);
+        return;
+      }
+
       if (spreadsheetAtt && text) {
         setAiWorking(true);
         try {
@@ -705,14 +823,14 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           const noteLines = [result.summary, ...(result.notes || [])].filter(Boolean).join("\n");
           await supabase.from("chat_messages").insert({
             sender_email: AI_AGENT_EMAIL,
-            recipient_email: isDMWithAgent ? currentUser : null,
+            recipient_email: aiReplyRecipient,
             group_id: groupId,
             content: noteLines || (lang === "ar" ? "تم إنشاء الملف." : "File generated."),
             message_type: "text",
           });
           await supabase.from("chat_messages").insert({
             sender_email: AI_AGENT_EMAIL,
-            recipient_email: isDMWithAgent ? currentUser : null,
+            recipient_email: aiReplyRecipient,
             group_id: groupId,
             message_type: "file",
             file_name: result.filename,
@@ -721,7 +839,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         } catch (err) {
           await supabase.from("chat_messages").insert({
             sender_email: AI_AGENT_EMAIL,
-            recipient_email: isDMWithAgent ? currentUser : null,
+            recipient_email: aiReplyRecipient,
             group_id: groupId,
             content: `⚠️ ${err.message || (lang === "ar" ? "تعذّرت معالجة الملف" : "Could not process the file")}`,
             message_type: "text",
@@ -743,7 +861,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
       await supabase.from("chat_messages").insert({
         sender_email: AI_AGENT_EMAIL,
-        recipient_email: isDMWithAgent ? currentUser : null,
+        recipient_email: aiReplyRecipient,
         group_id: groupId,
         content: replyText,
         message_type: "text",
@@ -898,123 +1016,164 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         />
       )}
 
-      {/* Header */}
-      <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <button onClick={onClose} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 10, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#FFF", flexShrink: 0 }}>
+      {/* Header — خفيف وبسيط (اتجاه تصميم معتمد من المستخدم، مقتبس من ودجت دعم قيود) */}
+      <div style={{ background: "#FFFFFF", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, borderBottom: "1px solid #ECEEF2" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#6B7280", flexShrink: 0 }}>
             <X size={16} />
           </button>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#FFF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t(channelLabel)}</h3>
-            <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+            <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t(channelLabel)}</h3>
+            <p style={{ margin: "1px 0 0", fontSize: 10, color: !activeGroup && activeChannel !== "public" && onlineUsers.has(activeChannel) ? "#16A34A" : "#9AA3AF", fontWeight: 600 }}>
               {activeGroup
                 ? t({ ar: `${(groupMembersMap[activeGroup.id] || []).length} أعضاء`, en: `${(groupMembersMap[activeGroup.id] || []).length} members` })
                 : activeChannel === "public"
                 ? t({ ar: `${participants.length} أعضاء`, en: `${participants.length} members` })
-                : t({ ar: onlineUsers.has(activeChannel) ? "متصل" : "غير متصل", en: onlineUsers.has(activeChannel) ? "Online" : "Offline" })}
+                : t({ ar: onlineUsers.has(activeChannel) ? "متصل الآن" : "غير متصل", en: onlineUsers.has(activeChannel) ? "Online now" : "Offline" })}
             </p>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {activeGroup && (
-            <button onClick={() => setShowMembers(true)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.7)" }} title={t({ ar: "الأعضاء", en: "Members" })}>
-              <Users size={14} />
+            <button onClick={() => setShowMembers(true)} style={{ background: "none", border: "none", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#6B7280" }} title={t({ ar: "الأعضاء", en: "Members" })}>
+              <Users size={15} />
             </button>
           )}
-          <button onClick={() => setMuted(!muted)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: muted ? "#F59E0B" : "rgba(255,255,255,0.7)" }}>
-            {muted ? <BellOff size={14} /> : <Bell size={14} />}
+          <button onClick={() => setMuted(!muted)} style={{ background: "none", border: "none", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: muted ? "#F59E0B" : "#6B7280" }}>
+            {muted ? <BellOff size={15} /> : <Bell size={15} />}
           </button>
-          <button onClick={() => setShowOnline(!showOnline)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: showOnline ? "#4ADE80" : "rgba(255,255,255,0.7)" }}>
-            <Users size={14} />
+          <button onClick={() => setShowOnline(!showOnline)} style={{ background: "none", border: "none", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: showOnline ? "#16A34A" : "#6B7280" }}>
+            <Users size={15} />
           </button>
+          {activeGroup ? (
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: "linear-gradient(135deg, #0891B2, #0E7490)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Users size={13} color="#FFF" />
+            </div>
+          ) : activeChannel === "public" ? (
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: "#162560", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Hash size={13} color="#FFF" />
+            </div>
+          ) : activeChannel === AI_AGENT_EMAIL ? (
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: "linear-gradient(135deg, #7C3AED, #A78BFA)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Bot size={14} color="#FFF" />
+            </div>
+          ) : (
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: `linear-gradient(135deg, ${emailToColor(activeChannel)}, ${emailToColor(activeChannel)}dd)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+              {activeChannel.charAt(0).toUpperCase()}
+            </div>
+          )}
         </div>
       </div>
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Sidebar */}
+        {/* Sidebar — قائمة بيضاء بعناوين فئات، مع كبسولة كحلية ثابتة بالأسفل لإنشاء مجموعة */}
         {showOnline && (
-          <div style={{ width: 130, borderRight: isRTL ? "none" : "1px solid #F8FAFC", borderLeft: isRTL ? "1px solid #F8FAFC" : "none", background: "#F1F5F9", overflow: "auto", flexShrink: 0, display: "flex", flexDirection: "column" }}>
-            {canViewPublic && (
-            <button
-              onClick={() => switchChannel("public")}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", border: "none", cursor: "pointer", textAlign: "start", background: (!activeGroup && activeChannel === "public") ? "rgba(22,37,96,0.08)" : "transparent" }}
-            >
-              <div style={{ width: 32, height: 32, borderRadius: 16, background: "linear-gradient(135deg, #162560, #4A90D9)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Hash size={14} color="#FFF" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t({ ar: "عام", en: "Public" })}</p>
-              </div>
-            </button>
-            )}
-
-            <div style={{ height: 1, background: "#E2E8F0", margin: "4px 12px" }} />
-
-            {groups.map((g) => (
+          <div style={{ width: 140, borderRight: isRTL ? "none" : "1px solid #ECEEF2", borderLeft: isRTL ? "1px solid #ECEEF2" : "none", background: "#FFFFFF", flexShrink: 0, display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {canViewPublic && (
+              <>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9AA3AF", letterSpacing: 0.2, margin: 0, padding: "12px 12px 5px" }}>{t({ ar: "القنوات", en: "Channels" })}</p>
               <button
-                key={g.id}
-                onClick={() => switchGroup(g)}
-                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", cursor: "pointer", textAlign: "start", background: activeGroup?.id === g.id ? "rgba(22,37,96,0.08)" : "transparent" }}
+                onClick={() => switchChannel("public")}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", borderBottom: "1px solid #F5F6F8", cursor: "pointer", textAlign: "start", background: (!activeGroup && activeChannel === "public") ? "#F7F8FA" : "transparent" }}
               >
-                <div style={{ width: 32, height: 32, borderRadius: 16, background: "linear-gradient(135deg, #0891B2, #0E7490)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
-                  <Users size={14} />
+                <div style={{ width: 30, height: 30, borderRadius: 15, background: "#162560", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Hash size={13} color="#FFF" />
                 </div>
-                <p style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{g.name}</p>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 11.5, fontWeight: 700, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t({ ar: "عام", en: "Public" })}</p>
+                </div>
               </button>
-            ))}
+              </>
+              )}
+
+              {groups.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => switchGroup(g)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", borderBottom: "1px solid #F5F6F8", cursor: "pointer", textAlign: "start", background: activeGroup?.id === g.id ? "#F7F8FA" : "transparent" }}
+                >
+                  <div style={{ width: 30, height: 30, borderRadius: 15, background: "#0E7490", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", flexShrink: 0 }}>
+                    <Users size={13} />
+                  </div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{g.name}</p>
+                </button>
+              ))}
+
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9AA3AF", letterSpacing: 0.2, margin: 0, padding: "12px 12px 5px" }}>{t({ ar: "مباشر", en: "Direct" })}</p>
+
+              {participants.map((email) => {
+                const isAgent = email === AI_AGENT_EMAIL;
+                const isOnline = isAgent ? true : onlineUsers.has(email);
+                const isActive = !activeGroup && activeChannel === email;
+                return (
+                  <button
+                    key={email}
+                    onClick={() => switchChannel(email)}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", borderBottom: "1px solid #F5F6F8", cursor: "pointer", textAlign: "start", background: isActive ? "#F7F8FA" : "transparent" }}
+                  >
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 15, background: isAgent ? "linear-gradient(135deg, #7C3AED, #A78BFA)" : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
+                        {isAgent ? <Bot size={15} /> : email.charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ position: "absolute", bottom: -1, [isRTL ? "left" : "right"]: -1, width: 9, height: 9, borderRadius: 5, background: isOnline ? "#16A34A" : "#9AA3AF", border: "2px solid #FFFFFF" }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: isAgent ? "#7C3AED" : "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
             {canManageGroups && (
-              <button onClick={() => setShowNewGroup(true)} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "8px 12px", border: "none", cursor: "pointer", textAlign: "start", background: "transparent", color: "#4A90D9", fontSize: 11 }}>
-                <Plus size={14} /> {t({ ar: "مجموعة جديدة", en: "New group" })}
-              </button>
-            )}
-
-            <div style={{ height: 1, background: "#E2E8F0", margin: "4px 12px" }} />
-
-            {participants.map((email) => {
-              const isAgent = email === AI_AGENT_EMAIL;
-              const isOnline = isAgent ? true : onlineUsers.has(email);
-              const isActive = !activeGroup && activeChannel === email;
-              return (
-                <button
-                  key={email}
-                  onClick={() => switchChannel(email)}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", cursor: "pointer", textAlign: "start", background: isActive ? "rgba(22,37,96,0.08)" : "transparent" }}
-                >
-                  <div style={{ position: "relative", flexShrink: 0 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 16, background: isAgent ? "linear-gradient(135deg, #7C3AED, #4A90D9)" : `linear-gradient(135deg, ${emailToColor(email)}, ${emailToColor(email)}dd)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 12, fontWeight: 700 }}>
-                      {isAgent ? <Bot size={16} /> : email.charAt(0).toUpperCase()}
-                    </div>
-                    <div style={{ position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, background: isOnline ? "#16A34A" : "#94A3B8", border: "2px solid #F1F5F9" }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: isAgent ? "#7C3AED" : "#0F172A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {isAgent ? t({ ar: AI_AGENT_NAME_AR, en: AI_AGENT_NAME_EN }) : emailToName(email)}
-                    </p>
-                  </div>
+              <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #ECEEF2", flexShrink: 0 }}>
+                <button onClick={() => setShowNewGroup(true)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, width: "100%", padding: "9px", borderRadius: 16, border: "none", cursor: "pointer", background: "#162560", color: "#FFF", fontSize: 10.5, fontWeight: 700 }}>
+                  <Plus size={12} /> {t({ ar: "مجموعة جديدة", en: "New group" })}
                 </button>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
 
         {/* Messages */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid #F8FAFC", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#F8FAFC" }}>
+        <div
+          style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDraggingFile && (
+            <div style={{
+              position: "absolute", inset: 6, zIndex: 30, borderRadius: 14,
+              border: "2px dashed #162560", background: "rgba(22,37,96,0.06)",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8,
+              pointerEvents: "none",
+            }}>
+              <Paperclip size={28} color="#162560" />
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#162560" }}>
+                {t({ ar: "أسقط الملف هنا لإضافته للمحادثة", en: "Drop the file here to attach it" })}
+              </p>
+            </div>
+          )}
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #ECEEF2", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, background: "#FFFFFF" }}>
             <div style={{ flex: 1, position: "relative" }}>
-              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
+              <Search size={12} style={{ position: "absolute", [isRTL ? "right" : "left"]: 8, top: "50%", transform: "translateY(-50%)", color: "#9AA3AF" }} />
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t({ ar: "بحث...", en: "Search..." })}
-                style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 11, outline: "none", background: "#F1F5F9", color: "#0F172A" }}
+                style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 10, border: "none", fontSize: 11, outline: "none", background: "#F1F2F5", color: "#0F172A" }}
               />
             </div>
             {(canDeleteOwn || canDeleteOthers || canClearChat) && !showArchive && (
               <button
                 onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); }}
                 title={t({ ar: "تحديد رسائل للحذف", en: "Select messages to delete" })}
-                style={{ background: selectMode ? "#4A90D9" : "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 8, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: selectMode ? "#FFF" : "#64748B", flexShrink: 0 }}
+                style={{ background: selectMode ? "#162560" : "#F1F2F5", border: "none", borderRadius: 10, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: selectMode ? "#FFF" : "#6B7280", flexShrink: 0 }}
               >
                 <CheckSquare size={13} />
               </button>
@@ -1023,7 +1182,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
           {/* شريط إجراءات الحذف الجماعي */}
           {selectMode && (
-            <div style={{ padding: "8px 12px", borderBottom: "1px solid #F8FAFC", background: "#F8FAFC", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
+            <div style={{ padding: "8px 12px", borderBottom: "1px solid #ECEEF2", background: "#FFFFFF", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: "#64748B", alignSelf: "center" }}>{t({ ar: `محدَّد: ${selectedIds.size}`, en: `Selected: ${selectedIds.size}` })}</span>
               <button onClick={requestDeleteSelected} disabled={!selectedIds.size} style={{ padding: "4px 10px", borderRadius: 6, background: "#FEE2E2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 11, cursor: "pointer", opacity: selectedIds.size ? 1 : 0.5 }}>
                 {t({ ar: "حذف المحدَّد", en: "Delete selected" })}
@@ -1043,7 +1202,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
           {/* الرسائل المثبَّتة */}
           {pinnedMessages.length > 0 && !showArchive && (
-            <div style={{ padding: "6px 12px", borderBottom: "1px solid #F8FAFC", background: "rgba(251,191,36,0.06)", flexShrink: 0, maxHeight: 70, overflow: "auto" }}>
+            <div style={{ padding: "6px 12px", borderBottom: "1px solid #ECEEF2", background: "rgba(251,191,36,0.06)", flexShrink: 0, maxHeight: 70, overflow: "auto" }}>
               {pinnedMessages.map((m) => (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#FBBF24", padding: "2px 0" }}>
                   <Pin size={10} /> <span style={{ fontWeight: 600 }}>{emailToName(m.sender_email)}:</span>
@@ -1053,15 +1212,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             </div>
           )}
 
-          <div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: "auto", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#F1F2F5" }}>
             {loading ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: 24, height: 24, border: "3px solid #E2E8F0", borderTopColor: "#162560", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
               </div>
             ) : filteredMessages.length === 0 ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}>
-                <MessageCircle size={32} color="#94A3B8" />
-                <p style={{ fontSize: 13, color: "#94A3B8", margin: 0 }}>{t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}</p>
+                <MessageCircle size={32} color="#9AA3AF" />
+                <p style={{ fontSize: 13, color: "#9AA3AF", margin: 0 }}>{t({ ar: "ابدأ المحادثة!", en: "Start the conversation!" })}</p>
               </div>
             ) : (
               filteredMessages.map((msg) => {
@@ -1081,8 +1240,8 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             )}
 
             {agentTyping && (
-              <div className="flex w-full" style={{ justifyContent: isRTL ? "flex-end" : "flex-start", marginBottom: 4 }}>
-                <div style={{ background: "linear-gradient(135deg, #7C3AED22, #4A90D922)", border: "1px solid #7C3AED33", borderRadius: "16px 16px 16px 4px", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="flex w-full" style={{ justifyContent: "flex-start", marginBottom: 4 }}>
+                <div style={{ background: "#FFFFFF", borderRadius: 18, boxShadow: "0 2px 10px rgba(15,23,42,0.06)", padding: "9px 16px", display: "flex", alignItems: "center", gap: 8 }}>
                   <Bot size={14} color="#7C3AED" />
                   <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 500 }}>
                     {aiWorking ? t({ ar: "المساعد يعالج الملف...", en: "Assistant processing the file..." }) : t({ ar: "المساعد يكتب...", en: "Assistant typing..." })}
@@ -1094,7 +1253,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           </div>
 
           {(pendingAttachments.length > 0 || attachError) && (
-            <div style={{ padding: "8px 12px 0", flexShrink: 0, background: "#F8FAFC" }}>
+            <div style={{ padding: "8px 12px 0", flexShrink: 0, background: "#F1F2F5" }}>
               {attachError && (
                 <p style={{ fontSize: 11, color: "#DC2626", margin: "0 0 6px" }}>{attachError}</p>
               )}
@@ -1124,10 +1283,10 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             </div>
           )}
 
-          {/* Input */}
-          <div style={{ padding: "10px 12px", borderTop: "1px solid #F8FAFC", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, background: "#F8FAFC", position: "relative" }}>
+          {/* Input — كبسولة بيضاء عائمة */}
+          <div style={{ padding: "10px 14px 14px", flexShrink: 0, background: "#F1F2F5", position: "relative" }}>
             {mentionSuggestions.length > 0 && (
-              <div style={{ position: "absolute", bottom: "100%", left: 12, right: 12, marginBottom: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden", zIndex: 20 }}>
+              <div style={{ position: "absolute", bottom: "100%", left: 14, right: 14, marginBottom: 6, background: "#FFFFFF", border: "1px solid #ECEEF2", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.14)", overflow: "hidden", zIndex: 20 }}>
                 {mentionSuggestions.map((s) => (
                   <button key={s.email} onClick={() => applyMention(s.isAi ? "AI" : s.email)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", textAlign: isRTL ? "right" : "left" }}>
                     {s.isAi ? <Bot size={14} color="#7C3AED" /> : <div style={{ width: 20, height: 20, borderRadius: 10, background: emailToColor(s.email), color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{s.email.charAt(0).toUpperCase()}</div>}
@@ -1136,23 +1295,25 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
                 ))}
               </div>
             )}
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSelect} style={{ display: "none" }} />
-            <button onClick={() => fileInputRef.current?.click()} disabled={sending || !canSend} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: "#F8FAFC", color: "#64748B", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}>
-              <Paperclip size={16} />
-            </button>
-            <input
-              ref={inputRef}
-              value={inputText}
-              onChange={handleInputChange}
-              onPaste={handlePaste}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key === "Escape") setMentionQuery(null); }}
-              placeholder={canSend ? t({ ar: "اكتب رسالة، أو @ لإشارة، أو الصق صورة/ملف...", en: "Type a message, @ to mention, or paste an image/file..." }) : t({ ar: "لا تملك صلاحية الإرسال في هذا الشات", en: "You don't have permission to send here" })}
-              disabled={!canSend}
-              style={{ flex: 1, padding: "8px 14px", borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#F1F5F9", color: "#0F172A", opacity: canSend ? 1 : 0.6 }}
-            />
-            <button onClick={handleSend} disabled={sending || !canSend || (!inputText.trim() && pendingAttachments.length === 0)} style={{ width: 34, height: 34, borderRadius: 10, border: "none", background: (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "linear-gradient(135deg, #162560, #4A90D9)" : "#E2E8F0", color: (inputText.trim() || pendingAttachments.length > 0) ? "#FFF" : "#94A3B8", cursor: sending ? "wait" : (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {sending ? <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#FFF", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <Send size={14} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#FFFFFF", borderRadius: 24, padding: "6px 6px 6px 14px", boxShadow: "0 4px 16px rgba(15,23,42,0.10)" }}>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSelect} style={{ display: "none" }} />
+              <input
+                ref={inputRef}
+                value={inputText}
+                onChange={handleInputChange}
+                onPaste={handlePaste}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key === "Escape") setMentionQuery(null); }}
+                placeholder={canSend ? t({ ar: "اكتب رسالة، أو @ لإشارة، أو الصق صورة/ملف...", en: "Type a message, @ to mention, or paste an image/file..." }) : t({ ar: "لا تملك صلاحية الإرسال في هذا الشات", en: "You don't have permission to send here" })}
+                disabled={!canSend}
+                style={{ flex: 1, minWidth: 0, padding: "8px 4px", border: "none", fontSize: 13, outline: "none", background: "transparent", color: "#0F172A", opacity: canSend ? 1 : 0.6 }}
+              />
+              <button onClick={() => fileInputRef.current?.click()} disabled={sending || !canSend} style={{ width: 30, height: 30, borderRadius: 15, border: "none", background: "transparent", color: "#9AA3AF", cursor: canSend ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5, flexShrink: 0 }}>
+                <Paperclip size={16} />
+              </button>
+              <button onClick={handleSend} disabled={sending || !canSend || (!inputText.trim() && pendingAttachments.length === 0)} style={{ width: 34, height: 34, borderRadius: 17, border: "none", background: (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "#162560" : "#F1F2F5", color: (inputText.trim() || pendingAttachments.length > 0) ? "#FFF" : "#9AA3AF", cursor: sending ? "wait" : (canSend && (inputText.trim() || pendingAttachments.length > 0)) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {sending ? <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#FFF", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <ArrowUp size={15} style={{ transform: isRTL ? "scaleX(-1)" : "none" }} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
