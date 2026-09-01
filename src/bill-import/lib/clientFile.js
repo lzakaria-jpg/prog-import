@@ -5,7 +5,7 @@
 import * as XLSX from 'xlsx';
 import { num, toDate, truthy, norm } from './text.js';
 import { FIELDS } from './fields.js';
-import { matchVendor, matchProduct, matchTax } from './matching.js';
+import { matchVendor, matchProduct, matchTax, buildVendorIndex, buildProductIndex } from './matching.js';
 
 const isText = (file) => /\.(csv|txt|tsv)$/i.test(file.name || '') || /text\/(csv|plain)/.test(file.type || '');
 
@@ -18,9 +18,14 @@ export async function readWorkbook(file) {
   const buf = await file.arrayBuffer();
   if (isText(file)) {
     const text = new TextDecoder('utf-8').decode(new Uint8Array(buf)).replace(/^\uFEFF/, '');
+    // dense:true \u063A\u064A\u0631 \u0645\u062F\u0639\u0648\u0645 \u0645\u0639 \u0627\u0644\u0646\u0635 (CSV) \u0628\u0645\u0643\u062A\u0628\u0629 SheetJS \u2014 \u064A\u0628\u0642\u0649 \u0643\u0645\u0627 \u0643\u0627\u0646\u060C \u0644\u0627 \u062A\u0623\u062B\u064A\u0631 \u0623\u062F\u0627\u0621
+    // \u064A\u064F\u0630\u0643\u0631 \u0644\u0645\u0644\u0641\u0627\u062A CSV (\u0645\u0642\u0631\u0648\u0621\u0629 \u0633\u0637\u0631\u0627\u064B \u0628\u0633\u0637\u0631 \u0623\u0635\u0644\u0627\u064B \u0628\u0644\u0627 \u062A\u0639\u0642\u064A\u062F \u0648\u0631\u0642\u0629 \u0625\u0643\u0633\u0644).
     return XLSX.read(text, { type: 'string', cellDates: true, raw: false });
   }
-  return XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+  // dense:true: \u062A\u0645\u062B\u064A\u0644 \u0623\u0633\u0631\u0639 \u0628\u0645\u0643\u062A\u0628\u0629 SheetJS \u0644\u0645\u0644\u0641\u0627\u062A \u0625\u0643\u0633\u0644 \u0627\u0644\u0643\u0628\u064A\u0631\u0629 (\u062A\u0633\u0631\u064A\u0639 \u0645\u0642\u064A\u0633 ~2x \u0628\u0645\u0644\u0641 \u062D\u0642\u064A\u0642\u064A
+  // 157 \u0623\u0644\u0641 \u0635\u0641 \u0628\u0623\u062F\u0627\u0629 \u0627\u0644\u0642\u064A\u0648\u062F) \u2014 sheetToAoa \u0623\u062F\u0646\u0627\u0647 \u064A\u0633\u062A\u062E\u062F\u0645 sheet_to_json \u0641\u0642\u0637\u060C \u0648\u0644\u0627 \u064A\u0645\u0633\u0651 \u062E\u0644\u0627\u064A\u0627
+  // \u0627\u0644\u0648\u0631\u0642\u0629 \u0645\u0628\u0627\u0634\u0631\u0629 \u0628\u0623\u064A \u0645\u0643\u0627\u0646 \u0622\u062E\u0631 \u0628\u0647\u0630\u0627 \u0627\u0644\u0645\u0644\u0641\u060C \u0641\u0627\u0644\u062A\u0628\u062F\u064A\u0644 \u0622\u0645\u0646 \u0628\u0644\u0627 \u0623\u064A \u062A\u063A\u064A\u064A\u0631 \u0633\u0644\u0648\u0643.
+  return XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true, dense: true });
 }
 
 /** تحويل ورقة إلى مصفوفة صفوف خام */
@@ -70,6 +75,10 @@ export function buildRows(aoa, headerRow, map, catalog) {
   const g = (r, k) => (map[k] != null ? r[map[k]] : '');
   const body = aoa.slice(headerRow + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
   let lastRef = '';
+  // فهرسة الموردين/المنتجات مرة واحدة هنا، لا لكل صف — انظر تعليق buildVendorIndex
+  // بmatching.js لتفصيل أثر الأداء على ملف كبير مع منشأة بمئات/آلاف الموردين والمنتجات.
+  const vendorIdx = buildVendorIndex(catalog.vendors);
+  const productIdx = buildProductIndex(catalog.products);
 
   const rows = body.map((r, i) => {
     const ref = String(g(r, 'ref') ?? '').trim() || lastRef || `AUTO-${i + 1}`;
@@ -113,12 +122,12 @@ export function buildRows(aoa, headerRow, map, catalog) {
   });
 
   rows.forEach((row) => {
-    const mv = matchVendor(row, catalog.vendors);
+    const mv = matchVendor(row, catalog.vendors, vendorIdx);
     row.vendorRef = mv.v ? mv.v.ref : '';
     row.vendorCands = mv.cands;
     row.vendorBy = mv.by;
 
-    const mp = matchProduct(row, catalog.products);
+    const mp = matchProduct(row, catalog.products, productIdx);
     row.prodSku = mp.p ? mp.p.sku : '';
     row.prodCands = mp.cands;
     row.prodBy = mp.by;

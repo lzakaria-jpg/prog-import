@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import InvoiceGrid from './InvoiceGrid.jsx';
 import MissingLocationPanel from './MissingLocationPanel.jsx';
 import IssuesList from './IssuesList.jsx';
@@ -10,6 +10,10 @@ export default function Step3Validate({ engine }) {
     rows, template, customersRef, productsRef, issues, stats, missingLocationGroups,
     applyMissingLocation, revalidateNow, updateCell, deleteRow, pasteGrid, goToStep,
   } = engine;
+
+  // gridRef: يسمح لقائمة الملاحظات بالانتقال لصف معيّن حتى لو كان خارج نافذة تمرير الجدول
+  // (الجدول يعرض نافذة تمرير فعلية مع ملفات كبيرة — لا كل الصفوف مرسومة بالـDOM دفعة واحدة).
+  const gridRef = useRef(null);
 
   return (
     <div className="qsv-panel">
@@ -24,10 +28,11 @@ export default function Step3Validate({ engine }) {
       <MissingLocationPanel groups={missingLocationGroups} templateLocations={template.dropdowns.G} onApply={applyMissingLocation} />
 
       <h3>قائمة الملاحظات (اضغط على أي ملاحظة للانتقال للسطر مباشرة في الجدول)</h3>
-      <IssuesList issues={issues} />
+      <IssuesList issues={issues} onJumpToRow={(rowId) => gridRef.current && gridRef.current.scrollToRow(rowId)} />
 
       <h3>الجدول (قابل للتعديل مباشرة — يُعاد التحقق فورًا مع كل تعديل)</h3>
       <InvoiceGrid
+        ref={gridRef}
         tableId="data-grid-2" rows={rows} template={template} customersRef={customersRef} productsRef={productsRef}
         issues={issues} revalidate onUpdateCell={updateCell} onDeleteRow={deleteRow} onPasteGrid={pasteGrid}
       />

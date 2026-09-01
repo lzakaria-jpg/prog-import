@@ -70,6 +70,12 @@ function SummaryStat({ label, value, color, onClick, active }) {
   );
 }
 
+// أقصى عدد نتائج تُعرض دفعة واحدة بقائمة اختيار الحساب — بلا هذا الحد، شجرة حسابات ضخمة
+// (آلاف الحسابات) بلا نص بحث مكتوب تعرض كل الحسابات كعناصر DOM مرة واحدة عند فتح القائمة.
+// كتابة أي حرف للبحث يُصفّي النتائج فوراً كما كان دائماً؛ الحد هنا فقط للحالة الافتراضية
+// (القائمة مفتوحة بلا فلترة بعد).
+const ACCOUNT_PICKER_MAX_RESULTS = 200;
+
 function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
@@ -86,6 +92,7 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
     if (!q) return selectable;
     return selectable.filter((a) => a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
   }, [effectiveQuery, selectable]);
+  const shown = filtered.length > ACCOUNT_PICKER_MAX_RESULTS ? filtered.slice(0, ACCOUNT_PICKER_MAX_RESULTS) : filtered;
   return (
     <div className="relative">
       <input
@@ -99,12 +106,17 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
       />
       {open && filtered.length > 0 && (
         <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border shadow-lg" style={{ borderColor: COLORS.line, background: "#FFFFFF", insetInlineStart: 0 }}>
-          {filtered.map((a) => (
+          {shown.map((a) => (
             <div key={a.code} onMouseDown={() => { onChange(a.code); setQuery(""); setOpen(false); }}
               className="cursor-pointer px-3 py-1.5 text-sm hover:bg-[#F8FAFC] text-start">
               <span className="font-mono me-2" style={{ color: COLORS.teal }}>{a.code}</span> {a.name}
             </div>
           ))}
+          {filtered.length > ACCOUNT_PICKER_MAX_RESULTS && (
+            <div className="px-3 py-1.5 text-xs" style={{ color: "#64748B" }}>
+              {t({ ar: `و${filtered.length - ACCOUNT_PICKER_MAX_RESULTS} نتيجة أخرى — اكتب للتصفية`, en: `+${filtered.length - ACCOUNT_PICKER_MAX_RESULTS} more — type to filter` })}
+            </div>
+          )}
         </div>
       )}
     </div>

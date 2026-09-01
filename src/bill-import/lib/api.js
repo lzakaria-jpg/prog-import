@@ -22,7 +22,7 @@ export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey
     if (!res.ok) throw new Error(`${resource}: ${res.status} ${res.statusText}`);
     const j = await res.json();
     const arr = Array.isArray(j) ? j : j[resource] || Object.values(j).find(Array.isArray) || [];
-    out.push(...arr);
+    for (const item of arr) out.push(item); // بلا out.push(...arr) — يتجنب "Maximum call stack size exceeded" لو صفحة واحدة كانت كبيرة جداً
     if (arr.length === 0 || arr.length < 15) break;
   }
   return out;

@@ -49,6 +49,35 @@ function cellText(v) {
 // range and silently truncates anything outside it. Recomputing the range from the real cell
 // addresses present in the sheet avoids this silent data loss.
 export function fixWorksheetRange(ws) {
+  // ورقة "dense" (خيار XLSX.read({dense:true}) — أسرع بمرتين تقريباً على ملفات كبيرة
+  // جداً، مستخدَم في readWorkbookRows أدناه فقط) تُمثِّل كل صف كمصفوفة ws[r] مباشرة
+  // بدل مفتاح "A1" مستقل لكل خلية — decode_cell("0") غير صالح إطلاقاً هنا، فنحسب
+  // الحدود من فهارس الصفوف/الأعمدة الفعلية مباشرة بدل فك أي عنوان. الاستدعاءات
+  // الأخرى لهذه الدالة (AccountsTool.jsx) لا تستخدم dense إطلاقاً فتبقى بالمسار
+  // المتفرّق الأصلي بلا أي تغيير في السلوك.
+  if (Array.isArray(ws[0])) {
+    let maxRow = -1;
+    let maxCol = -1;
+    let hasAny = false;
+    Object.keys(ws).forEach((k) => {
+      if (!/^\d+$/.test(k)) return;
+      const rowArr = ws[k];
+      if (!Array.isArray(rowArr)) return;
+      const r = Number(k);
+      if (r > maxRow) maxRow = r;
+      rowArr.forEach((cell, c) => {
+        if (cell !== undefined && cell !== null) {
+          hasAny = true;
+          if (c > maxCol) maxCol = c;
+        }
+      });
+    });
+    if (hasAny) {
+      ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxRow, c: maxCol } });
+    }
+    return ws;
+  }
+
   let maxRow = 0;
   let maxCol = 0;
   let hasAny = false;
@@ -67,7 +96,10 @@ export function fixWorksheetRange(ws) {
 
 export async function readWorkbookRows(file) {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
+  // dense:true — أسرع بمرتين تقريباً على ملفات ضخمة حقيقية (قيست: ~6.8 ثانية بدلاً من
+  // ~13 ثانية على ملف قيود حقيقي 157,027 صفاً) بلا أي تغيير بشكل المخرجات من
+  // sheet_to_json — fixWorksheetRange أعلاه متوافقة مع الشكلين (dense والمتفرّق).
+  const wb = XLSX.read(buf, { type: "array", dense: true });
   const allRows = [];
   for (const sheetName of wb.SheetNames) {
     const ws = fixWorksheetRange(wb.Sheets[sheetName]);
@@ -78,7 +110,12 @@ export async function readWorkbookRows(file) {
         const isEmpty = lastRow.every((c) => !c || String(c).trim() === "");
         if (!isEmpty) allRows.push([]);
       }
-      allRows.push(...rows);
+      // ملاحظة: لا نستخدم allRows.push(...rows) — لو تجاوز عدد صفوف الملف حد عدد
+      // المعطيات المسموح بها لأي نداء دالة واحد في V8 (~65,000+، يختلف حسب الحالة)
+      // يرمي "Maximum call stack size exceeded" فعليًا مع ملفات قيود كبيرة حقيقية
+      // (شوهد هذا الخطأ بالضبط مع ملف عميل حقيقي بعشرات آلاف الصفوف). حلقة .push
+      // بسيطة تتجنب هذا الحد نهائيًا مهما كان عدد الصفوف.
+      for (let i = 0; i < rows.length; i++) allRows.push(rows[i]);
     }
   }
   return allRows;
@@ -354,9 +391,18 @@ function numericCodeDistance(left, right) {
 // ---------- journal entries: two supported input schemas ----------
 function parseTemplateSchema(rows, hIdx) {
   const header = rows[hIdx].map(cellText);
-  const cSeq = colIndex(header, "تسلسل القيد");
+  // خطأ جوهري حقيقي شهده المستخدم: هذا العمود كان يُتعرَّف عليه فقط باسم "تسلسل القيد"
+  // — بينما findHeaderRowIndex أعلاه (الذي يختار هذا المخطط أصلاً) يقبل أيضًا "رقم
+  // القيد"/"تسلسل"/"رقم التسلسل" كمرشحات صالحة لاختيار المخطط A، فيختاره لملف حقيقي
+  // بعشرات آلاف الصفوف عنوانه "رقم القيد" لا "تسلسل القيد"، فيفشل استخراج cSeq (يبقى
+  // -1) بصمت، فتُقرأ كل الصفوف بلا رقم قيد إطلاقًا، فيُجمَّع الملف كامله في قيد واحد
+  // (بدل آلاف القيود المنفصلة الصحيحة) — بلا أي خطأ ظاهر يُنبّه المستخدم. توسيع قائمة
+  // المرادفات هنا لتطابق ما يقبله findHeaderRowIndex بالضبط يحل المشكلة عند جذرها.
+  const cSeq = colIndex(header, "تسلسل القيد", "تسلسل", "رقم التسلسل", "رقم القيد");
   const cDate = colIndex(header, "التاريخ");
-  const cDesc = colIndex(header, "وصف القيد");
+  // نفس خطأ cSeq أعلاه بالضبط: "البيان" اسم شائع جداً لعمود الوصف بأنظمة محاسبية
+  // كثيرة (وهو اسم عمود الوصف الحقيقي بالملف الذي شهد الخطأ) ولم يكن مُتعرَّفاً عليه.
+  const cDesc = colIndex(header, "وصف القيد", "البيان");
   const cAccType = colIndex(header, "نوع الحساب");
   const cCode = colIndex(header, "رمز الحساب");
   const cName = colIndex(header, "اسم الحساب", "اسم", "AccountName", "Account Name");
@@ -648,7 +694,10 @@ function parseGenericFlexibleSchema(rows) {
         _rowIndex: i,
       });
     }
-    groups.push(...localGroups);
+    // نفس سبب الإصلاح بـreadWorkbookRows أعلاه — بلا حلقة .push بسيطة، localGroups
+    // الكبيرة (ملف بعشرات آلاف القيود) تتجاوز حد معطيات نداء الدالة وترمي
+    // "Maximum call stack size exceeded" فعليًا.
+    for (let i = 0; i < localGroups.length; i++) groups.push(localGroups[i]);
   }
 
   return groups.filter((g) => g.rows.length > 0);

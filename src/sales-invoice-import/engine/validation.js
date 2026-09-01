@@ -210,7 +210,7 @@ export function getValidOnlyRows(rows, issuesByRow){
   groups.forEach((rowsInGroup, key)=>{
     if(key.startsWith('__blank__')) return; // الفواتير بلا مرجع أصلًا غير صالحة للتصدير
     const anyErr = rowsInGroup.some(r => (issuesByRow[r.id] && Object.values(issuesByRow[r.id]).some(arr=>arr.some(i=>i.sev==='err'))));
-    if(!anyErr) validRows.push(...rowsInGroup);
+    if(!anyErr) for(let i=0;i<rowsInGroup.length;i++) validRows.push(rowsInGroup[i]); // بلا spread — راجع تعليق excelCore.js.readWorkbookRows لسبب تجنّبه مع مصفوفات كبيرة
   });
   return validRows;
 }

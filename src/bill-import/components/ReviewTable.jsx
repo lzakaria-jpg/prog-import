@@ -1,14 +1,31 @@
+import { useMemo } from 'react';
 import { fmtDate, toDate, num, norm } from '../lib/text.js';
-import { isBuyable, findProdBySku } from '../lib/matching.js';
+import { isBuyable, findProdBySku, buildVendorIndex, buildProductIndex } from '../lib/matching.js';
 import { rowErr, rowWarn } from '../lib/validation.js';
+import { useTableVirtualization } from '../../lib/useTableVirtualization.js';
 
 const COLS = ['#', 'مرجع الفاتورة', 'المورد', 'تاريخ الإصدار', 'الاستحقاق', 'التوريد', 'الموقع', 'المنتج',
   'الكمية', 'وحدة التحويل', 'سعر الوحدة', 'إجمالي البند', 'شامل؟', 'خصم %', 'خصم قيمة', 'الضريبة', 'الملاحظات'];
 
-/** جدول المراجعة: كل خانة قابلة للتعديل، والملاحظات تُعاد حسابها فور أي تغيير */
+/**
+ * جدول المراجعة: كل خانة قابلة للتعديل، والملاحظات تُعاد حسابها فور أي تغيير.
+ *
+ * ⚠️ نافذة تمرير (virtualization): بلا هذا كان الجدول يُنشئ عناصر DOM حيّة (input/select)
+ * لكل خلية من كل صف دفعة واحدة — 17 عموداً × حتى 5000 صف (حد قيود الأقصى للاستيراد) يعني
+ * عشرات آلاف عناصر DOM، نفس نمط تعليق/انهيار المتصفح الحقيقي الذي شهده المستخدم بأداة
+ * فواتير المبيعات مع ملفات كبيرة. الحل نفسه هنا (مستخرَج بـsrc/lib/useTableVirtualization.js
+ * من نفس منطق InvoiceGrid.jsx المُختبَر فعلياً): لا نعرض إلا الصفوف الظاهرة + هامش احتياطي.
+ *
+ * وفهرسة الموردين/المنتجات (buildVendorIndex/buildProductIndex) هنا بدل .find() لكل صف
+ * بكل رسم — كانت تُعاد كل صف بكل render (حتى الصفوف غير المتغيّرة)، فتتضاعف مع حجم الملف.
+ */
 export default function ReviewTable({ eng, filter, propagate }) {
   const list = eng.rows.filter((r) => (filter === 'all' ? true : filter === 'err' ? rowErr(r) : r.issues.length > 0));
   const buyable = eng.catalog.products.filter(isBuyable);
+  const vendorIdx = useMemo(() => buildVendorIndex(eng.catalog.vendors), [eng.catalog.vendors]);
+  const productIdx = useMemo(() => buildProductIndex(eng.catalog.products), [eng.catalog.products]);
+  const vt = useTableVirtualization(list.length);
+  const visibleList = vt.shouldVirtualize ? list.slice(vt.startIndex, vt.endIndex) : list;
 
   const txt = (row, key) => (
     <input type="text" value={row[key] ?? ''} onChange={(e) => eng.updateRow(row, { [key]: e.target.value })} />
@@ -22,16 +39,20 @@ export default function ReviewTable({ eng, filter, propagate }) {
   );
 
   return (
-    <div className="qbi-scroll">
+    <div className="qbi-scroll" ref={vt.scrollRef}>
       <table className="qbi-rows">
         <thead><tr>{COLS.map((c) => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
-          {list.map((row, idx) => {
-            const vendor = eng.catalog.vendors.find((v) => norm(v.ref) === norm(row.vendorRef));
-            const prod = findProdBySku(eng.catalog.products, row.prodSku);
+          {vt.shouldVirtualize && vt.topSpacerHeight > 0 && (
+            <tr aria-hidden="true"><td colSpan={COLS.length} style={{ height: vt.topSpacerHeight, padding: 0, border: 'none' }} /></tr>
+          )}
+          {visibleList.map((row, i) => {
+            const vendor = vendorIdx.refMap.get(norm(row.vendorRef));
+            const prod = findProdBySku(eng.catalog.products, row.prodSku, productIdx);
             const prodCands = row.prodCands.filter(isBuyable);
             return (
-              <tr key={`${row.i}-${idx}`} className={rowErr(row) ? 'r-err' : rowWarn(row) ? 'r-warn' : ''}>
+              <tr key={`${row.i}-${vt.startIndex + i}`} ref={i === 0 ? vt.measuredRowRef : undefined}
+                className={rowErr(row) ? 'r-err' : rowWarn(row) ? 'r-warn' : ''}>
                 <td>{row.i}</td>
                 <td>{txt(row, 'ref')}</td>
                 <td>
@@ -107,6 +128,9 @@ export default function ReviewTable({ eng, filter, propagate }) {
               </tr>
             );
           })}
+          {vt.shouldVirtualize && vt.bottomSpacerHeight > 0 && (
+            <tr aria-hidden="true"><td colSpan={COLS.length} style={{ height: vt.bottomSpacerHeight, padding: 0, border: 'none' }} /></tr>
+          )}
           {!list.length && <tr><td colSpan={COLS.length}>لا توجد صفوف مطابقة لهذا العرض.</td></tr>}
         </tbody>
       </table>

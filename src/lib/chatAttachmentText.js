@@ -57,7 +57,10 @@ async function readSpreadsheetRows(file) {
     const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
     if (sheetRows.length) {
       if (wb.SheetNames.length > 1) rows.push([`── ورقة: ${sheetName} ──`]);
-      rows.push(...sheetRows);
+      // بلا حلقة .push بسيطة (لا rows.push(...sheetRows))، ملف بعشرات آلاف الصفوف
+      // يرمي "Maximum call stack size exceeded" فعلياً — نفس الخطأ الجوهري المُصلَح
+      // بـexcelCore.js.readWorkbookRows، وهذا مسار قراءة مستقل عنه بالكامل بالشات.
+      for (let i = 0; i < sheetRows.length; i++) rows.push(sheetRows[i]);
     }
   }
   return rows;

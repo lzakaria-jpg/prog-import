@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { normalizeCode, extractParentCode, fixWorksheetRange } from "./lib/excelCore";
 import { matchAccountType, level2ForType } from "./lib/accountsClassifier";
+import { useTableVirtualization } from "./lib/useTableVirtualization";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -105,7 +106,7 @@ async function extractCandidateLines(file) {
   const name = file.name.toLowerCase();
   if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
+    const wb = XLSX.read(buf, { type: "array", dense: true }); // dense: أسرع لملفات كبيرة (fixWorksheetRange المستدعاة أدناه متوافقة مع الوضعين)
     const ws = fixWorksheetRange(wb.Sheets[wb.SheetNames[0]]);
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: null });
     return rows
@@ -279,12 +280,17 @@ export default function AccountsTool() {
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [showManualCopy, setShowManualCopy] = useState(false);
+  // نافذة تمرير لجدول الحسابات المقترحة — نفس مبدأ ReviewTable.jsx/InvoiceGrid.jsx: يمنع
+  // إنشاء عناصر DOM حيّة (input/select) لكل خلية من كل حساب دفعة واحدة مع ملفات شجرة حسابات
+  // ضخمة (المستخدم نفسه رفع فعلياً ملف شجرة 2,318 حساباً). الاستدعاء غير مشروط دائماً (قاعدة
+  // React hooks)، وlength=0 قبل proposedAccounts يعطّل التفعيل تلقائياً (shouldVirtualize=false).
+  const vAcc = useTableVirtualization(proposedAccounts ? proposedAccounts.length : 0);
 
   const handleDefaultTreeUpload = async (file) => {
     setError(""); setDefaultTreeName(file.name);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
+      const wb = XLSX.read(buf, { type: "array", dense: true }); // dense: أسرع لملفات كبيرة (fixWorksheetRange المستدعاة أدناه متوافقة مع الوضعين)
       const ws = fixWorksheetRange(wb.Sheets[wb.SheetNames[0]]);
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: null });
       setDefaultAccounts(parseExistingTreeFile(rows));
@@ -413,7 +419,8 @@ export default function AccountsTool() {
               </button>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border" style={{ borderColor: COLORS.line, background: "#FFFDF7" }}>
+            <div className="overflow-x-auto rounded-lg border" ref={vAcc.scrollRef}
+              style={{ borderColor: COLORS.line, background: "#FFFDF7", ...(vAcc.shouldVirtualize ? { maxHeight: "70vh", overflowY: "auto" } : {}) }}>
               <table className="w-full text-xs">
                 <thead>
                   <tr style={{ color: "#5B5340" }}>
@@ -427,11 +434,14 @@ export default function AccountsTool() {
                   </tr>
                 </thead>
                 <tbody>
-                  {proposedAccounts.map((a) => {
+                  {vAcc.shouldVirtualize && vAcc.topSpacerHeight > 0 && (
+                    <tr aria-hidden="true"><td colSpan={7} style={{ height: vAcc.topSpacerHeight, padding: 0, border: "none" }} /></tr>
+                  )}
+                  {(vAcc.shouldVirtualize ? proposedAccounts.slice(vAcc.startIndex, vAcc.endIndex) : proposedAccounts).map((a, i) => {
                     const rowIssues = issuesByCode[a.code] || [];
                     return (
                       <React.Fragment key={a.code || Math.random()}>
-                        <tr className="border-t" style={{ borderColor: COLORS.line, background: rowIssues.length ? "#FBEDEA" : undefined }}>
+                        <tr ref={i === 0 ? vAcc.measuredRowRef : undefined} className="border-t" style={{ borderColor: COLORS.line, background: rowIssues.length ? "#FBEDEA" : undefined }}>
                           <td className="p-2 font-mono">
                             <input dir="ltr" value={a.code} onChange={(e) => updateAccount(a.code, "code", e.target.value)}
                               className="w-24 rounded border px-1.5 py-1 font-mono text-left" style={{ borderColor: COLORS.line }} />
@@ -479,6 +489,9 @@ export default function AccountsTool() {
                       </React.Fragment>
                     );
                   })}
+                  {vAcc.shouldVirtualize && vAcc.bottomSpacerHeight > 0 && (
+                    <tr aria-hidden="true"><td colSpan={7} style={{ height: vAcc.bottomSpacerHeight, padding: 0, border: "none" }} /></tr>
+                  )}
                 </tbody>
               </table>
             </div>

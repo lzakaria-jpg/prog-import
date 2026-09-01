@@ -4,7 +4,7 @@
  * والهدف كشفها قبل الرفع لأن قيود يرفض الملف بأكمله إن أخطأ صف واحد.
  */
 import { norm, fmtDate } from './text.js';
-import { findProdBySku } from './matching.js';
+import { findProdBySku, buildVendorIndex, buildProductIndex } from './matching.js';
 
 /** تجميع البنود في فواتير حسب مرجع الفاتورة */
 export function groupsOf(rows) {
@@ -88,8 +88,14 @@ export function inferTax(row, catalog, hasTaxColumn) {
 /** هل يدعم القالب المرفوع قسم خصم المستند؟ */
 export const tplHasDocDisc = (tpl) => !tpl || !tpl.columns || tpl.columns.some((c) => c.key === 'docDiscVal');
 
-/** فحص صف واحد؛ يملأ row.issues بقائمة {l:'e'|'w', m} */
-export function validateRow(row, catalog, tpl) {
+/**
+ * فحص صف واحد؛ يملأ row.issues بقائمة {l:'e'|'w', m}.
+ * idx (اختياري): {vendorIdx, productIdx} مسبقا البناء (buildVendorIndex/buildProductIndex)
+ * — validateAll يبنيهما مرة واحدة فقط ويمرّرهما هنا لكل صف، بدل مسح كامل مصفوفتي
+ * الموردين/المنتجات لكل صف من جديد (validateAll يُعاد تشغيله على كل الصفوف مع كل تعديل
+ * خانة واحدة عبر useImportEngine.revalidate، فبلا هذا الفهرس التكلفة تتضاعف بسرعة).
+ */
+export function validateRow(row, catalog, tpl, idx) {
   const is = [];
   const E = (m) => is.push({ l: 'e', m });
   const W = (m) => is.push({ l: 'w', m });
@@ -97,17 +103,18 @@ export function validateRow(row, catalog, tpl) {
   if (!row.ref) E('مرجع الفاتورة مفقود');
 
   // المورد
+  const vendorExists = idx ? idx.vendorIdx.refMap.has(norm(row.vendorRef)) : catalog.vendors.some((v) => norm(v.ref) === norm(row.vendorRef));
   if (!row.vendorRef) {
     if (row.vendorBy === 'dup') E('اسم المورد مكرر — اختر المورد الصحيح');
     else E('المورد غير موجود — رقم مرجع المورد غير موجود');
-  } else if (!catalog.vendors.some((v) => norm(v.ref) === norm(row.vendorRef))) {
+  } else if (!vendorExists) {
     E('الرقم المرجعي للمورد غير مطابق لأي مورد');
   } else if (row.vendorBy === 'name' || row.vendorBy === 'phone') {
     W('طُوبق المورد بالاسم/الهاتف — تحقق من الرقم المرجعي');
   }
 
   // المنتج
-  const prod = findProdBySku(catalog.products, row.prodSku);
+  const prod = findProdBySku(catalog.products, row.prodSku, idx && idx.productIdx);
   if (!row.prodSku) {
     if (row.prodBy === 'dup') E('اسم المنتج مكرر — اختر المنتج الصحيح');
     else E('المنتج غير متاح للشراء أو غير موجود');
@@ -230,11 +237,14 @@ export function validateGroups(rows, tpl) {
 /** الدورة الكاملة: وراثة، اشتقاق، استنتاج، فحص */
 export function validateAll(rows, catalog, tpl, opts) {
   inheritHeaders(rows);
+  // فهرسة مرة واحدة لكل تشغيل (لا لكل صف) — تُستدعى مع كل تعديل خانة واحدة (useImportEngine
+  // .revalidate يعيد فحص كل الصفوف)، فبلا هذا كانت التكلفة تتضاعف بعدد الصفوف × المنشأة.
+  const idx = { vendorIdx: buildVendorIndex(catalog.vendors), productIdx: buildProductIndex(catalog.products) };
   rows.forEach((r) => {
     autoPrice(r);
     inferTaxIncl(r, opts);
     inferTax(r, catalog, opts.hasTaxColumn);
-    validateRow(r, catalog, tpl);
+    validateRow(r, catalog, tpl, idx);
   });
   validateGroups(rows, tpl);
   return rows;

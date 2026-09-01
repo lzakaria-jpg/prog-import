@@ -212,13 +212,23 @@ function collapseRedundantWrapperLevels(rows, cmp) {
   });
   if (!wrapperCodes.size) return { rows, collapsedNotes: [] };
 
+  // فهرس code→row مرة واحدة بدل rows.find() داخل map() تحت (كان O(n²) فعلياً: لكل صف
+  // "ابن مستوى مكرر" مسح كامل rows مرتين — نادر التأثير مع شجرة حسابات عادية، لكن يتضخم
+  // بسرعة مع أشجار عملاء ضخمة مستوردة من أنظمة أخرى بعشرات آلاف الأسطر). أول تطابق فقط
+  // (كما .find())، فلا يتغيّر أي رمز مكرر احتمالياً.
+  const rowByCode = new Map();
+  rows.forEach((r) => {
+    const c = String(r.code || "").trim();
+    if (c && !rowByCode.has(c)) rowByCode.set(c, r);
+  });
+
   // 2) أقرب جدّ غير مكرر لأي رمز، بتخطي كل حلقة المستويات المكررة المتتالية
   const nearestRealAncestorCode = (startCode) => {
     let cur = startCode;
     const guard = new Set();
     while (cur && wrapperCodes.has(cur) && !guard.has(cur)) {
       guard.add(cur);
-      const r = rows.find((x) => String(x.code || "").trim() === cur);
+      const r = rowByCode.get(cur);
       cur = r ? String(r.parent || "").trim() : "";
     }
     return cur;
@@ -234,7 +244,7 @@ function collapseRedundantWrapperLevels(rows, cmp) {
       if (!p || !wrapperCodes.has(p)) return r; // ليس ابناً مباشراً لمستوى مكرر
 
       const realAncestorCode = nearestRealAncestorCode(p);
-      const realAncestorRow = rows.find((x) => String(x.code || "").trim() === realAncestorCode);
+      const realAncestorRow = rowByCode.get(realAncestorCode);
       // حارس حاسم: لو الجدّ الحقيقي (بعد تخطي كل المستويات المكررة) حساب مقفل
       // نظامياً (المدينون/الدائنون) فهذا يعني أن الاسم المكرر كان غلافاً حول
       // دفتر مساعد عملاء/موردين قديم - لا يجوز إطلاقاً إعادة تصنيف الابن بحرية

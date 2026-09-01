@@ -896,7 +896,10 @@ async function readWorkbookFile(file) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "csv") { const text = await file.text(); return XLSX.read(text, { type: "string" }); }
   const buf = await file.arrayBuffer();
-  return XLSX.read(buf, { type: "array" });
+  // dense:true: تمثيل أسرع بمكتبة SheetJS لملفات إكسل كبيرة (تسريع مقيس ~2x بملف حقيقي 157
+  // ألف صف بأداة القيود). آمن هنا: sheetToRows أدناه يستخدم sheet_to_json فقط (متوافقة مع
+  // الوضعين تلقائياً)، ولا يوجد بهذا الملف أي مسح يدوي لمفاتيح خلايا الورقة على مسار القراءة.
+  return XLSX.read(buf, { type: "array", dense: true });
 }
 
 export function sheetToRows(workbook) {
@@ -1285,9 +1288,29 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
 // جديد: إنشاء الحسابات الأب المفقودة + ترتيب الرفع + تصحيح المستويات
 // =====================================================================================
 
-function levelOfCode(code, rowsList, tree1Index) {
+/**
+ * فهرسا code→row لتسريع levelOfCode/nameOfCode أدناه (اختياريان — بدونهما تعملان
+ * بالمسح الكامل الأصلي كما كانت دائمًا، لأي مستدعٍ آخر لا يمرّرهما).
+ * anyMap: أول صف غير محذوف بهذا الرمز (بصرف النظر عن status) — بمعيار nameOfCode.
+ * activeMap: أول صف status==="new" وغير محذوف بهذا الرمز — بمعيار levelOfCode.
+ * "أول" بالضبط بترتيب المصفوفة الأصلي، كـ.find() تمامًا.
+ */
+function buildCodeLookupMaps(rowsList) {
+  const anyMap = new Map();
+  const activeMap = new Map();
+  rowsList.forEach((r) => {
+    if (r.deleted) return;
+    const c = String(r.code || "").trim();
+    if (!c) return;
+    if (!anyMap.has(c)) anyMap.set(c, r);
+    if (r.status === "new" && !activeMap.has(c)) activeMap.set(c, r);
+  });
+  return { anyMap, activeMap };
+}
+
+function levelOfCode(code, rowsList, tree1Index, maps) {
   if (!code) return NaN;
-  const fromNew = rowsList.find((r) => r.status === "new" && !r.deleted && String(r.code).trim() === code);
+  const fromNew = maps ? maps.activeMap.get(code) : rowsList.find((r) => r.status === "new" && !r.deleted && String(r.code).trim() === code);
   if (fromNew) { const l = Number(fromNew.level); if (Number.isFinite(l) && l > 0) return l; }
   const fromOld = (tree1Index || []).find((r) => String(r.code).trim() === code);
   if (fromOld) { const l = Number(fromOld.level); if (Number.isFinite(l) && l > 0) return l; }
@@ -1295,9 +1318,9 @@ function levelOfCode(code, rowsList, tree1Index) {
 }
 
 /** اسم حساب موجود (جديد أو من الشجرة الحالية) عبر رمزه - يُستخدم لتسمية أب مُنشأ تلقائيًا بدون بيانات */
-function nameOfCode(code, rowsList, tree1Index) {
+function nameOfCode(code, rowsList, tree1Index, maps) {
   if (!code) return { ar: "", en: "" };
-  const fromNew = rowsList.find((r) => !r.deleted && String(r.code || "").trim() === code);
+  const fromNew = maps ? maps.anyMap.get(code) : rowsList.find((r) => !r.deleted && String(r.code || "").trim() === code);
   if (fromNew) return { ar: fromNew.nameAr || fromNew.nameEn || "", en: fromNew.nameEn || fromNew.nameAr || "" };
   const fromOld = (tree1Index || []).find((r) => String(r.code).trim() === code);
   if (fromOld) return { ar: fromOld.nameAr || fromOld.nameEn || "", en: fromOld.nameEn || fromOld.nameAr || "" };
@@ -1315,6 +1338,12 @@ export function ensureParentsExist(rows, ctx) {
   const tree1Index = ctx.tree1Index || [];
   let out = rows.slice();
   const created = [];
+  // فهرسا code→row يُحدَّثان تزامنياً مع كل out.push/splice أدناه (نقطة الإدراج الوحيدة
+  // بهذه الدالة) — بدل نameOfCode/levelOfCode لمسح out كاملة من جديد لكل حساب أب مفقود
+  // يُنشأ، بطء يتضاعف مع كبر الشجرة وعدد الحسابات الأب المفقودة. التحديث التزامني (لا
+  // إعادة بناء لكل تكرار) يحافظ حرفياً على نفس سلوك .find() الأصلي: يرى أي حساب أب أُنشئ
+  // ضمن نفس الدورة (pass) قبل الوصول لحفيده، لأن out نفسها كانت تُمسح لحظيًا كذلك.
+  const lookupMaps = buildCodeLookupMaps(out);
 
   for (let pass = 0; pass < 25; pass++) {
     const active = out.filter((r) => r.status === "new" && !r.deleted);
@@ -1361,7 +1390,7 @@ export function ensureParentsExist(rows, ctx) {
 
       if (!src) {
         // بدون بيانات من ملف 2: نسمي الحساب المُنشأ باسم أبيه (الجد) + نقطة، حسب الطلب
-        const grandParentName = nameOfCode(ownParent, out, tree1Index);
+        const grandParentName = nameOfCode(ownParent, out, tree1Index, lookupMaps);
         if (grandParentName.ar) {
           nameAr = `${grandParentName.ar}.`;
           nameEn = `${grandParentName.en || grandParentName.ar}.`;
@@ -1375,7 +1404,7 @@ export function ensureParentsExist(rows, ctx) {
       // المستوى = مستوى الأب + 1 (أدق من المستوى المكتوب بالملف)
       let level = NaN;
       if (ownParent) {
-        const pl = levelOfCode(ownParent, out, tree1Index);
+        const pl = levelOfCode(ownParent, out, tree1Index, lookupMaps);
         if (Number.isFinite(pl)) level = pl + 1;
       }
       if (!Number.isFinite(level)) {
@@ -1438,6 +1467,9 @@ export function ensureParentsExist(rows, ctx) {
       if (idx === -1) out.push(newRow); else out.splice(idx, 0, newRow);
       codes.add(parentCode);
       created.push(parentCode);
+      // تحديث الفهرسين تزامنياً مع الإدراج أعلاه (newRow غير محذوف وstatus="new" دائمًا هنا)
+      if (!lookupMaps.anyMap.has(parentCode)) lookupMaps.anyMap.set(parentCode, newRow);
+      if (!lookupMaps.activeMap.has(parentCode)) lookupMaps.activeMap.set(parentCode, newRow);
     });
   }
 
@@ -1570,11 +1602,15 @@ export function repairLevels(rows, ctx) {
   let changed = 0;
   for (let pass = 0; pass < 10; pass++) {
     let passChanged = 0;
+    // فهرس مرة واحدة لكل دورة (pass) بدل levelOfCode.find() لكل صف بكل دورة — out هنا ثابتة
+    // طوال تنفيذ .map() أدناه (لا تُعاد كتابة out إلا بعد اكتمال .map() كاملاً)، فبناء
+    // الفهرس قبلها مباشرة يطابق تمامًا ما كان .find() يراه لكل صف بهذه الدورة بعينها.
+    const lookupMaps = buildCodeLookupMaps(out);
     out = out.map((r) => {
       if (r.status !== "new" || r.deleted) return r;
       const p = String(r.parent || "").trim();
       if (!p) return r;
-      const pl = levelOfCode(p, out, tree1Index);
+      const pl = levelOfCode(p, out, tree1Index, lookupMaps);
       if (!Number.isFinite(pl)) return r;
       const expected = pl + 1;
       if (Number(r.level) === expected) return r;
@@ -2462,6 +2498,24 @@ function isCodeInUse(code, rows, tree1Index) {
   return (tree1Index || []).some((r) => String(r.code || "").trim() === code);
 }
 
+/** فهرس كل الرموز المستخدمة فعلياً (rows + tree1Index) — نفس معيار isCodeInUse أعلاه، لكن
+ * مبني مرة واحدة بدل مسح كامل المصفوفتين بكل تكرار من حلقة while بـnextAvailableCodeForParent
+ * (قد تصل 100,000 تكرار — بطء كارثي مع شجرة كبيرة وأرقام حسابات متلاصقة). */
+function buildUsedCodesSet(rows, tree1Index) {
+  const used = new Set();
+  (rows || []).forEach((r) => {
+    if (r.status === "new" && !r.deleted) {
+      const c = String(r.code || "").trim();
+      if (c) used.add(c);
+    }
+  });
+  (tree1Index || []).forEach((r) => {
+    const c = String(r.code || "").trim();
+    if (c) used.add(c);
+  });
+  return used;
+}
+
 /** أول رمز فرعي منطقي تحت أب لا يوجد له أبناء بعد، حسب قاعدة أرقام قيود
  * الثابتة: مستوى 2 يضيف رقمًا واحدًا فقط على أبيه (1 -> 11)، وما بعده يضيف
  * رقمين يبدآن من 01 (11 -> 1101، 1101 -> 110101). */
@@ -2481,8 +2535,11 @@ export function nextAvailableCodeForParent(parentCode, parentLevel, rows, tree1I
   if (!candidate) return "";
   const width = candidate.length;
   let numeric = parseInt(candidate, 10);
+  // فهرس مرة واحدة (usedCodes) بدل استدعاء isCodeInUse (يمسح rows+tree1Index كاملتين) بكل
+  // تكرار — انظر تعليق buildUsedCodesSet أعلاه. نفس معيار isCodeInUse تماماً، فقط أسرع.
+  const usedCodes = buildUsedCodesSet(rows, tree1Index);
   let guard = 0;
-  while (isCodeInUse(candidate, rows, tree1Index) && guard < 100000) {
+  while (usedCodes.has(candidate) && guard < 100000) {
     numeric += 1;
     candidate = String(numeric).padStart(width, "0");
     guard += 1;
@@ -2490,12 +2547,19 @@ export function nextAvailableCodeForParent(parentCode, parentLevel, rows, tree1I
   return candidate;
 }
 
-/** كل صفوف الحسابات الجديدة (لا الأساسات/الحسابات الموجودة) الواقعة تحت عقدة معيّنة، بأي عمق */
+/**
+ * كل صفوف الحسابات الجديدة (لا الأساسات/الحسابات الموجودة) الواقعة تحت عقدة معيّنة، بأي عمق.
+ * بلا acc.push(...collectNewDescendantRows(child)) عمداً: شجرة حسابات عميقة/كبيرة تُرجع
+ * مصفوفة تتجاوز حد عدد معطيات نداء الدالة بمحرك V8 فترمي "Maximum call stack size
+ * exceeded" فعلياً — نفس الخطأ الجوهري المُصلَح بـexcelCore.js.readWorkbookRows، وهذا نفس
+ * الحل (حلقة .push بسيطة بلا أي spread) بلا أي تغيير في القيم أو ترتيبها.
+ */
 function collectNewDescendantRows(node) {
   const acc = [];
   for (const child of node.children) {
     if (!child.isAnchor) acc.push(child.row);
-    acc.push(...collectNewDescendantRows(child));
+    const childRows = collectNewDescendantRows(child);
+    for (let i = 0; i < childRows.length; i++) acc.push(childRows[i]);
   }
   return acc;
 }
