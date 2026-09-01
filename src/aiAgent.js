@@ -41,6 +41,20 @@ export function cleanMessageForAgent(text) {
   return text;
 }
 
+// إضافة خاصة بهذا الشات فقط (لا تُعدَّل aiSystemPrompt.js المشترك مع aiService.js
+// - أداة أخرى منفصلة تماماً - حتى لا يتأثر أي شيء خارج الشات). تمنع الموديل من
+// الزعم بأنه "أنشأ/صحّح/أرفق" ملفاً فعلياً في رد نصي محادثة عادي، مع أن هذا
+// المسار (chatWithAgent) لا يملك أي قدرة توليد ملفات إطلاقاً - توليد الملف
+// الحقيقي يتم فقط عبر chartOrganizerAgent.js/aiExcelAgent.js في مسار منفصل
+// حتمي بالكود، لا بردّ Gemini النصي. بلا هذا القيد كان الموديل يفبرك جدول
+// Markdown "منجَز 100%" كامل بلا أي ملف مرفَق فعلاً - حالة حقيقية شهدها المستخدم.
+const CHAT_NO_FABRICATION_ADDENDUM = `
+
+## قيد صارم خاص بهذه المحادثة
+أنت تردّ بنص محادثة فقط في هذه الرسالة، ولا تملك أي قدرة على توليد أو حفظ أو إرفاق ملف حقيقي هنا.
+ممنوع منعاً باتاً الزعم بأنك "أنشأت"، "صحّحت"، "نظّمت"، "رفعت"، أو "أرفقت" ملفاً، أو أن ملفاً "جاهز"/"متاح بتبويب آخر"، ما لم يصلك تأكيد حقيقي أن ملفاً وُلِّد فعلياً في هذه المحادثة.
+إن طلب المستخدم ملفاً منظَّماً أو مصحَّحاً ولم يصلك ملف ناتج فعلي معك الآن، وضّح له بصراحة أنك لا تستطيع توليد الملف في رد نصي، واطلب منه إرسال طلبه مع إرفاق الملف الأصلي مباشرة في نفس الرسالة (مثل: "نظّم لي شجرة الحسابات المرفقة") - هذا يُشغّل أداة التنظيم الفعلية تلقائياً ويولّد ملفاً حقيقياً جاهزاً للرفع.`;
+
 // options.attachments: [{ name, mimeType, base64 }] — images/files pasted or attached in
 // chat.jsx, sent as inlineData parts for Gemini's multimodal analysis.
 // options.user: { id, email, name, role } — the logged-in user, folded into the system
@@ -62,14 +76,25 @@ export async function chatWithAgent(userPrompt, options = {}) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemPrompt(user) }] },
+        systemInstruction: { parts: [{ text: buildSystemPrompt(user) + CHAT_NO_FABRICATION_ADDENDUM }] },
         contents: [{ parts: buildContentParts(userPrompt, attachments) }]
       })
     });
 
     const data = await res.json();
     if (data.error) {
-      return { text: `⚠️ خطأ في المفتاح: ${data.error.message}`, error: true };
+      // نفرّق بين ازدحام مؤقت بالخدمة (503/429 - "high demand"، "overloaded"،
+      // "quota"، "rate limit") وخطأ فعلي بالمفتاح - كانت كل الحالات تُعرَض
+      // بنفس تسمية "خطأ في المفتاح" المضلِّلة حتى لو المفتاح سليم تماماً
+      // والمشكلة مجرد ازدحام عابر بسيرفرات Gemini.
+      const status = data.error.status || "";
+      const msg = data.error.message || "";
+      const isTransient = res.status === 503 || res.status === 429 ||
+        /overloaded|high demand|quota|rate limit|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(`${status} ${msg}`);
+      const label = isTransient
+        ? "⚠️ الخدمة مزدحمة مؤقتاً، جرّب مرة أخرى بعد لحظات"
+        : "⚠️ خطأ في المفتاح";
+      return { text: `${label}: ${msg}`, error: true };
     }
     const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!reply) {
