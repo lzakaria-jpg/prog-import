@@ -31,7 +31,7 @@ function localizeMergeError(msg) {
 // ثوابت وهيكل النظام المحاسبي
 // =====================================================================================
 
-const LEVEL2_TO_LEVEL1 = {
+export const LEVEL2_TO_LEVEL1 = {
   "الأصول المتداولة": "الأصول",
   "الأصول غير المتداولة": "الأصول",
   "الالتزامات المتداولة": "الالتزامات",
@@ -48,7 +48,7 @@ const LEVEL2_TO_LEVEL1 = {
 
 const LEVEL2_TYPES = Object.keys(LEVEL2_TO_LEVEL1);
 
-const LEVEL3_MAP = {
+export const LEVEL3_MAP = {
   "الأصول المتداولة": [
     "المدينون", "حساب البنك", "سلف موظفين", "المخزون", "النقدية ومافي حكمها",
     "أصول متداولة أخرى", "عهد نقدية", "مصروفات مقدمة", "مخزون قطع غيار أصول",
@@ -85,7 +85,7 @@ const LEVEL3_MAP = {
 };
 
 const UNMAPPED_TYPE = "الضريبة";
-const LEVEL1_ROOT_TYPES = ["الاصول", "الالتزامات", "حقوق الملاك", "الايرادات", "المصاريف"];
+export const LEVEL1_ROOT_TYPES = ["الاصول", "الالتزامات", "حقوق الملاك", "الايرادات", "المصاريف"];
 const LEVEL1_TYPES_ALLOWING_NEW = ["الايرادات", "المصاريف"];
 
 const LEVEL1_ROOT_KEYWORDS = {
@@ -208,9 +208,9 @@ function textHasKeyword(normName, normKw) {
   return normName.includes(normKw);
 }
 
-const ALL_LEVEL3_TYPES = [...new Set(Object.values(LEVEL3_MAP).flat()), UNMAPPED_TYPE];
+export const ALL_LEVEL3_TYPES = [...new Set(Object.values(LEVEL3_MAP).flat()), UNMAPPED_TYPE];
 
-const TYPE_TO_LEVEL2 = {};
+export const TYPE_TO_LEVEL2 = {};
 Object.entries(LEVEL3_MAP).forEach(([level2, types]) => {
   types.forEach((t) => { if (!TYPE_TO_LEVEL2[t]) TYPE_TO_LEVEL2[t] = level2; });
 });
@@ -337,7 +337,7 @@ const QOYOD_FIXED_PLACEMENT_TYPES = [
 ];
 
 // الفئة الافتراضية لكل جذر - تُستخدم لحسابات المستوى 2 التي لا يمكن تحديد فئتها من اسمها
-const DEFAULT_LEVEL2_BY_ROOT = {
+export const DEFAULT_LEVEL2_BY_ROOT = {
   "الاصول": "الأصول المتداولة",
   "الالتزامات": "الالتزامات المتداولة",
   "حقوق الملاك": "حقوق الملاك الأخرى",
@@ -346,7 +346,7 @@ const DEFAULT_LEVEL2_BY_ROOT = {
 };
 
 // النوع الأعم داخل كل فئة - يُستخدم كملاذ أخير حتى لا تبقى خانة النوع فارغة
-const DEFAULT_TYPE_BY_LEVEL2 = (() => {
+export const DEFAULT_TYPE_BY_LEVEL2 = (() => {
   const out = {};
   Object.entries(LEVEL3_MAP).forEach(([cat, types]) => {
     out[cat] = types.find((t) => normalizeArabic(t).includes("اخري")) || types[0];
@@ -804,7 +804,7 @@ function getAnchorParentCode(code, level1CodeMap, level2CodeMap) {
   return null;
 }
 
-const OUTPUT_COLUMNS = [
+export const OUTPUT_COLUMNS = [
   "الرمز", "الاسم الانجليزي", "الاسم العربي", "المستوى",
   "الحساب الرئيسي (الرمز)", "نوع الحساب", "الوصف", "يمكن الدفع والتحصيل بهذا الحساب",
 ];
@@ -1441,7 +1441,7 @@ export function ensureParentsExist(rows, ctx) {
 }
 
 /** ترتيب طوبولوجي: الأب دائمًا قبل أبنائه في ملف الرفع */
-function orderRowsForUpload(rows) {
+export function orderRowsForUpload(rows) {
   const byCode = new Map();
   rows.forEach((r) => { const c = String(r.code || "").trim(); if (c && !byCode.has(c)) byCode.set(c, r); });
   const visited = new Set();
@@ -1560,7 +1560,7 @@ export function enforceCategoryInheritance(rows, tree1Index) {
 }
 
 /** إعادة احتساب المستوى لكل حساب جديد بناءً على مستوى أبيه الفعلي */
-function repairLevels(rows, ctx) {
+export function repairLevels(rows, ctx) {
   const tree1Index = ctx.tree1Index || [];
   let out = rows.slice();
   let changed = 0;
