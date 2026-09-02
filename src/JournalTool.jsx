@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
@@ -16,6 +16,22 @@ const COLORS = {
 };
 
 const PAGE_SIZE = 50;
+
+// فحص جودة بسيط بعد التعرّف الآلي: لو القيود "نجحت" بالمعنى الفني (عدد أكبر
+// من صفر) لكن أغلب أهم حقولها (الرمز/التاريخ/الوصف) فارغة تمامًا، فهذا يعني
+// عمليًا فشل تعرّف على عمود لم يُكتشَف بصمت — نفس الخطأ الجوهري الذي شهده
+// المستخدم فعليًا (كل الحسابات "—"، كل التواريخ "بدون تاريخ"). حدّي 30%/50%
+// مقصودان يتيحان تسامحاً مع فراغات حقيقية متفرقة بالملف دون تفويت حالة فشل
+// تعرّف كامل كهذه.
+function assessEntriesQuality(grouped) {
+  const totalRows = grouped.reduce((s, e) => s + e.rows.length, 0);
+  if (totalRows === 0 || grouped.length === 0) return { ok: false, totalRows, totalEntries: grouped.length };
+  const missingCode = grouped.reduce((s, e) => s + e.rows.filter((r) => !r.code).length, 0);
+  const missingDate = grouped.filter((e) => !e.date).length;
+  const missingDesc = grouped.filter((e) => !e.desc).length;
+  const ok = missingCode / totalRows <= 0.3 && missingDate / grouped.length <= 0.5 && missingDesc / grouped.length <= 0.5;
+  return { ok, totalRows, totalEntries: grouped.length, missingCode, missingDate, missingDesc };
+}
 
 function localizeError(msg, lang) {
   if (lang !== "en") return msg;
@@ -47,6 +63,101 @@ function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept
             <FileSpreadsheet size={12} /> {fileName} {count && `— ${count}`}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// [ميزة جديدة] لوحة "تحديد الأعمدة يدويًا": يختار المستخدم صف الرأس بنفسه، ثم
+// لكل حقل منطقي (تسلسل القيد، التاريخ، الرمز...) عمود من أعمدة الملف الفعلية
+// — كل خيار بالقائمة يعرض حرف/رقم العمود + نص خليته بصف الرأس المُختار + معاينة
+// أول قيمة بيانات حقيقية تحته، حتى يتأكد المستخدم بصريًا قبل التطبيق بدل التخمين.
+const MAPPER_FIELDS = [
+  { key: "seq", ar: "تسلسل القيد", en: "Entry Sequence", required: false },
+  { key: "date", ar: "التاريخ", en: "Date", required: false },
+  { key: "desc", ar: "الوصف", en: "Description", required: false },
+  { key: "code", ar: "رمز الحساب", en: "Account Code", required: true },
+  { key: "debit", ar: "مدين", en: "Debit", required: true },
+  { key: "credit", ar: "دائن", en: "Credit", required: true },
+  { key: "comment", ar: "تعليق", en: "Comment", required: false },
+];
+
+function columnLetter(idx) {
+  let s = "", n = idx;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+function ColumnMapperPanel({ rows, mapping, onChange, onApply, onCancel }) {
+  const { t } = useLanguage();
+  const headerRowIndex = mapping.headerRowIndex ?? 0;
+  const headerRow = rows[headerRowIndex] || [];
+  const previewRow = rows.slice(headerRowIndex + 1).find((r) => Array.isArray(r) && r.some((c) => c !== null && c !== "")) || [];
+  const colCount = Math.max(headerRow.length, previewRow.length, 1);
+  const colOptions = Array.from({ length: colCount }, (_, i) => i);
+  return (
+    <div className="mb-6 rounded-lg border-2 p-4" style={{ borderColor: COLORS.gold, background: "#FFFBEB" }}>
+      <div className="mb-3 flex items-start gap-2">
+        <Info size={16} className="mt-0.5 shrink-0" style={{ color: "#B98227" }} />
+        <div className="text-sm font-semibold" style={{ color: "#78350F" }}>
+          {t({ ar: "تحديد أعمدة ملف القيود يدويًا", en: "Manually map journal entry columns" })}
+        </div>
+      </div>
+      <p className="mb-3 text-xs leading-relaxed" style={{ color: "#78350F" }}>
+        {t({
+          ar: "التعرّف الآلي على أعمدة هذا الملف لم يكن موثوقًا كفاية (رمز/تاريخ/وصف فارغة لأغلب القيود). اختر صف الرأس، ثم عيّن كل حقل من العمود الصحيح بالملف يدويًا.",
+          en: "Automatic column detection for this file wasn't reliable enough (code/date/description empty for most entries). Pick the header row, then assign each field to the correct file column yourself.",
+        })}
+      </p>
+      <div className="mb-3">
+        <label className="mb-1 block text-xs font-semibold" style={{ color: "#78350F" }}>{t({ ar: "صف عناوين الأعمدة", en: "Header row" })}</label>
+        <select
+          value={headerRowIndex}
+          onChange={(e) => onChange({ ...mapping, headerRowIndex: Number(e.target.value) })}
+          className="w-full max-w-xs rounded-md border px-2 py-1.5 text-sm"
+          style={{ borderColor: COLORS.line, background: "#FFFFFF", color: "#0F172A" }}
+        >
+          {rows.slice(0, 20).map((r, i) => (
+            <option key={i} value={i}>
+              {t({ ar: "صف", en: "Row" })} {i + 1}: [{(Array.isArray(r) ? r : []).map((c) => (c === null || c === undefined || c === "" ? "∅" : String(c))).slice(0, 6).join(" | ")}]
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {MAPPER_FIELDS.map((f) => {
+          const val = mapping[f.key];
+          const current = val === -1 || val === "" || val === undefined || val === null ? "" : val;
+          return (
+            <div key={f.key}>
+              <label className="mb-1 block text-xs font-semibold" style={{ color: "#78350F" }}>
+                {t({ ar: f.ar, en: f.en })} {f.required && <span style={{ color: COLORS.red }}>*</span>}
+              </label>
+              <select
+                value={current}
+                onChange={(e) => onChange({ ...mapping, [f.key]: e.target.value === "" ? -1 : Number(e.target.value) })}
+                className="w-full rounded-md border px-2 py-1.5 text-sm"
+                style={{ borderColor: COLORS.line, background: "#FFFFFF", color: "#0F172A" }}
+              >
+                <option value="">{t({ ar: "— بدون —", en: "— None —" })}</option>
+                {colOptions.map((i) => {
+                  const headerText = headerRow[i] !== null && headerRow[i] !== undefined && headerRow[i] !== "" ? String(headerRow[i]) : "";
+                  const previewText = previewRow[i] !== null && previewRow[i] !== undefined && previewRow[i] !== "" ? String(previewRow[i]) : "";
+                  const label = `${columnLetter(i)}${headerText ? " — " + headerText : ""}${previewText ? " (" + previewText.substring(0, 24) + ")" : ""}`;
+                  return <option key={i} value={i}>{label}</option>;
+                })}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <button onClick={onApply} className="rounded-md px-4 py-2 text-sm font-semibold text-white" style={{ background: COLORS.teal }}>
+          {t({ ar: "تطبيق التخطيط وإعادة الاستيراد", en: "Apply Mapping & Re-import" })}
+        </button>
+        <button onClick={onCancel} className="rounded-md border px-4 py-2 text-sm font-semibold" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+          {t({ ar: "إلغاء", en: "Cancel" })}
+        </button>
       </div>
     </div>
   );
@@ -281,6 +392,12 @@ export default function JournalTool() {
   const [entriesFileName, setEntriesFileName] = useState("");
   const [entriesBusy, setEntriesBusy] = useState(false);
   const [parseError, setParseError] = useState("");
+  // [ميزة جديدة] لوحة "تحديد الأعمدة يدويًا" — تُفتَح تلقائيًا لو التعرّف الآلي
+  // فشل أو بدا مشبوهًا (رمز/تاريخ/وصف فارغين لأغلب القيود رغم "نجاح" ظاهري)،
+  // ويظهر زر لفتحها يدويًا دائمًا بجانب رفع الملف حتى لو التعرّف الآلي بدا سليمًا.
+  const [rawEntriesRows, setRawEntriesRows] = useState(null);
+  const [showColumnMapper, setShowColumnMapper] = useState(false);
+  const [columnMapping, setColumnMapping] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [copyStatus, setCopyStatus] = useState("");
   const [showManualCopy, setShowManualCopy] = useState(false);
@@ -431,11 +548,23 @@ export default function JournalTool() {
   };
 
   const handleEntriesUpload = async (file) => {
-    setParseError(""); setEntriesFileName(file.name); setEntriesBusy(true);
+    setParseError(""); setEntriesFileName(file.name); setEntriesBusy(true); setShowColumnMapper(false);
+    let rows;
     try {
-      const rows = await readAnyEntriesFileRows(file);
+      rows = await readAnyEntriesFileRows(file);
+    } catch (err) {
+      // فشل قراءة الملف نفسه (صيغة غير مدعومة/ملف تالف) — لا صفوف إطلاقًا،
+      // فلا معنى لعرض لوحة تحديد الأعمدة هنا (لا يوجد ما يُحدَّد).
+      setParseError(localizeError("خطأ في قراءة ملف القيود: " + err.message, lang));
+      setEntries(null); setRawEntriesRows(null); setEntriesBusy(false);
+      if (currentUser) trackJournalError(currentUser, { filename: file.name, error: err.message });
+      return;
+    }
+    setRawEntriesRows(rows);
+    try {
       const grouped = parseEntriesFile(rows);
       if (grouped.length === 0) throw new Error("تم التعرف على تنسيق الملف لكن لم يتم العثور على أي قيود بداخله\n\nتفاصيل الفحص:\n" + (_parseDebug.info || ""));
+      const quality = assessEntriesQuality(grouped);
       setEntries(grouped);
       setExpanded({});
       setResolvedIds({});
@@ -445,12 +574,46 @@ export default function JournalTool() {
       setPage(0);
       setFilter("all");
       if (currentUser) trackJournalImport(currentUser, { filename: file.name, entries_count: grouped.length });
+      // [ميزة جديدة] التعرّف الآلي "نجح" فنيًا (قيود أُنشئت) لكن أغلب حقولها
+      // الأساسية فارغة — هذا بالضبط الخطأ الجوهري الذي شهده المستخدم (كل
+      // الحسابات "—"، كل التواريخ "بدون تاريخ") فيما بدا للمستخدم كنجاح ظاهري.
+      // نفتح لوحة تحديد الأعمدة يدويًا تلقائيًا بدل تسليم نتيجة فارغة بصمت.
+      if (!quality.ok) {
+        setColumnMapping(guessEntriesColumnMapping(rows));
+        setShowColumnMapper(true);
+      }
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف القيود: " + err.message, lang));
       setEntries(null);
+      setColumnMapping(guessEntriesColumnMapping(rows));
+      setShowColumnMapper(true);
       if (currentUser) trackJournalError(currentUser, { filename: file.name, error: err.message });
     } finally { setEntriesBusy(false); }
   };
+
+  // يُبنى القيود من نفس صفوف آخر ملف مرفوع (rawEntriesRows) باستخدام تخطيط
+  // الأعمدة الذي اختاره المستخدم يدويًا بلوحة "تحديد الأعمدة" — بديل كامل عن
+  // parseEntriesFile التلقائي، وليس تعديلاً عليه، حتى يتحكّم المستخدم بنفسه
+  // تمامًا حين يفشل التخمين الآلي أو حين يريد فرض تخطيط معيّن بنفسه.
+  const applyColumnMapping = useCallback(() => {
+    if (!rawEntriesRows || !columnMapping) return;
+    setParseError("");
+    try {
+      const grouped = parseEntriesFileWithMapping(rawEntriesRows, columnMapping.headerRowIndex, columnMapping);
+      if (grouped.length === 0) throw new Error("لم يتم العثور على أي قيود بالتخطيط المُحدَّد — تحقق من رقم صف الرأس ومن اختيار عمود واحد على الأقل للمدين أو الدائن");
+      setEntries(grouped);
+      setExpanded({});
+      setResolvedIds({});
+      setStructuralIssuesBySeq({});
+      suggestionCacheRef.current.clear();
+      setAuditVersion((version) => version + 1);
+      setPage(0);
+      setFilter("all");
+      setShowColumnMapper(false);
+    } catch (err) {
+      setParseError(localizeError("خطأ في تطبيق تخطيط الأعمدة اليدوي: " + err.message, lang));
+    }
+  }, [rawEntriesRows, columnMapping, lang]);
 
   const updateRow = useCallback((seq, rowIndex, field, value) => {
     const currentEntry = entries?.find((entry) => entry.seq === seq);
@@ -618,6 +781,28 @@ export default function JournalTool() {
           <UploadCard title={{ ar: "القيود المراد استيرادها", en: "Journal Entries to Import" }} subtitle={{ ar: "Excel، PDF، أو Word — أي ترتيب أعمدة", en: "Excel, PDF, or Word — any column order" }} fileName={entriesFileName} ok={!!entries} busy={entriesBusy}
             count={entries ? t({ ar: `${entries.length} قيد`, en: `${entries.length} entries` }) : ""} onFile={handleEntriesUpload} accept=".xlsx,.xls,.pdf,.docx" />
         </div>
+
+        {rawEntriesRows && !showColumnMapper && (
+          <div className="mb-6 -mt-2">
+            <button
+              onClick={() => { setColumnMapping(guessEntriesColumnMapping(rawEntriesRows)); setShowColumnMapper(true); }}
+              className="text-xs font-semibold underline"
+              style={{ color: "#B98227" }}
+            >
+              {t({ ar: "تحديد أعمدة ملف القيود يدويًا", en: "Manually map journal entry columns" })}
+            </button>
+          </div>
+        )}
+
+        {showColumnMapper && rawEntriesRows && columnMapping && (
+          <ColumnMapperPanel
+            rows={rawEntriesRows}
+            mapping={columnMapping}
+            onChange={setColumnMapping}
+            onApply={applyColumnMapping}
+            onCancel={() => setShowColumnMapper(false)}
+          />
+        )}
 
         {parseError && (
           <div className="mb-6 flex items-center gap-2 rounded-md border px-4 py-2 text-sm whitespace-pre-wrap" style={{ borderColor: COLORS.red, color: COLORS.red }}>

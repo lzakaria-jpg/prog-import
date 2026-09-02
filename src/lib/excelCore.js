@@ -9,6 +9,27 @@ export function normalizeDateGuess(raw) {
   if (m) return `${m[3].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[1]}`;
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+  /*
+   * [إصلاح] خطأ حقيقي شاهده المستخدم: ملف عميل حقيقي (344655 قيود.xls) تُخرِج
+   * فيه SheetJS التاريخ بصيغة "M/D/YY" حرفيًا (شهر/يوم/سنة برقمين، مثال:
+   * "10/31/25" لتاريخ 31 أكتوبر 2025) — هذه الصيغة لم تكن مغطاة إطلاقًا (لا
+   * تطابق dd/mm/yyyy ولا d/m/yyyy بأربعة أرقام أعلاه)، فتُترَك كما هي حرفيًا
+   * وتفشل بعدها بصمت بفحص "تاريخ القيد مفقود أو غير مطابق لصيغة dd/mm/yyyy"
+   * رغم أن التاريخ الحقيقي صحيح وموجود بالملف. القاعدة: لو أحد الرقمين > 12
+   * فهو اليوم قطعًا (لا يوجد شهر 13+) بغض النظر عن ترتيبه، فتُستخدَم القيمة
+   * الأخرى شهرًا تلقائيًا؛ لو كلاهما ≤ 12 (غموض حقيقي، مثال "05/06/25") يُفترض
+   * ترتيب شهر/يوم (M/D) المطابق للتهيئة القصيرة الإنجليزية الافتراضية
+   * بExcel/SheetJS التي تُنتج هذه الصيغة أصلًا. السنة برقمين: 00-69 ← 2000-2069،
+   * 70-99 ← 1970-1999 (نفس قاعدة Excel القياسية بالتعامل مع سنة رقمين).
+   */
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]), yy = Number(m[3]);
+    const year = yy < 70 ? 2000 + yy : 1900 + yy;
+    let month = a, day = b;
+    if (a > 12 && b <= 12) { month = b; day = a; }
+    return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
+  }
   if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 20000 && Number(s) < 80000) {
     const d = XLSX.SSF.parse_date_code(Number(s));
     if (d) return `${String(d.d).padStart(2, "0")}/${String(d.m).padStart(2, "0")}/${d.y}`;
@@ -217,12 +238,103 @@ function findHeaderRowIndex(rows, ...mustIncludeCandidates) {
   return -1;
 }
 
+/*
+ * [إصلاح جذري] خطأ حقيقي شاهده المستخدم: ملف عميل رأسه القصير المعتاد
+ * "الحساب" | "تاريخ" | "الوصف" (بدل "رمز الحساب" | "التاريخ" | "وصف القيد"
+ * المتوقعة بقوائم المرادفات) — فقرأ المدين والدائن بشكل صحيح (تطابق حرفي) لكن
+ * الرمز والتاريخ والوصف طلعوا فارغين تمامًا بصمت لكل القيود. السبب: المطابقة
+ * كانت اتجاه واحد فقط (خلية_الرأس.includes(المرشح)) فتفشل بالضبط لما يكون
+ * عنوان عمود الملف الحقيقي أقصر من اسم المرشح المتوقع ("تاريخ" لا يحوي
+ * "التاريخ" كسلسلة فرعية لاختلاف "ال" بالبداية، وبالمثل "الحساب" لا يحوي "رمز
+ * الحساب"، و"الوصف" لا يحوي "وصف القيد"). هذا نفس نمط الخطأ الذي شهده
+ * المستخدم سابقًا مع "تسلسل القيد"/"البيان" (انظر اختبارات excelCore.test.js)
+ * — لكن ذلك الإصلاح أضاف مرادفًا واحدًا يدويًا في كل مرة (حل ترقيعي)، بينما
+ * هذا الإصلاح يعالج السبب الجذري: المطابقة الآن باتجاهين (كل طرف يُقبل لو
+ * كان سلسلة فرعية من الآخر)، فتُغطّى تلقائيًا كل الصيغ الأقصر/الأطول لنفس اسم
+ * العمود بلا حاجة لسرد كل احتمال بقائمة المرادفات يدويًا. القيد الوحيد: خلية
+ * رأس بحرف أو حرفين فقط (نادرة الحدوث كاسم عمود حقيقي) لا تُفعِّل اتجاه
+ * "المرشح يحوي الخلية" تجنبًا لتطابقات زائفة عشوائية مع اختصارات قصيرة جدًا.
+ */
 function colIndex(headerRow, ...candidates) {
   for (const cand of candidates) {
-    const idx = headerRow.findIndex((h) => cellText(h).includes(cand));
+    const candNorm = cellText(cand).trim();
+    if (!candNorm) continue;
+    const idx = headerRow.findIndex((h) => {
+      const cellNorm = cellText(h).trim();
+      if (!cellNorm) return false;
+      if (cellNorm.includes(candNorm)) return true;
+      if (cellNorm.length >= 2 && candNorm.includes(cellNorm)) return true;
+      return false;
+    });
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+// أفضل تخمين لصف الرأس عندما تفشل كل مخططات التعرّف المتخصصة (لا رأس معروف
+// مطابق) — الصف الأكثر خلايا غير فارغة ضمن أول ~20 صفًا، تُستخدَم كنقطة بداية
+// معقولة للوحة "تحديد الأعمدة يدويًا" بدل ترك المستخدم يختار من صفر.
+export function guessHeaderRowIndex(rows) {
+  let best = 0, bestCount = -1;
+  const scan = Math.min(rows.length, 20);
+  for (let i = 0; i < scan; i++) {
+    const r = rows[i] || [];
+    const count = (Array.isArray(r) ? r : []).filter((c) => cellText(c).trim() !== "").length;
+    if (count > bestCount) { bestCount = count; best = i; }
+  }
+  return best;
+}
+
+// تخمين شامل لكل أعمدة القيود دفعة واحدة (اتحاد كل مرادفات كل المخططات أعلاه)
+// — يُستخدَم لتعبئة لوحة "تحديد الأعمدة يدويًا" بقيم افتراضية معقولة، سواء
+// نجح parseEntriesFile تلقائيًا أو فشل. يُرجع فهارس أعمدة (أو -1) لا بيانات
+// مُستخرَجة فعليًا.
+export function guessEntriesColumnMapping(rows) {
+  const headerRowIndex = guessHeaderRowIndex(rows);
+  const header = (rows[headerRowIndex] || []).map(cellText);
+  return {
+    headerRowIndex,
+    seq: colIndex(header, "تسلسل القيد", "تسلسل القيود", "تسلسل", "رقم القيد", "رقم القيود", "رقم العملية", "رقم السند", "رقم الدفتر", "رقم المستند", "VouchNumber", "VoucherNumber", "Reference"),
+    date: colIndex(header, "تاريخ العملية", "التاريخ", "تاريخ", "Date", "VouchDate", "TransDate", "TransactionDate"),
+    desc: colIndex(header, "وصف القيد", "البيان", "الوصف", "تعريف", "Description", "Narration", "VouchDescription"),
+    code: colIndex(header, "رمز الحساب", "رقم الحساب", "الحساب", "رمز", "AccountNumber", "AccountCode", "account code", "acc_no"),
+    name: colIndex(header, "اسم الحساب", "الحساب", "اسم", "AccountName", "Account Name"),
+    debit: colIndex(header, "مدين", "Debit", "DBAmount", "DebitAmount", "DR"),
+    credit: colIndex(header, "دائن", "Credit", "CRAmount", "CreditAmount", "CR"),
+    comment: colIndex(header, "التعليقات", "ملاحظات", "ملاحظ", "Notes", "Remark"),
+  };
+}
+
+// يبني القيود من صفوف خام باستخدام تخطيط أعمدة اختاره المستخدم يدويًا (لوحة
+// "تحديد الأعمدة") — بديل عن الاكتشاف التلقائي (parseEntriesFile) حين يفشل أو
+// حين يريد المستخدم فرض تخطيط معيّن بنفسه. `mapping` فهارس أعمدة صفرية
+// الأساس (أو -1/undefined لعمود غير موجود بالملف). يعيد استخدام groupEntries
+// نفسها تمامًا حتى يبقى سلوك التجميع (بما فيه صف بلا "تسلسل" = يُلحَق بالقيد
+// الحالي، وصف فارغ = فاصل قيود) متطابقًا 100% مع بقية المخططات أعلاه.
+export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
+  const get = (key) => {
+    const idx = mapping[key];
+    return idx === undefined || idx === null || idx === -1 || idx === "" ? -1 : Number(idx);
+  };
+  const cSeq = get("seq"), cDate = get("date"), cDesc = get("desc"), cCode = get("code"),
+    cName = get("name"), cDebit = get("debit"), cCredit = get("credit"), cComment = get("comment");
+  const flat = [];
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    flat.push({
+      seq: cSeq !== -1 ? cellText(r[cSeq]).trim() : "",
+      date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "",
+      desc: cDesc !== -1 ? cellText(r[cDesc]).trim() : "",
+      accType: "حسابات دفتر الاستاذ",
+      code: cCode !== -1 ? normalizeCode(r[cCode]) : "",
+      name: cName !== -1 ? cellText(r[cName]).trim() : "",
+      contact: "",
+      debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
+      credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
+      comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
+    });
+  }
+  return groupEntries(flat);
 }
 
 // ---------- chart of accounts ----------
@@ -402,7 +514,7 @@ function parseTemplateSchema(rows, hIdx) {
   const cDate = colIndex(header, "التاريخ");
   // نفس خطأ cSeq أعلاه بالضبط: "البيان" اسم شائع جداً لعمود الوصف بأنظمة محاسبية
   // كثيرة (وهو اسم عمود الوصف الحقيقي بالملف الذي شهد الخطأ) ولم يكن مُتعرَّفاً عليه.
-  const cDesc = colIndex(header, "وصف القيد", "البيان");
+  const cDesc = colIndex(header, "وصف القيد", "البيان", "الوصف");
   const cAccType = colIndex(header, "نوع الحساب");
   const cCode = colIndex(header, "رمز الحساب");
   const cName = colIndex(header, "اسم الحساب", "اسم", "AccountName", "Account Name");
