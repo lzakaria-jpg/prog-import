@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { groupsOf, groupSubtotal } from '../lib/validation.js';
+import { SafeInput } from '../../lib/SafeInput.jsx';
 
 /**
  * لوحة خصم المستند — تتعامل مع الحالتين:
@@ -56,7 +57,7 @@ export default function DocDiscountPanel({ eng }) {
               <option value="">—</option>
               {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
-            : <input type="text" value={acc} onChange={(e) => setAcc(e.target.value)} placeholder="حساب خصم المستند" />}
+            : <SafeInput value={acc} onChange={(e) => setAcc(e.target.value)} placeholder="حساب خصم المستند" />}
           <span className="count">الفئة الضريبية:</span>
           <select value={tax} onChange={(e) => setTax(e.target.value)}>
             <option value="">—</option>

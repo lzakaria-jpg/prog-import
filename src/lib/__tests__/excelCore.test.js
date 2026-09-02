@@ -15,7 +15,10 @@
 //    فقط "وصف القيد"). الإصلاح: توسيع المرادفات لتطابق ما يقبله findHeaderRowIndex.
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
-import { readWorkbookRows, fixWorksheetRange, parseEntriesFile, guessEntriesColumnMapping, parseEntriesFileWithMapping, normalizeDateGuess } from "../excelCore.js";
+import {
+  readWorkbookRows, fixWorksheetRange, parseEntriesFile, guessEntriesColumnMapping, parseEntriesFileWithMapping, normalizeDateGuess,
+  parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName,
+} from "../excelCore.js";
 
 function buildXlsxFile(aoa, filename = "test.xlsx") {
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -178,5 +181,160 @@ describe("normalizeDateGuess — صيغة M/D/YY بسنة رقمين (ملف ع�
   it("التنسيقات الأخرى الموجودة مسبقًا (ISO وd/m/yyyy بأربعة أرقام) تبقى بلا أي تغيير", () => {
     expect(normalizeDateGuess("2025-10-31")).toBe("31/10/2025");
     expect(normalizeDateGuess("05/01/2025")).toBe("05/01/2025");
+  });
+});
+
+// خطأ جوهري خامس، حقيقي، شاهده المستخدم بملف تصدير حقيقي: عمود "نوع الحساب"
+// طلع فيه رمز الحساب مكرراً (نفس قيمة عمود "رمز الحساب") بدل أحد القيم الثلاث
+// المسموحة بقائمة قيود المنسدلة (حسابات دفتر الاستاذ / دفعة من العميل / دفعة
+// للمورد) — السبب: Schema A تقرأ "نوع الحساب" حرفياً من أي عمود بالملف المصدر
+// يطابق هذا الاسم بلا أي تحقق من القيمة. الإصلاح: أي قيمة مستخرجة لا تُطابق
+// إحدى الثلاث بالضبط تُستبدَل بالقيمة الافتراضية الآمنة.
+describe("parseEntriesFile — عمود 'نوع الحساب' (المخطط A): قيمة غير صالحة تُستبدَل بالافتراضي الآمن", () => {
+  it("عمود 'نوع الحساب' بالملف المصدر يحمل كود الحساب خطأً → يُستبدَل بـ'حسابات دفتر الاستاذ'", () => {
+    const rows = [
+      ["تسلسل القيد", "التاريخ", "وصف القيد", "نوع الحساب", "رمز الحساب", "مدين", "دائن"],
+      ["1", "05/01/2025", "فاتورة مبيعات", "520214", "520214", "1000", "0"],
+      ["1", "", "", "210201", "210201", "0", "1000"],
+    ];
+    const groups = parseEntriesFile(rows);
+    expect(groups.length).toBe(1);
+    expect(groups[0].rows[0].accType).toBe("حسابات دفتر الاستاذ");
+    expect(groups[0].rows[1].accType).toBe("حسابات دفتر الاستاذ");
+  });
+
+  it("قيمة صحيحة فعلياً من الثلاث المسموحة تبقى كما هي بلا استبدال", () => {
+    const rows = [
+      ["تسلسل القيد", "التاريخ", "وصف القيد", "نوع الحساب", "رمز الحساب", "مدين", "دائن"],
+      ["1", "05/01/2025", "دفعة من عميل", "دفعة من العميل", "110601", "1000", "0"],
+      ["1", "", "", "حسابات دفتر الاستاذ", "410101", "0", "1000"],
+    ];
+    const groups = parseEntriesFile(rows);
+    expect(groups[0].rows[0].accType).toBe("دفعة من العميل");
+    expect(groups[0].rows[1].accType).toBe("حسابات دفتر الاستاذ");
+  });
+});
+
+describe("parseNameRefFile — ملف مرجعي اختياري (اسم عميل/مورد + رقم مرجعي)", () => {
+  it("يستخرج اسم + رقم مرجعي، ويتجاهل الصفوف الناقصة", () => {
+    const rows = [
+      ["اسم العميل", "الرقم المرجعي"],
+      ["مؤسسة الأخوات الثلاث", "1005"],
+      ["", "1006"], // بلا اسم — يُتجاهَل
+      ["شركة النور", ""], // بلا رقم مرجعي — يُتجاهَل
+      ["مصنع الأمل", "1007"],
+    ];
+    const list = parseNameRefFile(rows);
+    expect(list).toEqual([
+      { name: "مؤسسة الأخوات الثلاث", ref: "1005" },
+      { name: "مصنع الأمل", ref: "1007" },
+    ]);
+  });
+
+  it("ملف بلا عمودي اسم/رقم مرجعي معروفين يُرجع مصفوفة فارغة بدل رمي خطأ", () => {
+    expect(parseNameRefFile([["عمود أ", "عمود ب"], ["1", "2"]])).toEqual([]);
+  });
+});
+
+describe("findAccountCodesByExactName — تحديد حساب افتراضي مقفل نظاميًا عبر اسمه", () => {
+  const chart = [
+    { code: "120101", name: "المدينون", type: "" },
+    { code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" },
+    { code: "210301", name: "الدائنون", type: "" },
+    { code: "520202", name: "الإيجارات", type: "" },
+  ];
+  it("يطابق الاسم تماماً (بعد التطبيع) بغض النظر عن الكود", () => {
+    expect(findAccountCodesByExactName(chart, "المدينون")).toEqual(["120101"]);
+    expect(findAccountCodesByExactName(chart, "الدائنون")).toEqual(["210301"]);
+    expect(findAccountCodesByExactName(chart, "ضريبة القيمة المضافة المستحقة")).toEqual(["210201"]);
+  });
+  it("لا يطابق اسماً مشابهاً جزئياً فقط (تطابق تام لا احتواء)", () => {
+    expect(findAccountCodesByExactName(chart, "ضريبة القيمة المضافة")).toEqual([]);
+  });
+});
+
+describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/موظف' تلقائياً", () => {
+  const chart = [
+    { code: "120101", name: "المدينون", type: "" },
+    { code: "210301", name: "الدائنون", type: "" },
+    { code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" },
+    { code: "520202", name: "الإيجارات", type: "" },
+  ];
+
+  function entry(rows) {
+    return { seq: "1", date: "05/01/2025", desc: "قيد", rows: rows.map((r, i) => ({ _rowIndex: i, contact: "", comment: "", ...r })) };
+  }
+
+  it("حساب الضريبة المستحق: مدين/دائن > 0 → رمز 15% (افتراضي '1')؛ صفر بالطرفين → رمز الصفرية (افتراضي '2')", () => {
+    const entries = [entry([
+      { code: "210201", debit: 450, credit: null },
+      { code: "210201", debit: 0, credit: 0 },
+      { code: "520202", debit: 0, credit: 450 },
+    ])];
+    const out = applyAutoContactRules(entries, chart, {});
+    expect(out[0].rows[0].contact).toBe("1");
+    expect(out[0].rows[1].contact).toBe("2");
+    expect(out[0].rows[2].contact).toBe(""); // ليس حساب ضريبة — لا يُلمَس
+  });
+
+  it("رموز الضريبة قابلة للتخصيص (vat15Code/vatZeroCode)", () => {
+    const entries = [entry([{ code: "210201", debit: 450, credit: null }])];
+    const out = applyAutoContactRules(entries, chart, { vat15Code: "7", vatZeroCode: "9" });
+    expect(out[0].rows[0].contact).toBe("7");
+  });
+
+  it("حساب المدينون: يطابق اسم العميل من عمود 'contact' مع ملف العملاء المرجعي ويستبدله برقمه المرجعي", () => {
+    const entries = [entry([{ code: "120101", debit: 1000, credit: null, contact: "مؤسسة الأخوات الثلاث" }])];
+    const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }] });
+    expect(out[0].rows[0].contact).toBe("1005");
+    expect(out[0].rows[0]._autoRef).toBe(true);
+  });
+
+  it("حساب المدينون بلا عمود contact: يطابق من التفصيل/التعليق كبديل", () => {
+    const entries = [entry([{ code: "120101", debit: 1000, credit: null, comment: "مصنع الأمل" }])];
+    const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مصنع الأمل", ref: "2010" }] });
+    expect(out[0].rows[0].contact).toBe("2010");
+  });
+
+  it("حساب الدائنون: يُطابَق مع ملف الموردين لا ملف العملاء", () => {
+    const entries = [entry([{ code: "210301", debit: null, credit: 500, contact: "شركة النور للمقاولات" }])];
+    const out = applyAutoContactRules(entries, chart, {
+      customersRef: [{ name: "شركة النور للمقاولات", ref: "9999" }], // عميل بنفس الاسم تقريباً — لا يجب استخدامه
+      suppliersRef: [{ name: "شركة النور للمقاولات", ref: "3300" }],
+    });
+    expect(out[0].rows[0].contact).toBe("3300");
+  });
+
+  it("لا مطابقة موثوقة ولا ملف مرجعي: تبقى الخانة كما هي (بلا تخمين خاطئ)", () => {
+    const entries = [entry([{ code: "120101", debit: 1000, credit: null, contact: "عميل غير معروف تماماً" }])];
+    const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }] });
+    expect(out[0].rows[0].contact).toBe("عميل غير معروف تماماً");
+    expect(out[0].rows[0]._autoRef).toBeUndefined();
+  });
+
+  it("سطر عدّله المستخدم يدوياً (_userEdited) لا يُلمَس إطلاقاً حتى لو طابق قاعدة الضريبة أو المدينون", () => {
+    const entries = [entry([
+      { code: "210201", debit: 450, credit: null, contact: "قيمة يدوية", _userEdited: true },
+      { code: "120101", debit: 1000, credit: null, contact: "قيمة يدوية أخرى", _userEdited: true },
+    ])];
+    const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "قيمة يدوية أخرى", ref: "1" }] });
+    expect(out[0].rows[0].contact).toBe("قيمة يدوية");
+    expect(out[0].rows[1].contact).toBe("قيمة يدوية أخرى");
+  });
+
+  it("إعادة التشغيل بعد تغيّر الملف المرجعي: تبحث بالاسم الأصلي المحفوظ (_refCandidate) لا بالرقم المرجعي الحالي", () => {
+    const entries = [entry([{ code: "120101", debit: 1000, credit: null, contact: "مؤسسة الأخوات الثلاث" }])];
+    const pass1 = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }] });
+    expect(pass1[0].rows[0].contact).toBe("1005");
+    // الملف المرجعي تغيّر (رقم مرجعي مختلف لنفس العميل) — يجب أن يُعاد التطابق بالاسم المحفوظ لا بـ"1005"
+    const pass2 = applyAutoContactRules(pass1, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "8800" }] });
+    expect(pass2[0].rows[0].contact).toBe("8800");
+  });
+
+  it("بلا حسابات مدينون/دائنون/ضريبة مطابقة بالشجرة أصلاً: يُرجع نفس entries بلا أي تغيير (نفس المرجع)", () => {
+    const plainChart = [{ code: "520202", name: "الإيجارات", type: "" }];
+    const entries = [entry([{ code: "520202", debit: 100, credit: null }])];
+    const out = applyAutoContactRules(entries, plainChart, {});
+    expect(out).toBe(entries);
   });
 });

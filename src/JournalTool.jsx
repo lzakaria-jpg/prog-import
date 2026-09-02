@@ -4,8 +4,9 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
+import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
@@ -206,7 +207,7 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   const shown = filtered.length > ACCOUNT_PICKER_MAX_RESULTS ? filtered.slice(0, ACCOUNT_PICKER_MAX_RESULTS) : filtered;
   return (
     <div className="relative">
-      <input
+      <SafeInput
         value={query || value || ""}
         onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
@@ -258,11 +259,11 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
         <div className="border-t px-4 py-3" style={{ borderColor: COLORS.line }}>
           <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
             <label className="flex items-center gap-1">{t({ ar: "التاريخ:", en: "Date:" })}
-              <input dir="ltr" value={entry.date || ""} onChange={(e) => onUpdateMeta(entry.seq, "date", e.target.value)}
+              <SafeInput dir="ltr" value={entry.date || ""} onChange={(e) => onUpdateMeta(entry.seq, "date", e.target.value)}
                 placeholder="dd/mm/yyyy" className="rounded border px-2 py-1 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A", width: 100 }} />
             </label>
             <label className="flex flex-1 items-center gap-1">{t({ ar: "الوصف:", en: "Description:" })}
-              <input value={entry.desc || ""} onChange={(e) => onUpdateMeta(entry.seq, "desc", e.target.value)}
+              <SafeInput value={entry.desc || ""} onChange={(e) => onUpdateMeta(entry.seq, "desc", e.target.value)}
                 className="flex-1 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
             </label>
           </div>
@@ -270,6 +271,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
             <thead><tr style={{ color: "#64748B" }}>
               <th className="pb-1 text-start font-medium">{t({ ar: "الرمز", en: "Code" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "اسم الحساب", en: "Account" })}</th>
+              <th className="pb-1 text-start font-medium">{t({ ar: "جهة اتصال/ضريبة/موظف", en: "Contact/Tax/Employee" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "مدين", en: "Debit" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "دائن", en: "Credit" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "تعليق", en: "Comment" })}</th>
@@ -288,15 +290,21 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                       {acc ? acc.name : "—"}{rowIssue?.type === "parent_account" && t({ ar: " (رئيسي)", en: " (parent)" })}
                     </td>
                     <td className="py-1.5 pe-2">
-                      <input dir="ltr" value={r.debit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "debit", e.target.value === "" ? null : parseFloat(e.target.value))}
+                      <SafeInput value={r.contact || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "contact", e.target.value)}
+                        title={t({ ar: "رقم مرجعي عميل/مورد، أو رمز نوع الضريبة، أو رقم موظف — حسب نوع الحساب", en: "Customer/supplier reference, tax type code, or employee number — depending on the account" })}
+                        className="w-28 rounded border px-1.5 py-1 text-start focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        style={{ borderColor: rowIssue?.type === "missing_contact_ref" ? COLORS.red : COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
+                    </td>
+                    <td className="py-1.5 pe-2">
+                      <SafeInput dir="ltr" value={r.debit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "debit", e.target.value === "" ? null : parseFloat(e.target.value))}
                         className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5 pe-2">
-                      <input dir="ltr" value={r.credit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "credit", e.target.value === "" ? null : parseFloat(e.target.value))}
+                      <SafeInput dir="ltr" value={r.credit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "credit", e.target.value === "" ? null : parseFloat(e.target.value))}
                         className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5">
-                      <input value={r.comment || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "comment", e.target.value)}
+                      <SafeInput value={r.comment || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "comment", e.target.value)}
                         className="w-full rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                   </tr>
@@ -398,6 +406,20 @@ export default function JournalTool() {
   const [rawEntriesRows, setRawEntriesRows] = useState(null);
   const [showColumnMapper, setShowColumnMapper] = useState(false);
   const [columnMapping, setColumnMapping] = useState(null);
+  // [ميزة جديدة] تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف": رمزا الضريبة
+  // (ثابتان نظاميًا بقيود لكل منشأة جديدة، افتراضيًا "1" للـ15% و"2" للصفرية،
+  // وقابلان للتغيير يدويًا لو كانت منشأة العميل المحدَّدة تستخدم رمزين مختلفين
+  // فعليًا حسب إعداداتها الضريبية الخاصة) + ملفا العملاء/الموردين المرجعيان
+  // الاختياريان (اسم + رقم مرجعي) لتعبية حسابي المدينون/الدائنون الافتراضيين.
+  const [vat15Code, setVat15Code] = useState("1");
+  const [vatZeroCode, setVatZeroCode] = useState("2");
+  const [customersRefList, setCustomersRefList] = useState(null);
+  const [customersRefFileName, setCustomersRefFileName] = useState("");
+  const [customersRefBusy, setCustomersRefBusy] = useState(false);
+  const [suppliersRefList, setSuppliersRefList] = useState(null);
+  const [suppliersRefFileName, setSuppliersRefFileName] = useState("");
+  const [suppliersRefBusy, setSuppliersRefBusy] = useState(false);
+  const [showRefSettings, setShowRefSettings] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [copyStatus, setCopyStatus] = useState("");
   const [showManualCopy, setShowManualCopy] = useState(false);
@@ -436,6 +458,12 @@ export default function JournalTool() {
 
   const parentInfo = useMemo(() => (chartAccounts ? buildParentInfo(chartAccounts) : { parentCodes: new Set(), childrenByParent: {} }), [chartAccounts]);
 
+  // [ميزة جديدة] حساب المدينون/الدائنون الافتراضي يُحدَّد عبر اسمه بالشجرة (لا
+  // كود ثابت، يختلف من عميل لعميل) — يُستخدَم هنا لتحديد أي سطر يتطلب رقمًا
+  // مرجعيًا لعميل/مورد بعمود "جهة اتصال/ضريبة/موظف".
+  const debtorsCodes = useMemo(() => new Set(chartAccounts ? findAccountCodesByExactName(chartAccounts, "المدينون") : []), [chartAccounts]);
+  const creditorsCodes = useMemo(() => new Set(chartAccounts ? findAccountCodesByExactName(chartAccounts, "الدائنون") : []), [chartAccounts]);
+
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(
     () => (chartAccounts || []).filter((account) => !parentInfo.parentCodes.has(account.code)),
@@ -468,8 +496,48 @@ export default function JournalTool() {
         if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) iss.suggestedDate = normalized;
       }
     });
+    // [ميزة جديدة] حساب المدينون/الدائنون الافتراضي يتطلب بقيود رقمًا مرجعيًا
+    // للعميل/المورد بعمود "جهة اتصال/ضريبة/موظف" — لا اسمه. التعبية التلقائية
+    // (applyAutoContactRules) تحاول ملء هذا الرقم من الملف المرجعي الاختياري
+    // قبل هذا الفحص؛ ما تبقى فارغًا هنا يحتاج تدخل المستخدم يدويًا فعليًا.
+    entry.rows.forEach((r, i) => {
+      const isDebtors = debtorsCodes.has(r.code);
+      const isCreditors = creditorsCodes.has(r.code);
+      if ((isDebtors || isCreditors) && !r.contact) {
+        issues.push({
+          id: `${entry.seq}-row${r._rowIndex}-contactref`,
+          type: "missing_contact_ref",
+          severity: "error",
+          rowIndex: r._rowIndex,
+          code: r.code,
+          message: `السطر ${i + 1}: الحساب "${chartMap[r.code]?.name || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
+        });
+      }
+    });
     return issues;
-  }, [chartAccounts, chartMap, parentInfo, postingAccounts]);
+  }, [chartAccounts, chartMap, parentInfo, postingAccounts, debtorsCodes, creditorsCodes]);
+
+  // [ميزة جديدة] تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف": تُعاد كل مرة يتغيّر
+  // فيها ملف شجرة الحسابات أو أحد الملفين المرجعيين الاختياريين أو رمزا الضريبة.
+  // applyAutoContactRules تُرجع نفس مرجع entries حرفيًا لو لم يتغيّر شيء فعليًا،
+  // فـsetEntries هنا لا تُسبِّب أي حلقة تحديث لا نهائية (React يتجاهل تحديث
+  // state بنفس المرجع). السطور التي عدّلها المستخدم يدويًا (_userEdited) محمية
+  // ولا تُلمَس داخل applyAutoContactRules نفسها.
+  useEffect(() => {
+    if (!entries || !chartAccounts) return;
+    const next = applyAutoContactRules(entries, chartAccounts, {
+      vat15Code, vatZeroCode,
+      customersRef: customersRefList || [],
+      suppliersRef: suppliersRefList || [],
+    });
+    if (next !== entries) {
+      setEntries(next);
+      // لازم إعادة تشغيل تدقيق الهيكل (auditVersion) وإلا يبقى "missing_contact_ref"
+      // معلَّقاً على سطور مُلِئت خانتها للتو تلقائياً — التدقيق الجماعي أدناه لا
+      // يُعاد تلقائياً لمجرد تغيّر entries (auditVersion هو مُحرِّكه المتعمَّد).
+      setAuditVersion((version) => version + 1);
+    }
+  }, [entries, chartAccounts, customersRefList, suppliersRefList, vat15Code, vatZeroCode]);
 
   useEffect(() => {
     if (!entries || !chartAccounts) return;
@@ -547,6 +615,34 @@ export default function JournalTool() {
     } finally { setChartBusy(false); }
   };
 
+  // [ميزة جديدة] ملفا العملاء/الموردين المرجعيان — اختياريان بالكامل (فقط لو
+  // وُجدت قيود على حساب المدينون/الدائنون الافتراضي)، عمودان: اسم + رقم مرجعي.
+  const handleCustomersRefUpload = async (file) => {
+    setParseError(""); setCustomersRefFileName(file.name); setCustomersRefBusy(true);
+    try {
+      const rows = await readWorkbookRows(file);
+      const list = parseNameRefFile(rows);
+      if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم العميل والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
+      setCustomersRefList(list);
+    } catch (err) {
+      setParseError(localizeError("خطأ في قراءة ملف العملاء المرجعي: " + err.message, lang));
+      setCustomersRefList(null);
+    } finally { setCustomersRefBusy(false); }
+  };
+
+  const handleSuppliersRefUpload = async (file) => {
+    setParseError(""); setSuppliersRefFileName(file.name); setSuppliersRefBusy(true);
+    try {
+      const rows = await readWorkbookRows(file);
+      const list = parseNameRefFile(rows);
+      if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم المورد والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
+      setSuppliersRefList(list);
+    } catch (err) {
+      setParseError(localizeError("خطأ في قراءة ملف الموردين المرجعي: " + err.message, lang));
+      setSuppliersRefList(null);
+    } finally { setSuppliersRefBusy(false); }
+  };
+
   const handleEntriesUpload = async (file) => {
     setParseError(""); setEntriesFileName(file.name); setEntriesBusy(true); setShowColumnMapper(false);
     let rows;
@@ -616,17 +712,21 @@ export default function JournalTool() {
   }, [rawEntriesRows, columnMapping, lang]);
 
   const updateRow = useCallback((seq, rowIndex, field, value) => {
+    // [ميزة جديدة] تعديل يدوي لخانة "جهة اتصال/ضريبة/موظف" يُعلَّم السطر
+    // (_userEdited) فتحميه applyAutoContactRules نهائيًا من أي تعبية تلقائية
+    // لاحقة تُبطل تصحيح المستخدم (مثلاً لو غيّر رمز الضريبة أو رفع ملفًا مرجعيًا بعدها).
+    const extra = field === "contact" ? { _userEdited: true } : {};
     const currentEntry = entries?.find((entry) => entry.seq === seq);
     if (currentEntry) {
       const updatedEntry = {
         ...currentEntry,
-        rows: currentEntry.rows.map((row) => row._rowIndex === rowIndex ? { ...row, [field]: value } : row),
+        rows: currentEntry.rows.map((row) => row._rowIndex === rowIndex ? { ...row, [field]: value, ...extra } : row),
       };
       setStructuralIssuesBySeq((previous) => ({ ...previous, [seq]: buildStructuralIssues(updatedEntry) }));
     }
     setResolvedIds((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !id.startsWith(`${seq}-`))));
     setEntries((prev) => prev.map((entry) => entry.seq !== seq ? entry :
-      { ...entry, rows: entry.rows.map((r) => r._rowIndex === rowIndex ? { ...r, [field]: value } : r) }));
+      { ...entry, rows: entry.rows.map((r) => r._rowIndex === rowIndex ? { ...r, [field]: value, ...extra } : r) }));
   }, [buildStructuralIssues, entries]);
 
   const updateEntryMeta = useCallback((seq, field, value) => {
@@ -745,6 +845,12 @@ export default function JournalTool() {
     setStructuralIssuesBySeq({});
     setPage(0); setFilter("all");
     suggestionCacheRef.current.clear();
+    // [ميزة جديدة] "بدء من جديد" يعني عميلاً مختلفاً محتملاً — لا تُبقِ ملفي
+    // العملاء/الموردين المرجعيين أو رمزي الضريبة المخصَّصين من العميل السابق.
+    setCustomersRefList(null); setCustomersRefFileName("");
+    setSuppliersRefList(null); setSuppliersRefFileName("");
+    setVat15Code("1"); setVatZeroCode("2");
+    setShowRefSettings(false);
   };
 
   const filters = [
@@ -780,6 +886,47 @@ export default function JournalTool() {
             count={chartAccounts ? t({ ar: `${chartAccounts.length} حساب`, en: `${chartAccounts.length} accounts` }) : ""} onFile={handleChartUpload} />
           <UploadCard title={{ ar: "القيود المراد استيرادها", en: "Journal Entries to Import" }} subtitle={{ ar: "Excel، PDF، أو Word — أي ترتيب أعمدة", en: "Excel, PDF, or Word — any column order" }} fileName={entriesFileName} ok={!!entries} busy={entriesBusy}
             count={entries ? t({ ar: `${entries.length} قيد`, en: `${entries.length} entries` }) : ""} onFile={handleEntriesUpload} accept=".xlsx,.xls,.pdf,.docx" />
+        </div>
+
+        <div className="mb-6">
+          <button onClick={() => setShowRefSettings((v) => !v)} className="text-xs font-semibold underline" style={{ color: COLORS.tealLight }}>
+            {showRefSettings
+              ? t({ ar: "إخفاء إعدادات المرجع الاختيارية", en: "Hide optional reference settings" })
+              : t({ ar: "إعدادات اختيارية: رمز الضريبة + ملفا العملاء/الموردين المرجعيان", en: "Optional settings: tax code + customers/suppliers reference files" })}
+          </button>
+          {showRefSettings && (
+            <div className="mt-3 rounded-lg border p-4" style={{ borderColor: COLORS.line, background: "#F8FAFC" }}>
+              <p className="mb-3 text-xs leading-relaxed" style={{ color: "#64748B" }}>
+                {t({
+                  ar: "اختيارية بالكامل — تلزم فقط لو وُجدت قيود على حساب \"ضريبة القيمة المضافة المستحقة\" أو حسابي \"المدينون\"/\"الدائنون\" الافتراضيين. تُعبَّى خانة \"جهة اتصال/ضريبة/موظف\" تلقائياً بناءً عليها.",
+                  en: "Fully optional — needed only when entries post to the \"VAT payable\" account or the default \"Debtors\"/\"Creditors\" accounts. The \"Contact/Tax/Employee\" column is auto-filled from these.",
+                })}
+              </p>
+              <div className="mb-4 flex flex-wrap items-end gap-4">
+                <label className="text-xs">
+                  <span className="mb-1 block font-semibold" style={{ color: COLORS.ink }}>{t({ ar: "رمز ضريبة القيمة المضافة 15%", en: "15% VAT code" })}</span>
+                  <SafeInput dir="ltr" value={vat15Code} onChange={(e) => setVat15Code(e.target.value)}
+                    className="w-20 rounded border px-2 py-1 font-mono text-center" style={{ borderColor: COLORS.line, background: "#FFFFFF" }} />
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block font-semibold" style={{ color: COLORS.ink }}>{t({ ar: "رمز الضريبة الصفرية 0%", en: "0% (zero-rated) VAT code" })}</span>
+                  <SafeInput dir="ltr" value={vatZeroCode} onChange={(e) => setVatZeroCode(e.target.value)}
+                    className="w-20 rounded border px-2 py-1 font-mono text-center" style={{ borderColor: COLORS.line, background: "#FFFFFF" }} />
+                </label>
+                <p className="text-xs" style={{ color: "#94A3B8" }}>
+                  {t({ ar: "افتراضياً 1 و2 (ثابتان نظاميًا لكل منشأة جديدة بقيود) — غيّرهما فقط لو تأكدت أن منشأة هذا العميل تستخدم رمزين مختلفين فعليًا.", en: "Default 1 and 2 (system-fixed for every new Qoyod company) — change only if this client's company actually uses different codes." })}
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <UploadCard title={{ ar: "ملف العملاء المرجعي (اختياري)", en: "Customers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم العميل + الرقم المرجعي", en: "Two columns: customer name + reference number" }}
+                  fileName={customersRefFileName} ok={!!customersRefList} busy={customersRefBusy}
+                  count={customersRefList ? t({ ar: `${customersRefList.length} عميل`, en: `${customersRefList.length} customers` }) : ""} onFile={handleCustomersRefUpload} />
+                <UploadCard title={{ ar: "ملف الموردين المرجعي (اختياري)", en: "Suppliers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم المورد + الرقم المرجعي", en: "Two columns: supplier name + reference number" }}
+                  fileName={suppliersRefFileName} ok={!!suppliersRefList} busy={suppliersRefBusy}
+                  count={suppliersRefList ? t({ ar: `${suppliersRefList.length} مورد`, en: `${suppliersRefList.length} suppliers` }) : ""} onFile={handleSuppliersRefUpload} />
+              </div>
+            </div>
+          )}
         </div>
 
         {rawEntriesRows && !showColumnMapper && (

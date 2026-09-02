@@ -1,5 +1,6 @@
 import React from 'react';
 import { fromDMY } from '../engine/dates.js';
+import { SafeInput } from '../../lib/SafeInput.jsx';
 
 const YES_NO_LOWER = ['نعم', 'لا', 'yes', 'no'];
 
@@ -24,9 +25,9 @@ export default function GridCell({ row, col, template, customersRef, productsRef
   }
   if (col.type === 'number') {
     return (
-      <input
+      <SafeInput
         {...dataAttrs}
-        type="text" inputMode="decimal" className={cls} title={title}
+        inputMode="decimal" className={cls} title={title}
         value={val} onChange={(e) => onChange(e.target.value)}
       />
     );
@@ -49,9 +50,9 @@ export default function GridCell({ row, col, template, customersRef, productsRef
     }
     if (!template.loaded || options.length === 0) {
       return (
-        <input
+        <SafeInput
           {...dataAttrs}
-          type="text" className={cls} title={title} value={val} placeholder="ارفع القالب لتفعيل القائمة"
+          className={cls} title={title} value={val} placeholder="ارفع القالب لتفعيل القائمة"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -65,21 +66,21 @@ export default function GridCell({ row, col, template, customersRef, productsRef
   }
   if (col.key === 'C' && customersRef.loaded && customersRef.byRef.size > 0) {
     return (
-      <input
+      <SafeInput
         {...dataAttrs}
-        type="text" list="dl-customers" className={cls} title={title} value={val}
+        list="dl-customers" className={cls} title={title} value={val}
         placeholder="ابحث بالاسم أو الرقم المرجعي..." onChange={(e) => onChange(e.target.value)}
       />
     );
   }
   if (col.key === 'N' && productsRef.loaded && productsRef.bySku.size > 0) {
     return (
-      <input
+      <SafeInput
         {...dataAttrs}
-        type="text" list="dl-products" className={cls} title={title} value={val}
+        list="dl-products" className={cls} title={title} value={val}
         placeholder="ابحث بالاسم أو الكود..." onChange={(e) => onChange(e.target.value)}
       />
     );
   }
-  return <input {...dataAttrs} type="text" className={cls} title={title} value={val} onChange={(e) => onChange(e.target.value)} />;
+  return <SafeInput {...dataAttrs} className={cls} title={title} value={val} onChange={(e) => onChange(e.target.value)} />;
 }

@@ -10,6 +10,7 @@ import { runAIExcelWorkflow } from "./lib/aiExcelAgent";
 import { organizeChartOfAccounts, isChartOrganizeRequest } from "./lib/chartOrganizerAgent";
 import { resolveAmbiguousTypesWithClaude, resolveColumnMappingWithClaude } from "./lib/chartOrganizerAiResolver";
 import { extractAttachmentText } from "./lib/chatAttachmentText";
+import { SafeInput } from "./lib/SafeInput";
 import {
   MessageCircle, X, Send, Paperclip, Image, FileSpreadsheet, FileText,
   ChevronLeft, ChevronRight, Volume2, VolumeX, Archive, Trash2, Edit3,
@@ -237,7 +238,7 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
 
         {editing ? (
           <div style={{ display: "flex", gap: 4 }}>
-            <input
+            <SafeInput
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSaveEdit(); if (e.key === "Escape") setEditing(false); }}
@@ -1326,8 +1327,8 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#FFFFFF", borderRadius: 24, padding: "6px 6px 6px 14px", boxShadow: "0 4px 16px rgba(15,23,42,0.10)" }}>
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.txt" onChange={handleFileSelect} style={{ display: "none" }} />
-              <input
-                ref={inputRef}
+              <SafeInput
+                inputRef={inputRef}
                 value={inputText}
                 onChange={handleInputChange}
                 onPaste={handlePaste}
@@ -1357,7 +1358,7 @@ function NewGroupDialog({ t, isRTL, knownEmails, currentUser, onClose, onCreate 
     <div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 340, maxWidth: "90vw", maxHeight: "80vh", background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20, display: "flex", flexDirection: "column" }}>
         <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{t({ ar: "مجموعة جديدة", en: "New group" })}</p>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t({ ar: "اسم المجموعة", en: "Group name" })} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#F1F5F9", color: "#0F172A", fontSize: 13, marginBottom: 12 }} />
+        <SafeInput value={name} onChange={(e) => setName(e.target.value)} placeholder={t({ ar: "اسم المجموعة", en: "Group name" })} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#F1F5F9", color: "#0F172A", fontSize: 13, marginBottom: 12 }} />
         <p style={{ fontSize: 12, color: "#64748B", marginBottom: 6 }}>{t({ ar: "الأعضاء", en: "Members" })}</p>
         <div style={{ overflowY: "auto", flex: 1, marginBottom: 14 }}>
           {knownEmails.map((email) => (

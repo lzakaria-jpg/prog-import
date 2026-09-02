@@ -366,6 +366,28 @@ export function parseChartFile(rows) {
   return accounts;
 }
 
+// ---------- ملفات مرجعية اختيارية: أسماء العملاء/الموردين وأرقامهم المرجعية ----------
+// اختيارية بالكامل — تُستخدَم فقط حين توجد قيود ترحّل على حساب "المدينون" أو
+// "الدائنون" الافتراضي، حيث يتطلب قيود كتابة الرقم المرجعي للعميل/المورد (لا
+// اسمه) بعمود "جهة اتصال/ضريبة/موظف". عمودان فقط: اسم + رقم مرجعي.
+export function parseNameRefFile(rows) {
+  const hIdx = findHeaderRowIndex(rows, "اسم العميل", "اسم المورد", "الاسم", "name", "الرقم المرجعي", "رقم مرجعي", "مرجعي", "reference");
+  if (hIdx === -1) return [];
+  const header = rows[hIdx].map(cellText);
+  const cName = colIndex(header, "اسم العميل", "اسم المورد", "الاسم", "name");
+  const cRef = colIndex(header, "الرقم المرجعي", "رقم مرجعي", "مرجعي", "reference", "ref");
+  if (cName === -1 || cRef === -1) return [];
+  const out = [];
+  for (let i = hIdx + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const name = cellText(r[cName]).trim();
+    const ref = cellText(r[cRef]).trim();
+    if (!name || !ref) continue;
+    out.push({ name, ref });
+  }
+  return out;
+}
+
 export function extractParentCode(raw) {
   if (!raw) return "";
   const s = String(raw).trim();
@@ -402,7 +424,19 @@ export function buildParentInfo(chartAccounts) {
   return { parentCodes, childrenByParent };
 }
 
-function normalizeAccountName(value) {
+// يبحث في شجرة الحسابات المرفقة عن كود الحساب الذي اسمه (بعد التطبيع) يطابق
+// تمامًا اسمًا معطى — لتحديد حساب افتراضي مقفل نظاميًا بقيود (مثل "المدينون"،
+// "الدائنون"، أو "ضريبة القيمة المضافة المستحقة") عبر اسمه لا عبر كود ثابت،
+// لأن كود هذه الحسابات نفسه يختلف من عميل لعميل حسب ترتيب إنشاء شجرته.
+export function findAccountCodesByExactName(chartAccounts, targetName) {
+  const target = normalizeAccountName(targetName);
+  if (!target) return [];
+  return (chartAccounts || [])
+    .filter((a) => normalizeAccountName(a.name) === target)
+    .map((a) => a.code);
+}
+
+export function normalizeAccountName(value) {
   return String(value || "").trim().toLowerCase()
     .replace(/[\u064B-\u0652]/g, "")
     .replace(/[إأآا]/g, "ا")
@@ -411,7 +445,7 @@ function normalizeAccountName(value) {
     .replace(/\s+/g, " ");
 }
 
-function accountNameSimilarity(left, right) {
+export function accountNameSimilarity(left, right) {
   const a = normalizeAccountName(left);
   const b = normalizeAccountName(right);
   if (!a || !b) return 0;
@@ -500,7 +534,99 @@ function numericCodeDistance(left, right) {
   return lengthPenalty + differences;
 }
 
+// ---------- تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف" ----------
+// قاعدتان محاسبيتان صرفتان بنظام قيود، حسب أسماء الحسابات المرفقة (لا أكوادها
+// الثابتة، لأنها تختلف من عميل لعميل):
+//  1) أي سطر يُرحَّل على حساب اسمه "ضريبة القيمة المضافة المستحقة" بالضبط:
+//     يُكتَب رمز ضريبة 15% إن كان للسطر قيمة (مدين أو دائن > 0)، أو رمز
+//     الضريبة الصفرية إن كانت القيمتان صفراً معاً — الرمزان قابلان للتغيير من
+//     المستخدم (افتراضياً "1" و"2"، وهما ثابتان نظامياً بقيود لكل منشأة جديدة).
+//  2) أي سطر يُرحَّل على حساب "المدينون" أو "الدائنون" الافتراضي: يجب أن يحمل
+//     رقم العميل/المورد المرجعي لا اسمه — نحاول إيجاده تلقائياً من ملف مرجعي
+//     اختياري (اسم + رقم مرجعي) بمطابقة الاسم مع ما هو متاح بالسطر (عمود جهة
+//     اتصال، أو التفصيل/التعليق كبديل).
+// السطور التي عدّلها المستخدم يدويًا بنفسه (_userEdited) لا تُلمَس إطلاقًا.
+const VAT_PAYABLE_ACCOUNT_NAME = "ضريبة القيمة المضافة المستحقة";
+const DEBTORS_ACCOUNT_NAME = "المدينون";
+const CREDITORS_ACCOUNT_NAME = "الدائنون";
+
+export function applyAutoContactRules(entries, chartAccounts, options = {}) {
+  if (!entries || !chartAccounts) return entries;
+  const vat15Code = String(options.vat15Code ?? "1").trim() || "1";
+  const vatZeroCode = String(options.vatZeroCode ?? "2").trim() || "2";
+  const customersRef = options.customersRef || [];
+  const suppliersRef = options.suppliersRef || [];
+
+  const vatCodes = new Set(findAccountCodesByExactName(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
+  const debtorsCodes = new Set(findAccountCodesByExactName(chartAccounts, DEBTORS_ACCOUNT_NAME));
+  const creditorsCodes = new Set(findAccountCodesByExactName(chartAccounts, CREDITORS_ACCOUNT_NAME));
+  if (!vatCodes.size && !debtorsCodes.size && !creditorsCodes.size) return entries;
+
+  const resolveRef = (candidateName, refList) => {
+    const name = String(candidateName || "").trim();
+    if (!name || !refList.length) return null;
+    let best = null;
+    for (const item of refList) {
+      const score = accountNameSimilarity(name, item.name);
+      if (score >= 0.6 && (!best || score > best.score)) best = { ...item, score };
+    }
+    return best;
+  };
+
+  let changed = false;
+  const nextEntries = entries.map((entry) => {
+    let entryChanged = false;
+    const nextRows = entry.rows.map((row) => {
+      if (row._userEdited) return row;
+
+      if (vatCodes.has(row.code)) {
+        const hasAmount = (Number(row.debit) || 0) > 0 || (Number(row.credit) || 0) > 0;
+        const nextContact = hasAmount ? vat15Code : vatZeroCode;
+        if (row.contact === nextContact && row._autoRef) return row;
+        entryChanged = true;
+        return { ...row, contact: nextContact, _autoRef: true };
+      }
+
+      const isDebtors = debtorsCodes.has(row.code);
+      const isCreditors = creditorsCodes.has(row.code);
+      if (isDebtors || isCreditors) {
+        // نتذكّر اسم العميل/المورد الأصلي (_refCandidate) حتى بعد استبدال
+        // contact برقمه المرجعي، لأن المطابقة اللاحقة (لو تغيّر الملف المرجعي)
+        // يجب أن تظل تبحث بالاسم لا بالرقم المرجعي المكتوب حاليًا.
+        const candidateName = row._autoRef ? (row._refCandidate ?? row.contact) : (row.contact || row.comment || "");
+        const match = resolveRef(candidateName, isDebtors ? customersRef : suppliersRef);
+        if (!match) return row;
+        if (row.contact === match.ref && row._autoRef) return row;
+        entryChanged = true;
+        return { ...row, contact: match.ref, _autoRef: true, _refCandidate: candidateName };
+      }
+
+      return row;
+    });
+    if (!entryChanged) return entry;
+    changed = true;
+    return { ...entry, rows: nextRows };
+  });
+  return changed ? nextEntries : entries;
+}
+
 // ---------- journal entries: two supported input schemas ----------
+// [إصلاح] خطأ حقيقي شاهده المستخدم: عمود "نوع الحساب" بملف التصدير النهائي طلع
+// فيه رمز الحساب مكررًا (نفس قيمة عمود "رمز الحساب") بدل أحد القيم الثلاث
+// المسموحة بقائمة قيود المنسدلة. السبب: Schema A (ملفات مصدرها بالفعل قالب
+// الاستيراد أو شبيه به) تقرأ "نوع الحساب" حرفيًا من أي عمود بالملف المصدر
+// يطابق هذا الاسم — فلو كان ذلك العمود بالملف المصدر (لأي سبب: تسمية عرضية
+// متطابقة، أو تصدير غريب من نظام آخر) لا يحمل فعليًا أحد القيم الثلاث
+// الصحيحة، يُمرَّر محتواه كما هو بلا أي تحقق فيفسد قالب الاستيراد. الإصلاح:
+// نتحقق أن القيمة المستخرجة إحدى القيم الثلاث المعروفة فقط، وإلا نُرجع القيمة
+// الافتراضية الآمنة "حسابات دفتر الاستاذ" (وهي الحالة الشائعة الساحقة لقيود
+// اليومية العادية) — بدل تمرير أي نص غريب كما هو.
+const ACCOUNT_TYPE_VALUES = ["حسابات دفتر الاستاذ", "دفعة من العميل", "دفعة للمورد"];
+function normalizeAccType(raw) {
+  const v = cellText(raw).trim();
+  return ACCOUNT_TYPE_VALUES.includes(v) ? v : "حسابات دفتر الاستاذ";
+}
+
 function parseTemplateSchema(rows, hIdx) {
   const header = rows[hIdx].map(cellText);
   // خطأ جوهري حقيقي شهده المستخدم: هذا العمود كان يُتعرَّف عليه فقط باسم "تسلسل القيد"
@@ -530,7 +656,7 @@ function parseTemplateSchema(rows, hIdx) {
       seq: cellText(r[cSeq]).trim(),
       date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "",
       desc: cDesc !== -1 ? cellText(r[cDesc]).trim() : "",
-      accType: cAccType !== -1 ? cellText(r[cAccType]).trim() : "حسابات دفتر الاستاذ",
+      accType: cAccType !== -1 ? normalizeAccType(r[cAccType]) : "حسابات دفتر الاستاذ",
       code: cCode !== -1 ? normalizeCode(r[cCode]) : "",
       name: cName !== -1 ? cellText(r[cName]).trim() : "",
       contact: cContact !== -1 ? cellText(r[cContact]).trim() : "",

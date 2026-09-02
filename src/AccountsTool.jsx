@@ -10,6 +10,7 @@ import {
 import { normalizeCode, extractParentCode, fixWorksheetRange } from "./lib/excelCore";
 import { matchAccountType, level2ForType } from "./lib/accountsClassifier";
 import { useTableVirtualization } from "./lib/useTableVirtualization";
+import { SafeInput } from "./lib/SafeInput";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -443,19 +444,19 @@ export default function AccountsTool() {
                       <React.Fragment key={a.code || Math.random()}>
                         <tr ref={i === 0 ? vAcc.measuredRowRef : undefined} className="border-t" style={{ borderColor: COLORS.line, background: rowIssues.length ? "#FBEDEA" : undefined }}>
                           <td className="p-2 font-mono">
-                            <input dir="ltr" value={a.code} onChange={(e) => updateAccount(a.code, "code", e.target.value)}
+                            <SafeInput dir="ltr" value={a.code} onChange={(e) => updateAccount(a.code, "code", e.target.value)}
                               className="w-24 rounded border px-1.5 py-1 font-mono text-left" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <input value={a.nameAr || ""} onChange={(e) => updateAccount(a.code, "nameAr", e.target.value)}
+                            <SafeInput value={a.nameAr || ""} onChange={(e) => updateAccount(a.code, "nameAr", e.target.value)}
                               className="w-full min-w-[140px] rounded border px-1.5 py-1" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <input dir="ltr" value={a.level} onChange={(e) => updateAccount(a.code, "level", e.target.value)}
+                            <SafeInput dir="ltr" value={a.level} onChange={(e) => updateAccount(a.code, "level", e.target.value)}
                               className="w-14 rounded border px-1.5 py-1 text-center" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <input dir="ltr" value={a.parentCode || ""} onChange={(e) => updateAccount(a.code, "parentCode", e.target.value)}
+                            <SafeInput dir="ltr" value={a.parentCode || ""} onChange={(e) => updateAccount(a.code, "parentCode", e.target.value)}
                               className="w-24 rounded border px-1.5 py-1 font-mono text-left" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">

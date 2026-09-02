@@ -9,6 +9,7 @@ import {
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityTracker";
+import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -2031,24 +2032,15 @@ export function MergeTool() {
         {results && (
           <div className="relative mb-6">
             <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-            <input
-              type="text"
+            {/* [إصلاح أقوى] SafeInput يطبّق type="search" + readOnly حتى أول focus (المانع
+                الفعلي لتعبية Chrome بإيميل محفوظ) + كل attributes المنع أدناه، بنفس النمط
+                المعمَّم الآن على كل حقول الإدخال بالتطبيق. */}
+            <SafeInput
+              name="qoyod-tree-search-no-autofill"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t({ ar: "ابحث برمز الحساب أو اسمه (عربي/انجليزي) أو نوعه...", en: "Search by account code, name (AR/EN) or type..." })}
               className="w-full rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] py-2.5 pl-9 pr-9 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-              /* [إصلاح] المتصفح كان يعبّي هذا الحقل تلقائيًا ببريد المستخدم
-                 المحفوظ (autofill) بدون أي تدخل منه، فيتحول لبحث فعلي يخطف
-                 الشاشة كاملة لنتائج بحث فاضية - نمنع أي اقتراح/تعبئة تلقائية
-                 هنا بكل الطرق المعروفة لمختلف المتصفحات ومدراء كلمات المرور. */
-              name="qoyod-tree-search-no-autofill"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck="false"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-form-type="other"
             />
             {searchInput && (<button onClick={() => { setSearchInput(""); setSearchQuery(""); }} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#64748B]" title={t({ ar: "مسح البحث", en: "Clear search" })}><X size={16} /></button>)}
           </div>
@@ -2331,7 +2323,7 @@ function EditableCell({ value, onChange, mono, wrap }) {
   const cls = `w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-[#E2E8F0] focus:border-blue-700 focus:bg-[#F1F5F9] focus:outline-none ${mono ? "font-mono" : ""}`;
   if (wrap) {
     return (
-      <textarea
+      <SafeTextarea
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
@@ -2339,15 +2331,13 @@ function EditableCell({ value, onChange, mono, wrap }) {
         rows={2}
         className={`${cls} resize-y leading-snug`}
         style={{ minWidth: 200, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-        autoComplete="off"
-        data-lpignore="true"
-        data-1p-ignore="true"
       />
     );
   }
-  // [إصلاح] بدون autoComplete="off" كان المتصفح قد يعبّي هذا الحقل تلقائيًا
-  // ببيانات محفوظة غير متعلقة - خطر هنا لأنه يحرر بيانات حساب حقيقية (رمز/اسم).
-  return <input value={value || ""} onChange={(e) => onChange(e.target.value)} title={value || ""} className={cls} autoComplete="off" data-lpignore="true" data-1p-ignore="true" />;
+  // [إصلاح أقوى] SafeInput (نفس نمط type="search" + readOnly حتى أول focus + كل
+  // attributes المنع) - autoComplete="off" وحده كان غير كافٍ لمنع تعبية بيانات محفوظة
+  // غير متعلقة في حقل يحرر بيانات حساب حقيقية (رمز/اسم).
+  return <SafeInput value={value || ""} onChange={(e) => onChange(e.target.value)} title={value || ""} className={cls} />;
 }
 
 function ExistingMatchesTable({ rows, compact }) {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import DropZone from './DropZone.jsx';
 import Note from './Note.jsx';
+import { SafeInput, SafeTextarea } from '../../lib/SafeInput.jsx';
 
 /** الخطوة ١: الاتصال بالواجهة، ورفع القالب المعتمد، وبديل رفع القوائم يدوياً */
 export default function Step1Connect({ eng }) {
@@ -23,17 +24,17 @@ export default function Step1Connect({ eng }) {
         <div className="qbi-grid2">
           <label className="f">
             <span>مفتاح الواجهة (API Key)</span>
-            <input type="password" autoComplete="off" value={eng.apiKey}
+            <SafeInput type="password" value={eng.apiKey}
               onChange={(e) => eng.setApiKey(e.target.value)} placeholder="الصق المفتاح هنا" />
           </label>
           <label className="f">
             <span>عنوان الواجهة</span>
-            <input type="text" className="mono" value={eng.baseUrl} onChange={(e) => eng.setBaseUrl(e.target.value)} />
+            <SafeInput type="text" className="mono" value={eng.baseUrl} onChange={(e) => eng.setBaseUrl(e.target.value)} />
           </label>
         </div>
         <label className="f">
           <span>وسيط CORS (اختياري — يُسبق العنوان عند تشغيل الأداة من المتصفح مباشرة)</span>
-          <input type="text" className="mono" value={eng.proxy}
+          <SafeInput type="text" className="mono" value={eng.proxy}
             onChange={(e) => eng.setProxy(e.target.value)} placeholder="http://localhost:8080/" />
         </label>
         <div className="qbi-actions">
@@ -90,11 +91,11 @@ export default function Step1Connect({ eng }) {
         </div>
         <label className="f">
           <span>الضرائب — سطر لكل ضريبة بصيغة «الاسم = النسبة» (يُتجاهل عند رفع القالب)</span>
-          <textarea rows={3} value={taxesText} onChange={(e) => setTaxesText(e.target.value)} />
+          <SafeTextarea rows={3} value={taxesText} onChange={(e) => setTaxesText(e.target.value)} />
         </label>
         <label className="f">
           <span>المواقع (المخازن) — اسم في كل سطر (يُتجاهل عند رفع القالب)</span>
-          <textarea rows={2} value={locationsText} onChange={(e) => setLocationsText(e.target.value)} />
+          <SafeTextarea rows={2} value={locationsText} onChange={(e) => setLocationsText(e.target.value)} />
         </label>
         <div className="qbi-actions">
           <button className="qbi-btn ghost"

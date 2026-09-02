@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useLanguage } from "./language";
 import { saveClaudeKey, getClaudeKey, hasClaudeKey, analyzeJournalEntries, suggestAccount, generateTemplates, autoFixEntries } from "./aiService";
 import { Sparkles, Key, Check, AlertCircle, Loader2, Wand2, FileText, Lightbulb, Zap, X } from "lucide-react";
+import { SafeInput } from "./lib/SafeInput";
 
 // ─── AI Settings Modal ─────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ export function AISettings({ onClose }) {
           </div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <Key size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#5C7196" }} />
-            <input
+            <SafeInput
               type="password"
               value={key}
               onChange={(e) => setKey(e.target.value)}

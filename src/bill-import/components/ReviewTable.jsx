@@ -3,6 +3,7 @@ import { fmtDate, toDate, num, norm } from '../lib/text.js';
 import { isBuyable, findProdBySku, buildVendorIndex, buildProductIndex } from '../lib/matching.js';
 import { rowErr, rowWarn } from '../lib/validation.js';
 import { useTableVirtualization } from '../../lib/useTableVirtualization.js';
+import { SafeInput } from '../../lib/SafeInput.jsx';
 
 const COLS = ['#', 'مرجع الفاتورة', 'المورد', 'تاريخ الإصدار', 'الاستحقاق', 'التوريد', 'الموقع', 'المنتج',
   'الكمية', 'وحدة التحويل', 'سعر الوحدة', 'إجمالي البند', 'شامل؟', 'خصم %', 'خصم قيمة', 'الضريبة', 'الملاحظات'];
@@ -28,13 +29,13 @@ export default function ReviewTable({ eng, filter, propagate }) {
   const visibleList = vt.shouldVirtualize ? list.slice(vt.startIndex, vt.endIndex) : list;
 
   const txt = (row, key) => (
-    <input type="text" value={row[key] ?? ''} onChange={(e) => eng.updateRow(row, { [key]: e.target.value })} />
+    <SafeInput value={row[key] ?? ''} onChange={(e) => eng.updateRow(row, { [key]: e.target.value })} />
   );
   const nmb = (row, key) => (
-    <input type="text" value={row[key] ?? ''} onChange={(e) => eng.updateRow(row, { [key]: num(e.target.value) })} />
+    <SafeInput value={row[key] ?? ''} onChange={(e) => eng.updateRow(row, { [key]: num(e.target.value) })} />
   );
   const dte = (row, key) => (
-    <input type="text" placeholder="يوم/شهر/سنة" value={fmtDate(row[key])}
+    <SafeInput placeholder="يوم/شهر/سنة" value={fmtDate(row[key])}
       onChange={(e) => eng.updateRow(row, { [key]: toDate(e.target.value) })} />
   );
 
@@ -64,7 +65,7 @@ export default function ReviewTable({ eng, filter, propagate }) {
                       ))}
                     </select>
                   ) : (
-                    <input type="text" list="qbi-vendors" value={row.vendorRef} placeholder="الرقم المرجعي"
+                    <SafeInput list="qbi-vendors" value={row.vendorRef} placeholder="الرقم المرجعي"
                       onChange={(e) => eng.setVendorFor(row, e.target.value, propagate)} />
                   )}
                   <div className="count">{vendor ? vendor.name : row.vendorNameRaw || row.vendorRefRaw}</div>
@@ -85,7 +86,7 @@ export default function ReviewTable({ eng, filter, propagate }) {
                       {prodCands.map((p) => <option key={p.sku} value={p.sku}>{`${p.name} — ${p.sku}`}</option>)}
                     </select>
                   ) : (
-                    <input type="text" list="qbi-products" value={row.prodSku} placeholder="SKU / باركود"
+                    <SafeInput list="qbi-products" value={row.prodSku} placeholder="SKU / باركود"
                       onChange={(e) => eng.setProductFor(row, e.target.value, propagate)} />
                   )}
                   <div className="count">{prod ? prod.name : row.prodNameRaw || row.prodRefRaw}</div>
@@ -93,7 +94,7 @@ export default function ReviewTable({ eng, filter, propagate }) {
                 <td className="num">{nmb(row, 'qty')}</td>
                 <td>{txt(row, 'unit')}</td>
                 <td className="num">
-                  <input type="text" value={row.price ?? ''}
+                  <SafeInput value={row.price ?? ''}
                     className={row.priceDerived ? 'derived' : ''}
                     title={row.priceDerived ? 'مشتق من إجمالي البند — اكتب قيمة لتثبيتها' : ''}
                     onChange={(e) => {
