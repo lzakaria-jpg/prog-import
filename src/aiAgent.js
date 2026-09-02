@@ -1,10 +1,16 @@
 import { supabase } from "./supabase";
-import { buildSystemPrompt, buildContentParts } from "./lib/aiSystemPrompt";
+import { buildSystemPrompt } from "./lib/aiSystemPrompt";
+import { callClaude, extractText } from "./lib/claudeProxy";
 
 export const AI_AGENT_EMAIL = "ai-agent@system.local";
 export const AI_AGENT_NAME_AR = "مساعد قيود (ذكاء اصطناعي)";
 export const AI_AGENT_NAME_EN = "Qoyod Assistant (AI)";
 
+// [لا تُلمَس] لا تزالان مستخدَمتين فعلياً - src/lib/aiExcelAgent.js (تحويل ملفات
+// إكسل عامة من الشات، مسار Gemini منفصل تماماً عن محادثة @AI النصية أدناه) وإعدادات
+// المدير src/auth.jsx (حقل إدخال/حفظ مفتاح Gemini). مسار المحادثة النصية العادية
+// (chatWithAgent/generateAIResponse أسفل) لم يعد يعتمد على مفتاح Gemini إطلاقاً بعد
+// التحويل لـClaude عبر claudeProxy.js (مفتاح خادم Anthropic، بلا أي إعداد مستخدم).
 export async function getGeminiKey() {
   try {
     const localKey = localStorage.getItem("gemini_api_key");
@@ -46,7 +52,7 @@ export function cleanMessageForAgent(text) {
 // الزعم بأنه "أنشأ/صحّح/أرفق" ملفاً فعلياً في رد نصي محادثة عادي، مع أن هذا
 // المسار (chatWithAgent) لا يملك أي قدرة توليد ملفات إطلاقاً - توليد الملف
 // الحقيقي يتم فقط عبر chartOrganizerAgent.js/aiExcelAgent.js في مسار منفصل
-// حتمي بالكود، لا بردّ Gemini النصي. بلا هذا القيد كان الموديل يفبرك جدول
+// حتمي بالكود، لا بردّ نصي من الموديل. بلا هذا القيد كان الموديل يفبرك جدول
 // Markdown "منجَز 100%" كامل بلا أي ملف مرفَق فعلاً - حالة حقيقية شهدها المستخدم.
 const CHAT_NO_FABRICATION_ADDENDUM = `
 
@@ -55,60 +61,77 @@ const CHAT_NO_FABRICATION_ADDENDUM = `
 ممنوع منعاً باتاً الزعم بأنك "أنشأت"، "صحّحت"، "نظّمت"، "رفعت"، أو "أرفقت" ملفاً، أو أن ملفاً "جاهز"/"متاح بتبويب آخر"، ما لم يصلك تأكيد حقيقي أن ملفاً وُلِّد فعلياً في هذه المحادثة.
 إن طلب المستخدم ملفاً منظَّماً أو مصحَّحاً ولم يصلك ملف ناتج فعلي معك الآن، وضّح له بصراحة أنك لا تستطيع توليد الملف في رد نصي، واطلب منه إرسال طلبه مع إرفاق الملف الأصلي مباشرة في نفس الرسالة (مثل: "نظّم لي شجرة الحسابات المرفقة") - هذا يُشغّل أداة التنظيم الفعلية تلقائياً ويولّد ملفاً حقيقياً جاهزاً للرفع.`;
 
-// options.attachments: [{ name, mimeType, base64 }] — images/files pasted or attached in
-// chat.jsx, sent as inlineData parts for Gemini's multimodal analysis.
-// options.user: { id, email, name, role } — the logged-in user, folded into the system
-// prompt so the assistant knows who it's replying to.
+// ─────────────────────────────────────────────────────────────────────────
+// [2026-09] تحويل محادثة @AI العادية (chatWithAgent) من Gemini (مفتاح مستخدم/مدير
+// محلي، يتعطل فعلياً بازدحام خدمة Gemini كما شهده المستخدم: "⚠️ الخدمة مزدحمة
+// مؤقتاً... This model is currently experiencing high demand") إلى Claude عبر
+// نفس الوسيط الموثوق أصلاً بالمشروع (src/lib/claudeProxy.js -> Cloudflare Pages
+// Function -> Anthropic API مباشرة بمفتاح خادم، بلا أي إعداد مطلوب من المستخدم) -
+// نفس البنية المستخدمة فعلاً وبنجاح لتنظيم شجرة الحسابات (chartOrganizerAiResolver.js).
+// aiService.js/AIPanel.jsx (لوحة تحليل منفصلة غير مستخدَمة حالياً بأي أداة) تبقى
+// Gemini كما هي بلا أي تعديل - خارج نطاق هذا التغيير تماماً.
+const CHAT_MODEL = "claude-sonnet-4-5-20250929";
+const MAX_TOKENS = 2048;
+
+function isTransientError(message) {
+  return /overloaded|rate.?limit|429|529|502|503|too many requests|capacity|unavailable|مزدحم/i.test(String(message || ""));
+}
+
+const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+// يبني content blocks بصيغة Anthropic Messages API (لا Gemini inlineData). المرفقات
+// النصية (Excel/PDF/Word/CSV/txt) تُستخرَج نصياً مسبقاً بـchat.jsx عبر
+// extractAttachmentText وتُدمَج ضمن userPrompt نفسه قبل الوصول لهنا - فلا تصل هذه
+// الدالة إلا صور فعلية (أو صيغة نادرة غير مغطاة محلياً مثل .doc القديم، تُهمَل
+// بصمت هنا بلا فقدان فعلي: لم تكن مفهومة فعلياً من Gemini's inlineData أيضاً).
+function buildClaudeContent(text, attachments) {
+  const content = [];
+  for (const att of attachments || []) {
+    if (!att || !att.base64) continue;
+    const mime = att.mimeType || "";
+    if (SUPPORTED_IMAGE_TYPES.has(mime)) {
+      content.push({ type: "image", source: { type: "base64", media_type: mime, data: att.base64 } });
+    }
+  }
+  content.push({ type: "text", text: text || "" });
+  return content;
+}
+
+// options.attachments: [{ name, mimeType, base64 }] — صور فقط عملياً (انظر تعليق
+// buildClaudeContent أعلاه)، تُرسَل كـimage content blocks لتحليل Claude متعدد الوسائط.
+// options.user: { id, email, name, role } — المستخدم الحالي المسجّل دخوله، يُدمَج
+// ضمن system prompt ليعرف المساعد من يخاطب.
 export async function chatWithAgent(userPrompt, options = {}) {
   const { attachments = [], user = null } = options;
-  const apiKey = await getGeminiKey();
-
-  if (!apiKey) {
-    return {
-      text: "🔑 يرجى الذهاب لإعدادات المدير وإدخال مفتاح Gemini API لتفعيل الشات.",
-      error: true
-    };
-  }
 
   try {
-    // Direct call to Gemini's API using the locally stored key — no Supabase Edge Function involved.
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemPrompt(user) + CHAT_NO_FABRICATION_ADDENDUM }] },
-        contents: [{ parts: buildContentParts(userPrompt, attachments) }]
-      })
+    const response = await callClaude({
+      model: CHAT_MODEL,
+      max_tokens: MAX_TOKENS,
+      system: buildSystemPrompt(user) + CHAT_NO_FABRICATION_ADDENDUM,
+      messages: [{ role: "user", content: buildClaudeContent(userPrompt, attachments) }],
     });
-
-    const data = await res.json();
-    if (data.error) {
-      // نفرّق بين ازدحام مؤقت بالخدمة (503/429 - "high demand"، "overloaded"،
-      // "quota"، "rate limit") وخطأ فعلي بالمفتاح - كانت كل الحالات تُعرَض
-      // بنفس تسمية "خطأ في المفتاح" المضلِّلة حتى لو المفتاح سليم تماماً
-      // والمشكلة مجرد ازدحام عابر بسيرفرات Gemini.
-      const status = data.error.status || "";
-      const msg = data.error.message || "";
-      const isTransient = res.status === 503 || res.status === 429 ||
-        /overloaded|high demand|quota|rate limit|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(`${status} ${msg}`);
-      const label = isTransient
-        ? "⚠️ الخدمة مزدحمة مؤقتاً، جرّب مرة أخرى بعد لحظات"
-        : "⚠️ خطأ في المفتاح";
-      return { text: `${label}: ${msg}`, error: true };
-    }
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const reply = extractText(response);
     if (!reply) {
-      return { text: "⚠️ لم يصل رد من Gemini. حاول مرة أخرى.", error: true };
+      return { text: "⚠️ لم يصل رد. حاول مرة أخرى.", error: true };
     }
     return { text: reply, error: false };
   } catch (err) {
-    return { text: "⚠️ تعذر الاتصال بسيرفر Gemini.", error: true };
+    // نفرّق بين ازدحام مؤقت بخدمة Anthropic (429/529/"overloaded"/"rate limit") وأي
+    // خطأ آخر (إعداد خادم ناقص، مفتاح غير صالح...) - بدل تسمية كل شيء بنفس الرسالة
+    // المضلِّلة كما كان يحدث سابقاً مع Gemini.
+    const msg = err?.message || "";
+    const transient = isTransientError(msg);
+    const label = transient
+      ? "⚠️ الخدمة مزدحمة مؤقتاً، جرّب مرة أخرى بعد لحظات"
+      : "⚠️ تعذر الحصول على رد";
+    return { text: `${label}${msg ? `: ${msg}` : ""}`, error: true };
   }
 }
 
 // Used directly by the chat UI (src/chat.jsx): sends the user's message (plus any pasted/
-// attached images or files, and the current user's profile) straight to Gemini with the
-// locally configured API key, and returns plain reply text.
+// attached images, and the current user's profile) to Claude via the server-side proxy,
+// and returns plain reply text.
 export async function generateAIResponse(userPrompt, options = {}) {
   const { text } = await chatWithAgent(userPrompt, options);
   return text;
