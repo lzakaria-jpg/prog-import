@@ -392,4 +392,58 @@ describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/م�
     const out = applyAutoContactRules(entries, plainChart, {});
     expect(out).toBe(entries);
   });
+
+  // [ميزة جديدة] تحديد يدوي اختياري لحساب الضريبة/المدينون/الدائنون من قائمة
+  // حسابات الشجرة — يتجاوز الاكتشاف التلقائي بالاسم فوراً حين يُحدَّد صراحةً،
+  // ويستمر الاكتشاف التلقائي يعمل كاملاً لأي حساب من الثلاثة يبقى بلا تحديد.
+  describe("تحديد يدوي لحساب الضريبة/المدينون/الدائنون (vatAccountCode/debtorsAccountCode/creditorsAccountCode)", () => {
+    it("حساب ضريبة محدَّد يدويًا برمز مختلف عن الاسم المكتشَف تلقائيًا: يُعتمَد اليدوي", () => {
+      // بالشجرة: حساب 210201 مسمّى اسماً لا يطابق شيئاً معروفاً (فيفشل الاكتشاف
+      // التلقائي بالاسم تماماً) — لكن المستخدم يحدده يدويًا برمزه المعروف "210201".
+      const chartUnnamed = [{ code: "210201", name: "حساب فرعي 210201", type: "" }];
+      const entries = [entry([{ code: "210201", debit: 450, credit: null }])];
+      const out = applyAutoContactRules(entries, chartUnnamed, { vatAccountCode: "210201" });
+      expect(out[0].rows[0].contact).toBe("1");
+    });
+
+    it("حساب مدينون محدَّد يدويًا يتجاوز الاكتشاف التلقائي حتى لو الاسم مطابقاً أصلاً لحساب آخر", () => {
+      // الاكتشاف التلقائي بالاسم سيجد "المدينون" أصلاً (120101) — لكن المستخدم
+      // يحدد يدويًا حساباً مختلفاً تماماً (130101) بدلاً منه، فيجب اعتماد تحديده.
+      const chart2 = [
+        { code: "120101", name: "المدينون", type: "" },
+        { code: "130101", name: "حساب عملاء فرعي آخر", type: "" },
+      ];
+      const entries = [entry([{ code: "130101", debit: 1000, credit: null, contact: "مؤسسة الأخوات الثلاث" }])];
+      const out = applyAutoContactRules(entries, chart2, {
+        debtorsAccountCode: "130101",
+        customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }],
+      });
+      expect(out[0].rows[0].contact).toBe("1005");
+      // الحساب "المدينون" المكتشَف تلقائياً (120101) لم يعد هو المُعتمَد — سطر عليه لا يُلمَس
+      const entries2 = [entry([{ code: "120101", debit: 500, credit: null, contact: "طرف آخر" }])];
+      const out2 = applyAutoContactRules(entries2, chart2, { debtorsAccountCode: "130101" });
+      expect(out2[0].rows[0].contact).toBe("طرف آخر");
+    });
+
+    it("[إصلاح] تغيير التحديد اليدوي من حساب لآخر يُفرِّغ القيمة القديمة المُعبَّاة تلقائياً على الحساب السابق", () => {
+      const chart3 = [
+        { code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" },
+        { code: "999999", name: "حساب آخر لا صلة له بالضريبة", type: "" },
+      ];
+      const entries = [entry([{ code: "210201", debit: 450, credit: null }])];
+      const pass1 = applyAutoContactRules(entries, chart3, {});
+      expect(pass1[0].rows[0].contact).toBe("1"); // اكتُشف تلقائياً وعُبِّي
+      // المستخدم يحدد يدويًا حساباً آخر تماماً كحساب الضريبة — 210201 لم يعد "حساب الضريبة"
+      const pass2 = applyAutoContactRules(pass1, chart3, { vatAccountCode: "999999" });
+      expect(pass2[0].rows[0].contact).toBe(""); // القيمة القديمة على 210201 فُرِّغت، لم تُترَك خطأً
+      expect(pass2[0].rows[0]._autoRef).toBe(false);
+    });
+
+    it("سطر عدّله المستخدم يدويًا (_userEdited) يبقى محمياً حتى مع تغيّر التحديد اليدوي للحساب", () => {
+      const chart4 = [{ code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" }];
+      const entries = [entry([{ code: "210201", debit: 450, credit: null, contact: "قيمة يدوية", _userEdited: true, _autoRef: true }])];
+      const out = applyAutoContactRules(entries, chart4, { vatAccountCode: "999999" });
+      expect(out[0].rows[0].contact).toBe("قيمة يدوية");
+    });
+  });
 });

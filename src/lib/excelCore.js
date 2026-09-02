@@ -565,9 +565,9 @@ function numericCodeDistance(left, right) {
 //     اختياري (اسم + رقم مرجعي) بمطابقة الاسم مع ما هو متاح بالسطر (عمود جهة
 //     اتصال، أو التفصيل/التعليق كبديل).
 // السطور التي عدّلها المستخدم يدويًا بنفسه (_userEdited) لا تُلمَس إطلاقًا.
-const VAT_PAYABLE_ACCOUNT_NAME = "ضريبة القيمة المضافة المستحقة";
-const DEBTORS_ACCOUNT_NAME = "المدينون";
-const CREDITORS_ACCOUNT_NAME = "الدائنون";
+export const VAT_PAYABLE_ACCOUNT_NAME = "ضريبة القيمة المضافة المستحقة";
+export const DEBTORS_ACCOUNT_NAME = "المدينون";
+export const CREDITORS_ACCOUNT_NAME = "الدائنون";
 
 export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   if (!entries || !chartAccounts) return entries;
@@ -576,9 +576,16 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const customersRef = options.customersRef || [];
   const suppliersRef = options.suppliersRef || [];
 
-  const vatCodes = new Set(findSystemAccountCodes(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
-  const debtorsCodes = new Set(findSystemAccountCodes(chartAccounts, DEBTORS_ACCOUNT_NAME));
-  const creditorsCodes = new Set(findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME));
+  // [ميزة جديدة] تحديد يدوي اختياري لأي من الحسابات الثلاثة (من قائمة حسابات
+  // الشجرة المرفوعة) يتجاوز الاكتشاف التلقائي بالاسم عندما يُحدَّد صراحةً —
+  // يبقى الاكتشاف التلقائي يعمل كاملاً بلا أي تغيير حين لا يُحدَّد المستخدم شيئاً.
+  const manualVat = normalizeCode(options.vatAccountCode || "");
+  const manualDebtors = normalizeCode(options.debtorsAccountCode || "");
+  const manualCreditors = normalizeCode(options.creditorsAccountCode || "");
+
+  const vatCodes = new Set(manualVat ? [manualVat] : findSystemAccountCodes(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
+  const debtorsCodes = new Set(manualDebtors ? [manualDebtors] : findSystemAccountCodes(chartAccounts, DEBTORS_ACCOUNT_NAME));
+  const creditorsCodes = new Set(manualCreditors ? [manualCreditors] : findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME));
   if (!vatCodes.size && !debtorsCodes.size && !creditorsCodes.size) return entries;
 
   const resolveRef = (candidateName, refList) => {
@@ -618,6 +625,18 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         if (row.contact === match.ref && row._autoRef) return row;
         entryChanged = true;
         return { ...row, contact: match.ref, _autoRef: true, _refCandidate: candidateName };
+      }
+
+      // [إصلاح] سطر عُبِّي تلقائياً سابقاً (_autoRef) بإحدى القواعد أعلاه، ثم لم
+      // يعد كود حسابه يقع ضمن أي من مجموعات الضريبة/المدينون/الدائنون الحالية —
+      // مثال حقيقي: المستخدم غيّر التحديد اليدوي لحساب الضريبة/المدينون/الدائنون
+      // من هذا الحساب لحساب آخر. القيمة القديمة لم تعد صحيحة تحت الإعداد الحالي
+      // إطلاقاً، فيجب تفريغها فوراً لا تركها كأنها ما زالت سارية (خطأ تصنيف حقيقي).
+      if (row._autoRef) {
+        entryChanged = true;
+        const cleared = { ...row, contact: "", _autoRef: false };
+        delete cleared._refCandidate;
+        return cleared;
       }
 
       return row;

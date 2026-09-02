@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
@@ -235,6 +235,39 @@ function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   );
 }
 
+// [ميزة جديدة] تحديد يدوي اختياري لأحد حسابات النظام المقفلة الثلاثة (الضريبة/
+// المدينون/الدائنون) من قائمة حسابات الشجرة المرفوعة مباشرةً بدل الاعتماد فقط
+// على الاكتشاف التلقائي بالاسم — يتجاوز الاكتشاف التلقائي حين يُحدَّد صراحةً
+// (بإعادة استخدام AccountPicker الحقيقي أعلاه: بحث فوري بالرمز/الاسم)، ويعرض
+// تحته دائماً نتيجة الاكتشاف التلقائي الحالية (بالاسم) كتأكيد بصري، بحيث يرى
+// المستخدم فوراً لو الاكتشاف التلقائي فشل (تماماً كما حدث فعلياً من قبل).
+function SystemAccountOverride({ label, chartAccountsList, parentCodes, value, onChange, autoCodes, chartMap }) {
+  const { t } = useLanguage();
+  return (
+    <div className="text-xs">
+      <span className="mb-1 block font-semibold" style={{ color: COLORS.ink }}>{t(label)}</span>
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <AccountPicker accounts={chartAccountsList} value={value} onChange={onChange} hasError={false} parentCodes={parentCodes} />
+        </div>
+        {value && (
+          <button type="button" onClick={() => onChange("")} className="shrink-0 rounded border px-2 py-1.5 text-[11px]" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+            {t({ ar: "تلقائي", en: "Auto" })}
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-[11px]" style={{ color: autoCodes.length ? "#64748B" : "#DC2626" }}>
+        {autoCodes.length
+          ? t({
+              ar: `اكتُشف تلقائياً: ${autoCodes.map((c) => `${c} - ${chartMap[c]?.name || c}`).join("، ")}`,
+              en: `Auto-detected: ${autoCodes.map((c) => `${c} - ${chartMap[c]?.name || c}`).join(", ")}`,
+            })
+          : t({ ar: "لم يُكتشف تلقائياً بالاسم — حدده يدوياً فوق إن وُجدت قيود عليه", en: "Not auto-detected by name — select it manually above if entries post to it" })}
+      </p>
+    </div>
+  );
+}
+
 const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, chartAccountsList, onUpdateRow, onUpdateMeta, parentCodes, onApplySuggestion, onApplyDateSuggestion, onApplyAllSuggestions, onDismiss }) {
   const { t } = useLanguage();
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
@@ -420,6 +453,13 @@ export default function JournalTool() {
   const [suppliersRefFileName, setSuppliersRefFileName] = useState("");
   const [suppliersRefBusy, setSuppliersRefBusy] = useState(false);
   const [showRefSettings, setShowRefSettings] = useState(false);
+  // [ميزة جديدة] تحديد يدوي اختياري لحساب الضريبة/المدينون/الدائنون من قائمة
+  // حسابات الشجرة المرفوعة مباشرةً — يتجاوز الاكتشاف التلقائي بالاسم حين
+  // يُحدَّد صراحةً (احتياط لو اسم الحساب بشجرة عميل معيّن غير قابل للاكتشاف
+  // حتى بالمطابقة الضبابية)، ويبقى الاكتشاف التلقائي يعمل كاملاً حين تبقى فارغة.
+  const [manualVatCode, setManualVatCode] = useState("");
+  const [manualDebtorsCode, setManualDebtorsCode] = useState("");
+  const [manualCreditorsCode, setManualCreditorsCode] = useState("");
   const [expanded, setExpanded] = useState({});
   const [copyStatus, setCopyStatus] = useState("");
   const [showManualCopy, setShowManualCopy] = useState(false);
@@ -458,11 +498,15 @@ export default function JournalTool() {
 
   const parentInfo = useMemo(() => (chartAccounts ? buildParentInfo(chartAccounts) : { parentCodes: new Set(), childrenByParent: {} }), [chartAccounts]);
 
-  // [ميزة جديدة] حساب المدينون/الدائنون الافتراضي يُحدَّد عبر اسمه بالشجرة (لا
-  // كود ثابت، يختلف من عميل لعميل) — يُستخدَم هنا لتحديد أي سطر يتطلب رقمًا
-  // مرجعيًا لعميل/مورد بعمود "جهة اتصال/ضريبة/موظف".
-  const debtorsCodes = useMemo(() => new Set(chartAccounts ? findSystemAccountCodes(chartAccounts, "المدينون") : []), [chartAccounts]);
-  const creditorsCodes = useMemo(() => new Set(chartAccounts ? findSystemAccountCodes(chartAccounts, "الدائنون") : []), [chartAccounts]);
+  // [ميزة جديدة] حساب المدينون/الدائنون/الضريبة الافتراضي يُكتشَف عبر اسمه
+  // بالشجرة تلقائياً (لا كود ثابت، يختلف من عميل لعميل)؛ autoXxxCodes تبقى
+  // دائماً نتيجة الاكتشاف التلقائي وحده (تُعرَض للمستخدم كتأكيد بصري)، بينما
+  // xxxCodes (المُستخدَمة فعلياً بالتدقيق والتعبية) تُفضِّل التحديد اليدوي إن وُجد.
+  const autoVatCodes = useMemo(() => (chartAccounts ? findSystemAccountCodes(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME) : []), [chartAccounts]);
+  const autoDebtorsCodes = useMemo(() => (chartAccounts ? findSystemAccountCodes(chartAccounts, DEBTORS_ACCOUNT_NAME) : []), [chartAccounts]);
+  const autoCreditorsCodes = useMemo(() => (chartAccounts ? findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME) : []), [chartAccounts]);
+  const debtorsCodes = useMemo(() => new Set(manualDebtorsCode ? [manualDebtorsCode] : autoDebtorsCodes), [manualDebtorsCode, autoDebtorsCodes]);
+  const creditorsCodes = useMemo(() => new Set(manualCreditorsCode ? [manualCreditorsCode] : autoCreditorsCodes), [manualCreditorsCode, autoCreditorsCodes]);
 
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(
@@ -529,6 +573,9 @@ export default function JournalTool() {
       vat15Code, vatZeroCode,
       customersRef: customersRefList || [],
       suppliersRef: suppliersRefList || [],
+      vatAccountCode: manualVatCode,
+      debtorsAccountCode: manualDebtorsCode,
+      creditorsAccountCode: manualCreditorsCode,
     });
     if (next !== entries) {
       setEntries(next);
@@ -537,7 +584,7 @@ export default function JournalTool() {
       // يُعاد تلقائياً لمجرد تغيّر entries (auditVersion هو مُحرِّكه المتعمَّد).
       setAuditVersion((version) => version + 1);
     }
-  }, [entries, chartAccounts, customersRefList, suppliersRefList, vat15Code, vatZeroCode]);
+  }, [entries, chartAccounts, customersRefList, suppliersRefList, vat15Code, vatZeroCode, manualVatCode, manualDebtorsCode, manualCreditorsCode]);
 
   useEffect(() => {
     if (!entries || !chartAccounts) return;
@@ -850,6 +897,7 @@ export default function JournalTool() {
     setCustomersRefList(null); setCustomersRefFileName("");
     setSuppliersRefList(null); setSuppliersRefFileName("");
     setVat15Code("1"); setVatZeroCode("2");
+    setManualVatCode(""); setManualDebtorsCode(""); setManualCreditorsCode("");
     setShowRefSettings(false);
   };
 
@@ -917,6 +965,34 @@ export default function JournalTool() {
                   {t({ ar: "افتراضياً 1 و2 (ثابتان نظاميًا لكل منشأة جديدة بقيود) — غيّرهما فقط لو تأكدت أن منشأة هذا العميل تستخدم رمزين مختلفين فعليًا.", en: "Default 1 and 2 (system-fixed for every new Qoyod company) — change only if this client's company actually uses different codes." })}
                 </p>
               </div>
+
+              <p className="mb-2 text-xs leading-relaxed" style={{ color: "#64748B" }}>
+                {t({
+                  ar: "تحديد يدوي اختياري: لو الاكتشاف التلقائي بالاسم لم يجد الحساب الصحيح (اسمه بشجرة هذا العميل مختلف)، اختره مباشرةً من القائمة — يتجاوز الاكتشاف التلقائي فوراً، ويعمل الاكتشاف التلقائي كاملاً كالمعتاد لأي حساب تتركه \"تلقائي\".",
+                  en: "Optional manual override: if automatic name detection didn't find the right account (this client's tree names it differently), pick it directly from the list — it takes priority immediately, while any account left on \"Automatic\" keeps working exactly as before.",
+                })}
+              </p>
+              <div className="mb-4 grid gap-4 sm:grid-cols-3">
+                <SystemAccountOverride
+                  label={{ ar: "حساب ضريبة القيمة المضافة المستحقة", en: "VAT payable account" }}
+                  chartAccountsList={chartAccounts || []} parentCodes={parentInfo.parentCodes}
+                  value={manualVatCode} onChange={setManualVatCode}
+                  autoCodes={autoVatCodes} chartMap={chartMap}
+                />
+                <SystemAccountOverride
+                  label={{ ar: "حساب المدينون الافتراضي", en: "Default Debtors account" }}
+                  chartAccountsList={chartAccounts || []} parentCodes={parentInfo.parentCodes}
+                  value={manualDebtorsCode} onChange={setManualDebtorsCode}
+                  autoCodes={autoDebtorsCodes} chartMap={chartMap}
+                />
+                <SystemAccountOverride
+                  label={{ ar: "حساب الدائنون الافتراضي", en: "Default Creditors account" }}
+                  chartAccountsList={chartAccounts || []} parentCodes={parentInfo.parentCodes}
+                  value={manualCreditorsCode} onChange={setManualCreditorsCode}
+                  autoCodes={autoCreditorsCodes} chartMap={chartMap}
+                />
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <UploadCard title={{ ar: "ملف العملاء المرجعي (اختياري)", en: "Customers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم العميل + الرقم المرجعي", en: "Two columns: customer name + reference number" }}
                   fileName={customersRefFileName} ok={!!customersRefList} busy={customersRefBusy}
