@@ -2567,8 +2567,8 @@ function collectNewDescendantRows(node) {
 const NODE_W = 172, NODE_H = 56;
 
 const TreeNodeBox = React.memo(function TreeNodeBox({
-  node, nodeKey, x, y, isOpen, isBeingDragged, isDropTarget, isDragOverTarget, isRecentlyMoved, isEditing,
-  onToggle, onSetDragged, onSetDragOver, onClearDropMessage, onDropNode, onAddChild, onDeleteNode, onToggleEditing, updateRow, availableTypesFor,
+  node, nodeKey, x, y, isOpen, isBeingDragged, isDragOverTarget, isRecentlyMoved, isEditing, isIssueOpen,
+  onToggle, onDragStart, onOpenIssue, onCloseIssue, onAddChild, onDeleteNode, onToggleEditing, updateRow, availableTypesFor,
 }) {
   const { t } = useLanguage();
   const code = node.isAnchor ? node.code : node.row.code;
@@ -2579,10 +2579,11 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
   const isReviewed = !node.isAnchor && !!node.row.reviewed;
   const issueList = !node.isAnchor ? [...(node.row.errors || []), ...(node.row.warnings || [])] : [];
   const [isHovering, setIsHovering] = useState(false);
+  const showIssuePopover = isIssueOpen && !isReviewed && issueList.length > 0;
   return (
-    <div className="absolute flex flex-col items-center" style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : isHovering ? 25 : isBeingDragged ? 20 : 1 }}
-      onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-      {isHovering && !isReviewed && issueList.length > 0 && (
+    <div className="absolute flex flex-col items-center" data-tree-node-code={code} style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: isBeingDragged ? "none" : "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : (isHovering || showIssuePopover) ? 25 : isBeingDragged ? 20 : 1 }}
+      onMouseEnter={() => { setIsHovering(true); if (!isReviewed && issueList.length > 0) onOpenIssue(); }} onMouseLeave={() => setIsHovering(false)}>
+      {showIssuePopover && (
         <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
           className="absolute z-40 w-56 rounded-lg border border-[#E2E8F0] bg-white/95 p-2 text-start text-[10.5px] leading-relaxed text-[#475569] shadow-lg backdrop-blur-sm"
           style={{ bottom: NODE_H + 8 }}>
@@ -2591,7 +2592,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
             {(node.row.warnings || []).map((w, i) => (<li key={`w${i}`} className="text-amber-600">• {w}</li>))}
           </ul>
           <button
-            onClick={(e) => { e.stopPropagation(); updateRow(node.row.id, { reviewed: true }); }}
+            onClick={(e) => { e.stopPropagation(); updateRow(node.row.id, { reviewed: true }); onCloseIssue(); }}
             className="mt-1.5 w-full rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-semibold text-emerald-600 hover:bg-emerald-500/20"
           >
             {t({ ar: "تم المراجعة", en: "Reviewed" })}
@@ -2599,13 +2600,8 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
           <div className="absolute right-6 top-full h-2 w-2 -translate-y-1 rotate-45 border-b border-r border-[#E2E8F0] bg-white/95" />
         </div>
       )}
-      <div draggable={isDraggable}
-        onDragStart={(e) => { e.stopPropagation(); onSetDragged(code); onClearDropMessage(); onToggleEditing(null); }}
-        onDragEnd={() => { onSetDragged(null); onSetDragOver(null); }}
-        onDragEnter={() => { if (isDropTarget) onSetDragOver(code); }}
-        onDragLeave={() => { onSetDragOver((c) => (c === code ? null : c)); }}
-        onDragOver={(e) => { if (isDropTarget) e.preventDefault(); }}
-        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDropNode(node); }}
+      <div
+        onPointerDown={(e) => { if (!isDraggable) return; e.stopPropagation(); onToggleEditing(null); onDragStart(code, e.clientX, e.clientY); }}
         style={{ width: NODE_W, height: NODE_H }}
         className={`relative flex flex-col justify-center rounded-lg border px-2.5 py-1.5 text-[11px] shadow-sm transition-all ${
           node.isAnchor ? "border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-[#64748B]" :
@@ -2649,7 +2645,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
       )}
     </div>
   );
-}, (p, n) => p.node === n.node && p.x === n.x && p.y === n.y && p.isOpen === n.isOpen && p.isBeingDragged === n.isBeingDragged && p.isDropTarget === n.isDropTarget && p.isDragOverTarget === n.isDragOverTarget && p.isRecentlyMoved === n.isRecentlyMoved && p.isEditing === n.isEditing && p.node.children.length === n.node.children.length);
+}, (p, n) => p.node === n.node && p.x === n.x && p.y === n.y && p.isOpen === n.isOpen && p.isBeingDragged === n.isBeingDragged && p.isDragOverTarget === n.isDragOverTarget && p.isRecentlyMoved === n.isRecentlyMoved && p.isEditing === n.isEditing && p.isIssueOpen === n.isIssueOpen && p.node.children.length === n.node.children.length);
 
 function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAccount, availableTypesFor }) {
   const { t, dir, lang } = useLanguage();
@@ -2690,14 +2686,62 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const [expanded, setExpanded] = useState(() => new Set());
   const nodeKeyOf = (node) => (node.isAnchor ? `a-${node.code}` : node.isVirtual ? node.code : node.row.id);
   const toggleExpand = useCallback((key) => { setExpanded((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }, []);
+  // كل مفاتيح العقد التي "لها أبناء" ضمن شجرة معيّنة (تُستخدم بزر توسيع/طي
+  // الكل أدناه) - لا تلمس أي عقدة خارج الشجرة المعروضة حاليًا فعليًا.
+  const collectExpandableKeys = (node) => {
+    let keys = node.children.length > 0 ? [nodeKeyOf(node)] : [];
+    node.children.forEach((c) => { keys = keys.concat(collectExpandableKeys(c)); });
+    return keys;
+  };
+  const [allExpanded, setAllExpanded] = useState(false);
   const [draggedCode, setDraggedCode] = useState(null);
   const [dragOverCode, setDragOverCode] = useState(null);
   const [dropMessage, setDropMessage] = useState(null);
   const [recentlyMovedCode, setRecentlyMovedCode] = useState(null);
   const [editingCode, setEditingCode] = useState(null);
-  const clearDropMessage = useCallback(() => setDropMessage(null), []);
   const draggedNode = draggedCode ? nodesByCode.get(draggedCode) : null;
   const draggedRoot = draggedNode ? deriveRootForRow(draggedNode.row) : null;
+
+  /*
+   * [نظام نقل جديد بالكامل بنمط "موشن"] استبدال drag & drop الأصلي بالمتصفح
+   * (draggable + onDragStart/Over/Drop) بنظام مبني على Pointer Events خالص:
+   * الحساب يتبع مؤشر الماوس مباشرة (ghostPos) بلا أي اعتماد على سلوك المتصفح
+   * الافتراضي (الذي كان يتيح لحاوية اللوحة نفسها أن "تخطف" onPointerDown
+   * فتتحرك اللوحة كاملة بدل نقل الحساب - e.stopPropagation() بالأسفل على
+   * onPointerDown للحساب القابل للسحب يمنع هذا التعارض جذريًا). العنصر
+   * العائم (الغوست) للعرض فقط ولا يمس منطق handleDrop أدناه بحرف واحد - هو
+   * نفسه بالضبط كما كان، فقط يُستدعى الآن من نقطة إفلات محسوبة عبر
+   * document.elementFromPoint بدل onDrop الأصلي.
+   */
+  const [ghostPos, setGhostPos] = useState(null);
+  const handleDragStart = useCallback((code, clientX, clientY) => {
+    setDraggedCode(code);
+    setDragOverCode(null);
+    setDropMessage(null);
+    setEditingCode(null);
+    setGhostPos({ x: clientX, y: clientY });
+  }, []);
+
+  /*
+   * [إصلاح] تنويه الأخطاء/التحذيرات فوق الحساب كان يعتمد بالكامل على
+   * onMouseEnter/onMouseLeave (isHovering) - أي حركة ماوس عابرة (حتى لو
+   * لحظية) خارج مساحة الحساب أثناء التوجّه نحو زر "تم المراجعة" كانت تُطفئه
+   * فورًا قبل ما يصل المستخدم للزر. الحل: التنويه الآن "مثبّت" (openIssueCode)
+   * بمجرد ما يفتح بالهوفر، ولا يُطفأ إلا بالضغط على "تم المراجعة" نفسه أو
+   * بالضغط في أي مكان آخر بالشاشة (مستمع نقر عام على document يتحقق من
+   * data-tree-node-code القريب من نقطة الضغط).
+   */
+  const [openIssueCode, setOpenIssueCode] = useState(null);
+  useEffect(() => {
+    if (!openIssueCode) return;
+    const handler = (e) => {
+      const hitEl = e.target && e.target.closest ? e.target.closest("[data-tree-node-code]") : null;
+      const hitCode = hitEl ? hitEl.getAttribute("data-tree-node-code") : null;
+      if (hitCode !== openIssueCode) setOpenIssueCode(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openIssueCode]);
 
   const handleDrop = (targetNode) => {
     setDropMessage(null); setDragOverCode(null);
@@ -2790,6 +2834,20 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     if (!activeBucket || activeBucket.items.length === 0) return null; if (activeBucket.items.length === 1) return activeBucket.items[0]; return { isVirtual: true, code: "__virtual__", children: activeBucket.items };
   }, [activeBucket, fullView, bucketEntries]);
   useEffect(() => { if (!rootForLayout) return; setExpanded((prev) => { const next = new Set(prev); next.add(nodeKeyOf(rootForLayout)); rootForLayout.children.forEach((child) => next.add(nodeKeyOf(child))); return next; }); }, [activeRootKey, fullView]);
+  // تبديل العرض (توسيع الكل ⇄ طي الكل) يتغيّر بتغيّر الفئة/وضع العرض الكامل -
+  // حتى لا يبقى الزر عالقًا على "طي الكل" بعد الانتقال لفئة جديدة موسّعة جزئيًا فقط.
+  useEffect(() => { setAllExpanded(false); }, [activeRootKey, fullView]);
+  const handleToggleExpandAll = useCallback(() => {
+    if (!rootForLayout) return;
+    const keys = collectExpandableKeys(rootForLayout);
+    if (allExpanded) {
+      setExpanded((prev) => { const next = new Set(prev); keys.forEach((k) => next.delete(k)); return next; });
+      setAllExpanded(false);
+    } else {
+      setExpanded((prev) => { const next = new Set(prev); keys.forEach((k) => next.add(k)); return next; });
+      setAllExpanded(true);
+    }
+  }, [rootForLayout, allExpanded]);
 
   const pruneForDisplay = (node) => { const key = nodeKeyOf(node); const isOpen = node.isVirtual || expanded.has(key); return { _node: node, _key: key, children: isOpen ? node.children.map(pruneForDisplay) : [] }; };
   const { positioned, links, canvasW, canvasH } = useMemo(() => {
@@ -2805,6 +2863,59 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     const links = root.links().filter((l) => !l.source.data._node.isVirtual).map((l) => ({ sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY }));
     return { positioned, links, canvasW: (isFinite(maxX) ? maxX - minX : 0) + NODE_W + 48, canvasH: maxY + NODE_H + 48 };
   }, [rootForLayout, expanded]);
+
+  // خريطة رمز← عقدة لكل ما هو معروض حاليًا فقط (نفس ما يراه المستخدم فعليًا) -
+  // تُستخدم لتحديد هدف الإفلات الحقيقي (حساب حقيقي أو "أب تلقائي" آنكور) عند
+  // رفع الماوس فوقه، بدل onDrop الأصلي بكل عقدة.
+  const positionedByCode = useMemo(() => {
+    const map = new Map();
+    positioned.forEach((p) => {
+      const c = p.node.isAnchor ? p.node.code : p.node.row.code;
+      if (c) map.set(c, p.node);
+    });
+    return map;
+  }, [positioned]);
+
+  // مرجع يحمل أحدث نسخة من الدوال/الخرائط التي يحتاجها مستمع pointerup على
+  // window - بلا هذا المرجع كانت الدالة المُسجَّلة عند بدء السحب (draggedCode
+  // يتحول من null لقيمة) تبقى حاملة لقيمًا قديمة (rows/treeMeta وقت ذاك)
+  // طوال السحب حتى لو تغيّرت الحالة أثناءه (dragOverCode مثلاً يعيد رسم
+  // AccountsTreeView مرارًا خلال حركة الماوس نفسها).
+  const dragRuntimeRef = useRef({ positionedByCode, handleDrop });
+  dragRuntimeRef.current.positionedByCode = positionedByCode;
+  dragRuntimeRef.current.handleDrop = handleDrop;
+
+  useEffect(() => {
+    if (!draggedCode) return;
+    const handleMove = (e) => {
+      setGhostPos({ x: e.clientX, y: e.clientY });
+      const hitEl = document.elementFromPoint(e.clientX, e.clientY);
+      const nodeEl = hitEl && hitEl.closest ? hitEl.closest("[data-tree-node-code]") : null;
+      const hitCode = nodeEl ? nodeEl.getAttribute("data-tree-node-code") : null;
+      setDragOverCode(hitCode && hitCode !== draggedCode ? hitCode : null);
+    };
+    const handleUp = (e) => {
+      const hitEl = document.elementFromPoint(e.clientX, e.clientY);
+      const nodeEl = hitEl && hitEl.closest ? hitEl.closest("[data-tree-node-code]") : null;
+      const hitCode = nodeEl ? nodeEl.getAttribute("data-tree-node-code") : null;
+      const { positionedByCode: pbc, handleDrop: doDrop } = dragRuntimeRef.current;
+      const targetNode = hitCode && hitCode !== draggedCode ? pbc.get(hitCode) : null;
+      if (targetNode) doDrop(targetNode);
+      // شبكة أمان: أيًا كان مصير الإفلات (نجح/فشل/بلا هدف)، تنظيف كامل لحالة
+      // السحب هنا دائمًا - تمامًا كضمان onDragEnd الأصلي بالمتصفح سابقًا.
+      setDraggedCode(null);
+      setDragOverCode(null);
+      setGhostPos(null);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+    };
+  }, [draggedCode]);
 
   const [zoom, setZoom] = useState(1);
   const treeScrollRef = useRef(null);
@@ -2902,6 +3013,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               <button onClick={() => setFullView((v) => !v)} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${fullView ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#CBD5E1] bg-[#F8FAFC] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{t({ ar: "☰ العرض الكامل للشجرة", en: "☰ View Entire Tree" })}</button>
             )}
               <button onClick={toggleFullscreen} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isFullscreen ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{isFullscreen ? t({ ar: "✕ إلغاء ملء الشاشة", en: "✕ Exit full screen" }) : t({ ar: "⛶ ملء الشاشة", en: "⛶ Full screen" })}</button>
+            <button onClick={handleToggleExpandAll} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${allExpanded ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{allExpanded ? t({ ar: "− طي الكل", en: "− Collapse All" }) : t({ ar: "+ توسيع الكل", en: "+ Expand All" })}</button>
             <button onClick={resetZoom} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-1.5 text-xs font-semibold text-[#64748B] hover:border-[#12B886] hover:text-[#15803D] transition">{t({ ar: "100%", en: "100%" })}</button>
             <button onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.1))} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-2 py-1.5 text-xs font-bold text-[#64748B] hover:border-[#12B886]">+</button>
             <button onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.1))} className="rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-2 py-1.5 text-xs font-bold text-[#64748B] hover:border-[#12B886]">−</button>
@@ -2923,11 +3035,20 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               </svg>
               {positioned.map(({ node, key, x, y }) => {
                 const code = node.isAnchor ? node.code : node.row.code;
-                return (<TreeNodeBox key={key} node={node} nodeKey={key} x={x} y={y} isOpen={expanded.has(key)} isBeingDragged={draggedCode === code} isDropTarget={!!draggedCode && draggedCode !== code} isDragOverTarget={!!draggedCode && draggedCode !== code && dragOverCode === code} isRecentlyMoved={recentlyMovedCode === code} isEditing={editingCode === code && !node.isAnchor} onToggle={toggleExpand} onSetDragged={setDraggedCode} onSetDragOver={setDragOverCode} onClearDropMessage={clearDropMessage} onDropNode={handleDrop} onAddChild={handleAddChild} onDeleteNode={handleDeleteNode} onToggleEditing={setEditingCode} updateRow={updateRow} availableTypesFor={availableTypesFor} />);
+                return (<TreeNodeBox key={key} node={node} nodeKey={key} x={x} y={y} isOpen={expanded.has(key)} isBeingDragged={draggedCode === code} isDragOverTarget={!!draggedCode && draggedCode !== code && dragOverCode === code} isRecentlyMoved={recentlyMovedCode === code} isEditing={editingCode === code && !node.isAnchor} isIssueOpen={openIssueCode === code} onToggle={toggleExpand} onDragStart={handleDragStart} onOpenIssue={() => setOpenIssueCode(code)} onCloseIssue={() => setOpenIssueCode(null)} onAddChild={handleAddChild} onDeleteNode={handleDeleteNode} onToggleEditing={setEditingCode} updateRow={updateRow} availableTypesFor={availableTypesFor} />);
               })}
               </div>
             </div>
           </div>
+          {draggedCode && ghostPos && draggedNode && (
+            <div
+              className="pointer-events-none fixed z-[10000] flex flex-col justify-center rounded-lg border-2 border-blue-500 bg-white px-2.5 py-1.5 text-[11px] shadow-2xl"
+              style={{ left: ghostPos.x - NODE_W / 2, top: ghostPos.y - NODE_H / 2, width: NODE_W, height: NODE_H, opacity: 0.97, transform: "scale(1.04)" }}
+            >
+              <span className="truncate font-mono text-[10px] text-[#94A3B8]">{draggedNode.row.code}</span>
+              <div className="truncate font-semibold text-[#0F172A]">{draggedNode.row.nameAr || draggedNode.row.nameEn}</div>
+            </div>
+          )}
         </>
       )}
     </div>
