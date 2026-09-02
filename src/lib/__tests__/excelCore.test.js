@@ -17,7 +17,7 @@ import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import {
   readWorkbookRows, fixWorksheetRange, parseEntriesFile, guessEntriesColumnMapping, parseEntriesFileWithMapping, normalizeDateGuess,
-  parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName,
+  parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName, findSystemAccountCodes,
 } from "../excelCore.js";
 
 function buildXlsxFile(aoa, filename = "test.xlsx") {
@@ -253,6 +253,50 @@ describe("findAccountCodesByExactName — تحديد حساب افتراضي م�
   });
 });
 
+/*
+ * [إصلاح جذري] خطأ حقيقي شاهده المستخدم: رفع شجرة حسابات حقيقية (129 حساباً)
+ * وملف "دفتر القيود" الحقيقي معاً، وبقيت خانة "جهة اتصال/ضريبة/موظف" فارغة لكل
+ * سطور حساب الضريبة (210201) رغم وجود الحساب فعلياً بالشجرة بنفس الكود — السبب:
+ * findAccountCodesByExactName يتطلب تطابقاً حرفياً تاماً للاسم بعد التطبيع، بينما
+ * الاسم المعروض الحقيقي بشجرة هذا العميل لحساب 210201 لم يطابق حرفياً الاسم
+ * النظامي الكامل "ضريبة القيمة المضافة المستحقة" (فرق نص حقيقي — اسم مختصر أو
+ * مع إضافة، حسب شجرة كل عميل). الإصلاح: findSystemAccountCodes تجرّب التطابق
+ * الحرفي أولاً، وإن لم يوجد تطابق تلجأ لنفس دالة التشابه الضبابي المستخدمة أصلاً
+ * باقتراحات الترحيل (accountNameSimilarity) بعتبة ثقة مرتفعة (0.85) — تطابق كامل
+ * أو احتواء نص أحدهما بالآخر — تكفي عملياً لتفادي مطابقة حساب مختلف تماماً خطأً.
+ */
+describe("findSystemAccountCodes — نفس المطابقة الحرفية + مطابقة ضبابية بثقة عالية كخط دفاع ثانٍ", () => {
+  it("تطابق حرفي تام: نفس نتيجة findAccountCodesByExactName", () => {
+    const chart = [{ code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" }];
+    expect(findSystemAccountCodes(chart, "ضريبة القيمة المضافة المستحقة")).toEqual(["210201"]);
+  });
+
+  it("[الخطأ الحقيقي] اسم الشجرة مختصر (بلا 'المستحقة') — يطابق ضبابياً عبر الاحتواء", () => {
+    const chart = [{ code: "210201", name: "ضريبة القيمة المضافة", type: "" }];
+    expect(findSystemAccountCodes(chart, "ضريبة القيمة المضافة المستحقة")).toEqual(["210201"]);
+  });
+
+  it("اسم الشجرة بإضافة لاحقة (مثال: تخصيص فرع/نوع) — يطابق ضبابياً عبر الاحتواء", () => {
+    const chart = [{ code: "210201", name: "ضريبة القيمة المضافة المستحقة (مبيعات)", type: "" }];
+    expect(findSystemAccountCodes(chart, "ضريبة القيمة المضافة المستحقة")).toEqual(["210201"]);
+  });
+
+  it("المدينون/الدائنون بإضافة كلمة وصفية — يطابقان ضبابياً أيضاً", () => {
+    const chart = [
+      { code: "120101", name: "حساب المدينون التجاري", type: "" },
+      { code: "210301", name: "الدائنون - تجاري", type: "" },
+    ];
+    expect(findSystemAccountCodes(chart, "المدينون")).toEqual(["120101"]);
+    expect(findSystemAccountCodes(chart, "الدائنون")).toEqual(["210301"]);
+  });
+
+  it("لا مطابقة إطلاقاً لحساب مختلف تماماً (لا تخمين خاطئ حتى بالمطابقة الضبابية)", () => {
+    const chart = [{ code: "555", name: "مصروفات الكهرباء والماء", type: "" }];
+    expect(findSystemAccountCodes(chart, "ضريبة القيمة المضافة المستحقة")).toEqual([]);
+    expect(findSystemAccountCodes([{ code: "777", name: "إيرادات متنوعة" }], "المدينون")).toEqual([]);
+  });
+});
+
 describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/موظف' تلقائياً", () => {
   const chart = [
     { code: "120101", name: "المدينون", type: "" },
@@ -329,6 +373,17 @@ describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/م�
     // الملف المرجعي تغيّر (رقم مرجعي مختلف لنفس العميل) — يجب أن يُعاد التطابق بالاسم المحفوظ لا بـ"1005"
     const pass2 = applyAutoContactRules(pass1, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "8800" }] });
     expect(pass2[0].rows[0].contact).toBe("8800");
+  });
+
+  it("[الخطأ الحقيقي] اسم حساب الضريبة بالشجرة مختصر (بلا 'المستحقة'): يجب أن تُعبَّى الخانة رغم ذلك", () => {
+    const chartShortName = [
+      { code: "120101", name: "المدينون", type: "" },
+      { code: "210301", name: "الدائنون", type: "" },
+      { code: "210201", name: "ضريبة القيمة المضافة", type: "" }, // اسم مختصر حقيقي، لا يطابق الاسم النظامي الكامل حرفياً
+    ];
+    const entries = [entry([{ code: "210201", debit: 450, credit: null }])];
+    const out = applyAutoContactRules(entries, chartShortName, {});
+    expect(out[0].rows[0].contact).toBe("1");
   });
 
   it("بلا حسابات مدينون/دائنون/ضريبة مطابقة بالشجرة أصلاً: يُرجع نفس entries بلا أي تغيير (نفس المرجع)", () => {

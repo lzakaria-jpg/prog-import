@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
@@ -461,8 +461,8 @@ export default function JournalTool() {
   // [ميزة جديدة] حساب المدينون/الدائنون الافتراضي يُحدَّد عبر اسمه بالشجرة (لا
   // كود ثابت، يختلف من عميل لعميل) — يُستخدَم هنا لتحديد أي سطر يتطلب رقمًا
   // مرجعيًا لعميل/مورد بعمود "جهة اتصال/ضريبة/موظف".
-  const debtorsCodes = useMemo(() => new Set(chartAccounts ? findAccountCodesByExactName(chartAccounts, "المدينون") : []), [chartAccounts]);
-  const creditorsCodes = useMemo(() => new Set(chartAccounts ? findAccountCodesByExactName(chartAccounts, "الدائنون") : []), [chartAccounts]);
+  const debtorsCodes = useMemo(() => new Set(chartAccounts ? findSystemAccountCodes(chartAccounts, "المدينون") : []), [chartAccounts]);
+  const creditorsCodes = useMemo(() => new Set(chartAccounts ? findSystemAccountCodes(chartAccounts, "الدائنون") : []), [chartAccounts]);
 
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(

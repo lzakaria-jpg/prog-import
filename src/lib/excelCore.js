@@ -471,6 +471,25 @@ export function accountNameSimilarity(left, right) {
   return Math.max(wordScore, 1 - previous[b.length] / width);
 }
 
+// [إصلاح جذري] المطابقة بالاسم الحرفي المطابق تمامًا (findAccountCodesByExactName)
+// هشة أمام فروقات حقيقية بنص الاسم المعروض بشجرة حسابات كل عميل — شوهد فعليًا:
+// حساب ضريبة القيمة المضافة المستحقة (كود 210201 بمثال عميل حقيقي) ظهر بملف
+// الشجرة الحقيقي باسم مختصر لا يطابق حرفيًا الاسم النظامي الكامل المتوقَّع، فبقيت
+// خانة "جهة اتصال/ضريبة/موظف" فارغة رغم أن الحساب موجود فعليًا بالشجرة بنفس الكود.
+// الحل: تطابق حرفي أولاً (الأسرع والأدق)، وإن لم يوجد نطبّق نفس دالة التشابه
+// الضبابي المستخدمة بالفعل باقتراحات الترحيل (accountNameSimilarity) بعتبة ثقة
+// مرتفعة جدًا (0.85 فأعلى — تطابق كامل أو احتواء نص أحدهما بالآخر أساسًا) تكفي
+// لتفادي مطابقة حساب مختلف تمامًا خطأً، وهي أساسية لحسابات النظام المقفلة هذه.
+export function findSystemAccountCodes(chartAccounts, targetName) {
+  const exact = findAccountCodesByExactName(chartAccounts, targetName);
+  if (exact.length) return exact;
+  const list = chartAccounts || [];
+  const matches = list
+    .map((a) => ({ code: a.code, score: accountNameSimilarity(targetName, a.name) }))
+    .filter(({ score }) => score >= 0.85);
+  return matches.map((m) => m.code);
+}
+
 export function getPostingSuggestions(code, accountName, chartAccounts, parentInfo, limit = 5) {
   const accounts = (chartAccounts || [])
     .filter((account) => !parentInfo.parentCodes.has(account.code))
@@ -557,9 +576,9 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const customersRef = options.customersRef || [];
   const suppliersRef = options.suppliersRef || [];
 
-  const vatCodes = new Set(findAccountCodesByExactName(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
-  const debtorsCodes = new Set(findAccountCodesByExactName(chartAccounts, DEBTORS_ACCOUNT_NAME));
-  const creditorsCodes = new Set(findAccountCodesByExactName(chartAccounts, CREDITORS_ACCOUNT_NAME));
+  const vatCodes = new Set(findSystemAccountCodes(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
+  const debtorsCodes = new Set(findSystemAccountCodes(chartAccounts, DEBTORS_ACCOUNT_NAME));
+  const creditorsCodes = new Set(findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME));
   if (!vatCodes.size && !debtorsCodes.size && !creditorsCodes.size) return entries;
 
   const resolveRef = (candidateName, refList) => {
