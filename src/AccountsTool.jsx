@@ -8,7 +8,7 @@ import {
   Download, Info, Copy, Sparkles,
 } from "lucide-react";
 import { normalizeCode, extractParentCode, fixWorksheetRange } from "./lib/excelCore";
-import { matchAccountType, level2ForType } from "./lib/accountsClassifier";
+import { matchAccountType, level2ForType, rootDigitForLevel2 } from "./lib/accountsClassifier";
 import { useTableVirtualization } from "./lib/useTableVirtualization";
 import { SafeInput } from "./lib/SafeInput";
 
@@ -155,24 +155,50 @@ function buildAccountsFromClientLines(lines, existingAccounts) {
   const usedCodes = new Set(existingCodes);
   const level2Accounts = {}; // type -> account object
   const proposed = [];
+  // [إصلاح] كل عمليات التعديل/الحذف والمفتاح البرمجي (key) كانت تعتمد رمز الحساب،
+  // فرمز مكرر أو فارغ يجعل التعديل يصيب عدة صفوف معًا، وkey={a._id}
+  // يولّد مفتاحًا جديدًا بكل رسم فتفقد الخانة التركيز بعد كل حرف. معرّف مستقل يحل ذلك.
+  let seqId = 0;
+  const withId = (acc) => ({ _id: `p${++seqId}`, ...acc });
   const seenNames = new Set();
 
+  // [إصلاح] عند نفاد المدى كانت الدالة تُعيد prefix+"99" بلا أي فحص — وهو رمز
+  // مستخدَم بالتأكيد، فتخرج ثلاثة حسابات أو أكثر بنفس الرمز (شوهد بالتنفيذ: 101
+  // سطرًا بفئة واحدة ← ثلاثة صفوف برمز 1099)، وvalidateAccountsList القديمة كانت
+  // تفهرس byCode[a.code] (آخر صف يفوز) فلا تُبلّغ عن التكرار إطلاقًا. الآن نوسّع
+  // عدد الخانات تلقائيًا، ولا نُعيد أبدًا رمزًا مستخدَمًا (نُعيد "" ليظهر كخطأ صريح).
   function nextCode(prefix, digits) {
-    for (let i = 1; i < Math.pow(10, digits); i++) {
-      const code = prefix + String(i).padStart(digits, "0");
-      if (!usedCodes.has(code)) return code;
+    for (let width = digits; width <= digits + 2; width++) {
+      const max = Math.pow(10, width);
+      for (let i = 1; i < max; i++) {
+        const code = prefix + String(i).padStart(width, "0");
+        if (!usedCodes.has(code)) return code;
+      }
     }
-    return prefix + "99";
+    return "";
   }
 
+  // [إصلاح] كانت الفئة (م2) تأخذ أول رقم من 10 إلى 99 غير مستخدَم، بصرف النظر عن
+  // جذرها — فتخرج فئة مصاريف بالرمز "10" (مدى الأصول 1x) وأبناؤها 1001/1002،
+  // أي رواتب وإيجار مُرقَّمة كأصول؛ وكان parentCode فارغًا فتبقى الفئة بلا أب من
+  // المستوى الأول. أول رقم بالرمز هو الجذر بقيود (1 أصول، 2 التزامات، 3 حقوق
+  // ملاك، 4 إيرادات، 5 مصاريف)، فنولّد الرمز داخل مدى جذر الفئة ونربطها به.
   function ensureLevel2(type) {
     if (level2Accounts[type]) return level2Accounts[type];
-    let candidate;
-    for (let i = 10; i < 100; i++) {
-      if (!usedCodes.has(String(i))) { candidate = String(i); break; }
+    const root = rootDigitForLevel2(type) || "9"; // 9 = مدى مؤقت للمراجعة اليدوية
+    let candidate = "";
+    for (let i = 1; i <= 9 && !candidate; i++) {
+      const c = root + String(i);
+      if (!usedCodes.has(c)) candidate = c;
     }
-    const acc = { code: candidate, nameAr: type, nameEn: "", level: 2, parentCode: "", type, description: "", canPay: "No" };
-    usedCodes.add(candidate);
+    if (!candidate) {
+      for (let i = 1; i <= 99 && !candidate; i++) {
+        const c = root + String(i).padStart(2, "0");
+        if (!usedCodes.has(c)) candidate = c;
+      }
+    }
+    const acc = withId({ code: candidate, nameAr: type, nameEn: "", level: 2, parentCode: root, type, description: "", canPay: "No" });
+    if (candidate) usedCodes.add(candidate);
     level2Accounts[type] = acc;
     proposed.push(acc);
     return acc;
@@ -190,14 +216,14 @@ function buildAccountsFromClientLines(lines, existingAccounts) {
       // from the dropdown instead of the line silently disappearing.
       const code = nextCode("9", 3); // parked under a scratch "9xxx" range, easy to spot & fix
       usedCodes.add(code);
-      proposed.push({ code, nameAr: cleanName, nameEn: "", level: 3, parentCode: "", type: "", description: "", canPay: "No" });
+      proposed.push(withId({ code, nameAr: cleanName, nameEn: "", level: 3, parentCode: "", type: "", description: "", canPay: "No" }));
       return;
     }
     const level2Type = level2ForType(type);
     const parent = ensureLevel2(level2Type);
     const code = nextCode(parent.code, 2);
     usedCodes.add(code);
-    proposed.push({ code, nameAr: cleanName, nameEn: "", level: 3, parentCode: parent.code, type, description: "", canPay: "No" });
+    proposed.push(withId({ code, nameAr: cleanName, nameEn: "", level: 3, parentCode: parent.code, type, description: "", canPay: "No" }));
   });
 
   return proposed;
@@ -206,6 +232,9 @@ function buildAccountsFromClientLines(lines, existingAccounts) {
 function validateAccountsList(accounts, existingCodesSet) {
   const byCode = {};
   accounts.forEach((a) => (byCode[a.code] = a));
+  // [إصلاح] byCode أعلاه "آخر صف يفوز"، فتكرار الرمز بين صفين لم يكن يُكتشَف أبدًا.
+  const codeCounts = new Map();
+  accounts.forEach((a) => { const c = String(a.code || "").trim(); if (c) codeCounts.set(c, (codeCounts.get(c) || 0) + 1); });
   const issues = {};
 
   function ancestorAtLevel(acc, targetLevel) {
@@ -223,6 +252,7 @@ function validateAccountsList(accounts, existingCodesSet) {
     const rowIssues = [];
     const lvl = Number(a.level);
     if (!a.code) rowIssues.push("رمز الحساب مفقود");
+    if (a.code && codeCounts.get(String(a.code).trim()) > 1) rowIssues.push(`الرمز "${a.code}" مكرر بين أكثر من حساب مقترح`);
     if (existingCodesSet.has(a.code)) rowIssues.push(`الرمز "${a.code}" مستخدم مسبقاً بالشجرة الافتراضية`);
     if (lvl === 2 && !LEVEL2_TYPES.includes(a.type)) rowIssues.push(`نوع غير صالح للمستوى الثاني: "${a.type}"`);
     if (lvl >= 3 && !LEVEL3_TYPES.includes(a.type)) rowIssues.push(`نوع غير صالح للمستوى الثالث فأعلى: "${a.type}"`);
@@ -234,7 +264,7 @@ function validateAccountsList(accounts, existingCodesSet) {
       const l2 = ancestorAtLevel(a, 2);
       if (!l2 || !EQUITY_LEVEL2_TYPES.includes(l2.type)) rowIssues.push(`نوع "رأس المال" يصح فقط ضمن حسابات حقوق الملاك`);
     }
-    if (rowIssues.length) issues[a.code] = rowIssues;
+    if (rowIssues.length) issues[a._id || a.code] = rowIssues;
   });
   return issues;
 }
@@ -321,17 +351,18 @@ export default function AccountsTool() {
   };
 
   const existingCodesSet = useMemo(() => new Set((defaultAccounts || []).map((a) => a.code)), [defaultAccounts]);
-  const issuesByCode = useMemo(() => (proposedAccounts ? validateAccountsList(proposedAccounts, existingCodesSet) : {}), [proposedAccounts, existingCodesSet]);
-  const totalIssues = Object.values(issuesByCode).reduce((s, arr) => s + arr.length, 0);
+  const issuesById = useMemo(() => (proposedAccounts ? validateAccountsList(proposedAccounts, existingCodesSet) : {}), [proposedAccounts, existingCodesSet]);
+  const totalIssues = Object.values(issuesById).reduce((s, arr) => s + arr.length, 0);
 
-  const updateAccount = (code, field, value) => {
-    setProposedAccounts((prev) => prev.map((a) => (a.code === code ? { ...a, [field]: value } : a)));
+  const updateAccount = (id, field, value) => {
+    setProposedAccounts((prev) => prev.map((a) => (a._id === id ? { ...a, [field]: value } : a)));
   };
-  const deleteAccount = (code) => {
-    setProposedAccounts((prev) => prev.filter((a) => a.code !== code));
+  const deleteAccount = (id) => {
+    setProposedAccounts((prev) => prev.filter((a) => a._id !== id));
   };
+  const blankIdRef = useRef(0);
   const addBlankAccount = () => {
-    setProposedAccounts((prev) => [...(prev || []), { code: "", nameAr: "", nameEn: "", level: 2, parentCode: "", type: LEVEL2_TYPES[0], description: "", canPay: "No" }]);
+    setProposedAccounts((prev) => [...(prev || []), { _id: `b${++blankIdRef.current}`, code: "", nameAr: "", nameEn: "", level: 2, parentCode: "", type: LEVEL2_TYPES[0], description: "", canPay: "No" }]);
   };
 
   const copyToClipboard = async () => {
@@ -410,8 +441,8 @@ export default function AccountsTool() {
           <>
             <div className="mb-6 grid grid-cols-3 gap-3">
               <SummaryStat label="إجمالي الحسابات المقترحة" value={proposedAccounts.length} color={COLORS.teal} />
-              <SummaryStat label="حسابات سليمة" value={proposedAccounts.length - Object.keys(issuesByCode).length} color={COLORS.green} />
-              <SummaryStat label="حسابات فيها ملاحظات" value={Object.keys(issuesByCode).length} color={totalIssues > 0 ? COLORS.red : COLORS.green} />
+              <SummaryStat label="حسابات سليمة" value={proposedAccounts.length - Object.keys(issuesById).length} color={COLORS.green} />
+              <SummaryStat label="حسابات فيها ملاحظات" value={Object.keys(issuesById).length} color={totalIssues > 0 ? COLORS.red : COLORS.green} />
             </div>
 
             <div className="mb-3 flex justify-end">
@@ -439,41 +470,41 @@ export default function AccountsTool() {
                     <tr aria-hidden="true"><td colSpan={7} style={{ height: vAcc.topSpacerHeight, padding: 0, border: "none" }} /></tr>
                   )}
                   {(vAcc.shouldVirtualize ? proposedAccounts.slice(vAcc.startIndex, vAcc.endIndex) : proposedAccounts).map((a, i) => {
-                    const rowIssues = issuesByCode[a.code] || [];
+                    const rowIssues = issuesById[a._id] || [];
                     return (
                       <React.Fragment key={a.code || Math.random()}>
                         <tr ref={i === 0 ? vAcc.measuredRowRef : undefined} className="border-t" style={{ borderColor: COLORS.line, background: rowIssues.length ? "#FBEDEA" : undefined }}>
                           <td className="p-2 font-mono">
-                            <SafeInput dir="ltr" value={a.code} onChange={(e) => updateAccount(a.code, "code", e.target.value)}
+                            <SafeInput dir="ltr" value={a.code} onChange={(e) => updateAccount(a._id, "code", e.target.value)}
                               className="w-24 rounded border px-1.5 py-1 font-mono text-left" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <SafeInput value={a.nameAr || ""} onChange={(e) => updateAccount(a.code, "nameAr", e.target.value)}
+                            <SafeInput value={a.nameAr || ""} onChange={(e) => updateAccount(a._id, "nameAr", e.target.value)}
                               className="w-full min-w-[140px] rounded border px-1.5 py-1" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <SafeInput dir="ltr" value={a.level} onChange={(e) => updateAccount(a.code, "level", e.target.value)}
+                            <SafeInput dir="ltr" value={a.level} onChange={(e) => updateAccount(a._id, "level", e.target.value)}
                               className="w-14 rounded border px-1.5 py-1 text-center" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <SafeInput dir="ltr" value={a.parentCode || ""} onChange={(e) => updateAccount(a.code, "parentCode", e.target.value)}
+                            <SafeInput dir="ltr" value={a.parentCode || ""} onChange={(e) => updateAccount(a._id, "parentCode", e.target.value)}
                               className="w-24 rounded border px-1.5 py-1 font-mono text-left" style={{ borderColor: COLORS.line }} />
                           </td>
                           <td className="p-2">
-                            <select value={a.type} onChange={(e) => updateAccount(a.code, "type", e.target.value)}
+                            <select value={a.type} onChange={(e) => updateAccount(a._id, "type", e.target.value)}
                               className="w-full min-w-[160px] rounded border px-1.5 py-1" style={{ borderColor: COLORS.line }}>
                               {typesForLevel(a.level).map((t) => (<option key={t} value={t}>{t}</option>))}
                             </select>
                           </td>
                           <td className="p-2">
-                            <select value={a.canPay || "No"} onChange={(e) => updateAccount(a.code, "canPay", e.target.value)}
+                            <select value={a.canPay || "No"} onChange={(e) => updateAccount(a._id, "canPay", e.target.value)}
                               className="rounded border px-1.5 py-1" style={{ borderColor: COLORS.line }}>
                               <option value="Yes">Yes</option>
                               <option value="No">No</option>
                             </select>
                           </td>
                           <td className="p-2">
-                            <button onClick={() => deleteAccount(a.code)} className="rounded border px-2 py-1 text-xs" style={{ borderColor: COLORS.red, color: COLORS.red }}>حذف</button>
+                            <button onClick={() => deleteAccount(a._id)} className="rounded border px-2 py-1 text-xs" style={{ borderColor: COLORS.red, color: COLORS.red }}>حذف</button>
                           </td>
                         </tr>
                         {rowIssues.length > 0 && (

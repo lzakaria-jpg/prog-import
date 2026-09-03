@@ -9,7 +9,7 @@
 
 import { COLUMNS } from './constants.js';
 import { INVOICE_COLUMN_KEYWORDS, AUX_FIELD_KEYWORDS, AUX_FIELD_REJECT } from './constants.js';
-import { norm, normKey, isBlank } from './text.js';
+import { norm, normKey, isBlank, normalizeNumericText } from './text.js';
 import { guessColumnsBatch } from './columnMatching.js';
 import { columnValues, sampleValuesFor, analyzeColumnShape, dateLikeRatio, normalizeDateToDMY } from './columnShape.js';
 import { normalizeYesNo, normalizePercentValue, normalizeDiscountPercentNumber, parseRateFromDropdownLabel, deriveTaxInclusive, deriveTaxRate, snapTaxCategory } from './taxAndDiscount.js';
@@ -111,6 +111,30 @@ export function getMissingRequiredAfterDerivation(mapping, refs){
 export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, createRowFn){
   const ambiguities = [];
 
+  // [إصلاح] استنتاج "شامل الضريبة؟" كان يقارن (كمية × سعر) لسطر واحد بإجمالي
+  // *الفاتورة كاملة* عند غياب عمود إجمالي البند — فأي فاتورة بأكثر من سطر تفشل
+  // كل مقارناتها وتُصنَّف "لا" افتراضيًا: قيود تضيف الضريبة فوق سعر يحتويها أصلًا
+  // (مثال مؤكَّد: سطران 115.00 شاملة و15%، إجمالي 230 ← يصبح 264.50). نحسب هنا
+  // مسبقًا عدد سطور كل فاتورة ومجموع (كمية × سعر) لها، لتتم المقارنة على مستوى
+  // الفاتورة كاملة حين يكون المرجع هو الإجمالي الكلي. إن تعذّر الحساب (سعر ناقص
+  // بأحد السطور) نُبقي السلوك الحالي حرفيًا كما هو.
+  const refH = mapping.A, qtyH = mapping.P, priceH = mapping.R;
+  const groupLineCount = new Map();
+  const groupBaseSum = new Map();
+  const groupBaseUsable = new Map();
+  if(refH){
+    rawRows.forEach(r=>{
+      const key = normKey(norm(rowGet(r, headers, refH)));
+      if(!key) return;
+      groupLineCount.set(key, (groupLineCount.get(key) || 0) + 1);
+      const q = qtyH ? parseFloat(normalizeNumericText(norm(rowGet(r, headers, qtyH)))) : NaN;
+      const pr = priceH ? parseFloat(normalizeNumericText(norm(rowGet(r, headers, priceH)))) : NaN;
+      if(isNaN(q) || isNaN(pr)){ groupBaseUsable.set(key, false); return; }
+      if(groupBaseUsable.get(key) === undefined) groupBaseUsable.set(key, true);
+      groupBaseSum.set(key, (groupBaseSum.get(key) || 0) + q*pr);
+    });
+  }
+
   const importedRows = rawRows.map(r=>{
     const row = createRowFn();
     COLUMNS.forEach(col=>{
@@ -118,6 +142,12 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       if(!h) return;
       let val = norm(rowGet(r, headers, h));
       if(col.type==='date' && val) val = normalizeDateToDMY(val);
+      // [إصلاح] الأعمدة الرقمية (الكمية/سعر الوحدة/الخصومات) كانت تُخزَّن بنصها كما
+      // هو، وكل مستهلكيها يستخدمون parseFloat مباشرةً: قيمة "1,200.00" من ملف عميل
+      // تُقرَأ 1 بصمت في حساب قيمة البند وفحص "الخصم أعلى من قيمة البند" ومحاكاة
+      // المخزون، وتُكتَب حرفيًا بالملف النهائي. التقييس هنا يجعل النص رقميًا سليمًا
+      // قبل أي استخدام، بلا لمس أي معادلة من المعادلات نفسها.
+      if(col.type==='number' && val) val = normalizeNumericText(val);
       row[col.key] = val;
     });
 
@@ -149,7 +179,16 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       const price = parseFloat(row.R);
       if(!isNaN(price)){
         const rate = isBlank(row.V) ? null : parseRateFromDropdownLabel(row.V);
-        row.S = deriveTaxInclusive({qty, price, totalForS, rate});
+        const groupKey = refH ? normKey(norm(rowGet(r, headers, refH))) : '';
+        const lineCount = groupKey ? (groupLineCount.get(groupKey) || 1) : 1;
+        const usesGrandTotal = isNaN(lineTotalVal);
+        const baseSum = groupKey ? groupBaseSum.get(groupKey) : undefined;
+        if(usesGrandTotal && lineCount > 1 && groupBaseUsable.get(groupKey) === true && baseSum > 0){
+          // مقارنة على مستوى الفاتورة كاملة: (مجموع كمية×سعر لكل سطورها) مقابل إجماليها
+          row.S = deriveTaxInclusive({qty: 1, price: baseSum, totalForS, rate});
+        } else {
+          row.S = deriveTaxInclusive({qty, price, totalForS, rate});
+        }
       }
     }
 
@@ -158,7 +197,12 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       row.V = refs.template && refs.template.loaded
         ? snapTaxCategory(normalizePercentValue(row.V), refs.template.dropdowns.V)
         : normalizePercentValue(row.V);
-    } else if(refs.template && refs.template.loaded && !isNaN(grandTotalVal) && !isBlank(row.R) && !isNaN(qty) && qty>0){
+    } else if(refs.template && refs.template.loaded && !isNaN(grandTotalVal) && !isBlank(row.R) && !isNaN(qty) && qty>0 && row.S !== 'نعم'){
+      // [إصلاح] الشرط row.S !== 'نعم' جديد: النسبة الضمنية (الإجمالي ÷ (كمية×سعر) − 1)
+      // لا تحمل أي معلومة عن الضريبة حين يكون السعر شاملًا لها أصلًا — تصبح ≈ 0
+      // فتُطابَق أقرب فئة صفرية/معفاة بالقالب، أي فاتورة شاملة 15% تُصدَّر "معفى"
+      // وتُحتسب ضريبتها صفرًا (على 115.00 يعني نقص 15.00 ريال ضريبة، ويعبر التحقق
+      // لأن "معفى" قيمة مشروعة بالقالب). نتركها فارغة ليطلبها التحقق صراحةً.
       const price = parseFloat(row.R);
       const matched = deriveTaxRate({qty, price, grandTotalVal, taxList: refs.template.dropdowns.V});
       if(matched) row.V = matched;

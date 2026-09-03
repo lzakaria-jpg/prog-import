@@ -149,10 +149,17 @@ export function remapForeignRootDigits(records) {
 
   return records.map((r) => {
     const code = String(r.code || "").trim();
-    if (!code) return r;
-    const newDigit = remap.get(code.charAt(0));
-    if (!newDigit) return r;
-    return { ...r, code: newDigit + code.slice(1) };
+    const parent = String(r.parent || "").trim();
+    const newDigit = code ? remap.get(code.charAt(0)) : undefined;
+    const newParentDigit = parent ? remap.get(parent.charAt(0)) : undefined;
+    if (!newDigit && !newParentDigit) return r;
+    // [إصلاح] كان الرمز يُعاد ترقيمه دون عمود "الأب"، فتنكسر روابط الأبناء: أب
+    // مثل "45" يصبح "55" بينما ابنه لا يزال يشير للأب "45" غير الموجود، فتُخلَق
+    // له أب وهمي تلقائي ويهبط الحساب تحت عقدة مُلفَّقة بدل أبيه الحقيقي.
+    const next = { ...r };
+    if (newDigit) next.code = newDigit + code.slice(1);
+    if (newParentDigit) next.parent = newParentDigit + parent.slice(1);
+    return next;
   });
 }
 
@@ -410,12 +417,40 @@ const LOCKED_TYPE_ALIASES = {
   "المدينون": ["المدينون", "عملاء", "عميل", "مدينون", "ذمم مدينة", "مستحقات على عملاء"],
 };
 const LOCKED_TYPE_CATEGORY = { "الدائنون": "الالتزامات المتداولة", "المدينون": "الأصول المتداولة" };
+// تطبيع يحافظ على حدود الكلمات (بخلاف normalizeArLoose الذي يحذف كل المسافات)،
+// وينزع "ال" التعريف من كل كلمة — لمقارنة اسم كامل بمرادف كامل بلا حساسية لأداة
+// التعريف، ودون أن يطابق اسمَ فئة مركّبة تحتوي كلمة المرادف بين كلماتها.
+function normalizeArWholeName(s) {
+  return String(s || "").trim().toLowerCase()
+    .replace(/[ً-ْ]/g, "")
+    .replace(/ـ/g, "")
+    .replace(/[إأآا]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.replace(/^ال/, ""))
+    .join(" ");
+}
+
+function matchesWholeAlias(name, alias) {
+  const a = normalizeArWholeName(alias);
+  return !!a && normalizeArWholeName(name) === a;
+}
+
 function matchLockedAliasType(name) {
   const n = normalizeArLoose(name);
   if (!n) return null;
   if (/اخر[ىي]/.test(n)) return null; // "... أخرى" نوع مستقل - لا يُدمَج بالحساب المقفل الأساسي أبداً
   for (const [type, aliases] of Object.entries(LOCKED_TYPE_ALIASES)) {
-    if (aliases.some((a) => n.includes(normalizeArLoose(a)))) return type;
+    // [إصلاح جذري - فقدان بيانات] كان الشرط n.includes(alias): أي غلاف مستوى 1/2
+    // اسمه *يحتوي* الكلمة يُعَدّ نفس الحساب المقفل، فيُدمَج فيه وتُعاد أبناؤه إليه
+    // ثم يُحذف كل ما تحته من ملف الرفع نهائياً. مثال حقيقي مؤكَّد بالتنفيذ: فئة
+    // "الدائنون والمصروفات المستحقة" التي تحوي (مصاريف كهرباء مستحقة، ضريبة القيمة
+    // المضافة المستحقة، قرض بنكي قصير الأجل) — الثلاثة اختفت من الملف النهائي
+    // ووُسمت "تُنشأ كسجل عميل/مورد". المقصود فعلاً هو تطابق الاسم كاملاً مع المرادف
+    // (بصرف النظر عن "ال" التعريف: "الموردون" = "موردون")، لا احتواؤه ككلمة داخل
+    // اسم فئة مركّبة — أي كلمة إضافية باسم الغلاف تعني أنه ليس الحساب المقفل نفسه.
+    if (aliases.some((a) => matchesWholeAlias(name, a))) return type;
   }
   return null;
 }
@@ -561,11 +596,42 @@ function splitEquityFromAmbiguousLiabilitiesRoot(records) {
   });
 
   if (!renameCodes.size && !remapTypeByCode.size) return records;
+
+  // [إصلاح] كان الرمز يُعاد إلى المجموعة 3 بلا أي فحص تعارض وبلا تحديث عمود الأب:
+  // لو الشجرة تحتوي أصلاً مجموعة رموز تبدأ بـ3 (مثل "3 الايرادات والمصروفات" التي
+  // لا يطابقها digitForRootName فلا تُفرَّغ)، فإن 21→31 و2101→3101 يصطدمان برموز
+  // حقيقية قائمة، وfile2ByCode يُبقي آخر صف لكل رمز فقط — فتضيع حسابات كاملة
+  // ويظهر بالمخرجات "ايرادات المبيعات" بنوع "حقوق الملاك الأخرى" و"مبيعات محلية"
+  // بنوع "رأس المال" بلا أي خطأ مرفوع. نتحقق أولاً: أي تعارض واحد يُلغي النقل
+  // كاملاً (نُبقي الشجرة كما هي، والمراجعة اليدوية أسلم من خلط مجموعتين).
+  const existingCodes = new Set(records.map((r) => String(r.code || "").trim()).filter(Boolean));
+  const movedCodes = new Set([...remapTypeByCode.keys()]);
+  const collision = [...movedCodes].some((code) => {
+    const target = "3" + code.slice(1);
+    return existingCodes.has(target) && !movedCodes.has(target);
+  });
+  if (collision) {
+    return records.map((r) => {
+      const code = String(r.code || "").trim();
+      if (code && renameCodes.has(code)) return { ...r, nameAr: "الالتزامات", nameEn: r.nameEn || "الالتزامات" };
+      return r;
+    });
+  }
+
+  const codeRemap = new Map();
+  movedCodes.forEach((code) => codeRemap.set(code, "3" + code.slice(1)));
   return records.map((r) => {
     const code = String(r.code || "").trim();
     if (!code) return r;
-    if (remapTypeByCode.has(code)) return { ...r, code: "3" + code.slice(1), type: remapTypeByCode.get(code) };
-    if (renameCodes.has(code)) return { ...r, nameAr: "الالتزامات", nameEn: r.nameEn || "الالتزامات" };
+    const parent = String(r.parent || "").trim();
+    const nextParent = parent && codeRemap.has(parent) ? codeRemap.get(parent) : parent;
+    if (remapTypeByCode.has(code)) {
+      return { ...r, code: codeRemap.get(code), parent: nextParent, type: remapTypeByCode.get(code) };
+    }
+    if (renameCodes.has(code)) {
+      return { ...r, nameAr: "الالتزامات", nameEn: r.nameEn || "الالتزامات", parent: nextParent };
+    }
+    if (nextParent !== parent) return { ...r, parent: nextParent };
     return r;
   });
 }

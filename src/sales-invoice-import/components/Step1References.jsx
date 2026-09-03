@@ -38,7 +38,7 @@ function TemplateWarning({ template }) {
 }
 
 export default function Step1References({ engine }) {
-  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep } = engine;
+  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError } = engine;
 
   const stockIsWide = stockRef.raw && detectStockFormat(stockRef.headers, stockRef.raw, template.dropdowns.G) === 'wide';
 
@@ -46,6 +46,9 @@ export default function Step1References({ engine }) {
     <div className="qsv-panel">
       <h2>الخطوة 1: رفع الملفات المرجعية</h2>
       <p className="qsv-hint">ارفع قالب قيود المحمَّل حديثًا (إلزامي)، وباقي الملفات (اختيارية لكن موصى بها بشدة لتحقق أدق).</p>
+
+      {/* [إصلاح] رسالة خطأ رفع ظاهرة — كان فشل قراءة أي ملف يُبتلَع بصمت تمامًا */}
+      {uploadError && <div className="qsv-note-box err" style={{ marginBottom: 10 }}>⛔ {uploadError}</div>}
 
       <div className="qsv-grid4">
         <UploadCard

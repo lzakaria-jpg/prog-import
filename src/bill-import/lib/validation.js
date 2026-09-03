@@ -60,7 +60,25 @@ export function inferTaxIncl(row, opts) {
   if (row.lineTotal != null && row.price != null && row.qty > 0) {
     const base = row.qty * row.price;
     const tol = Math.max(0.02, Math.abs(row.lineTotal) * 0.005);
-    row.taxIncl = Math.abs(row.lineTotal - base) <= tol;
+    const rate = row.taxPct != null && row.taxPct > 0 ? row.taxPct / 100 : null;
+    // [إصلاح جوهري] كان الاستنتاج يفترض دائمًا أن إجمالي البند بالملف *شامل*
+    // الضريبة: (الإجمالي ≈ الكمية × السعر) ⇒ "شامل = نعم". لكن الأساس المختار
+    // افتراضيًا هو "قبل الضريبة" (totalBasis='excl') وفيه نفس التساوي يعني
+    // العكس تمامًا: السعر قبل الضريبة ⇒ "شامل = لا". النتيجة كانت انعكاس القيمة
+    // على كل سطر بكل ملف بالأساس الافتراضي: 10×100 وإجمالي 1000 و15% تُصدَّر
+    // "نعم" فتحسبها قيود 869.57 + 130.43 بدل 1000 + 150 — نقص 150 ريال بكل
+    // 1000، وضريبة أقل بـ19.57. الآن نحترم الأساس المختار صراحةً، ونستخدم نسبة
+    // الضريبة المطابقة أصلًا للسطر (row.taxPct المحسوبة قبل هذه الدالة) للحالة
+    // المعاكسة، ونرجع لافتراض الأساس نفسه إن لم تتحقق أي مقارنة.
+    if (opts.totalBasis === 'incl') {
+      if (Math.abs(row.lineTotal - base) <= tol) row.taxIncl = true;
+      else if (rate && Math.abs(row.lineTotal - base * (1 + rate)) <= tol) row.taxIncl = false;
+      else row.taxIncl = true;
+    } else {
+      if (Math.abs(row.lineTotal - base) <= tol) row.taxIncl = false;
+      else if (rate && Math.abs(row.lineTotal - base / (1 + rate)) <= tol) row.taxIncl = true;
+      else row.taxIncl = false;
+    }
     row.taxInclInferred = true;
     return;
   }
@@ -157,7 +175,11 @@ export function validateRow(row, catalog, tpl, idx) {
   }
 
   // الخصم على البند
-  if (row.discPct != null && row.discPct !== '' && row.discVal != null && row.discVal !== '') {
+  // [إصلاح] كان الشرط != null فقط، والصفر قيمة موجودة — فملف فيه عمودا خصم
+  // (نسبة وقيمة) مملوءان بأصفار (شائع جدًا بتصدير الأنظمة) كان يرفع خطأً حاجبًا
+  // "لا يمكن إدخال خصم كنسبة وقيمة معًا" على كل سطر بالملف بلا وجود أي خصم فعلًا،
+  // فتصبح كل الفواتير حمراء ويتعطّل زر "تحميل الصحيحة فقط" بلا سبب حقيقي.
+  if (row.discPct > 0 && row.discVal > 0) {
     E('لا يمكن إدخال خصم كنسبة وقيمة معًا');
   }
 
@@ -171,7 +193,9 @@ export function validateRow(row, catalog, tpl, idx) {
   }
 
   // خصم المستند
-  if (row.docDiscVal != null && tplHasDocDisc(tpl) && (!row.docDiscAcc || !row.docDiscTax)) {
+  // [إصلاح] نفس علة الصفر أعلاه: عمود "خصم الفاتورة" بقيمة 0 لكل الفواتير كان
+  // يطالب بحساب خصم وفئة ضريبية لخصم غير موجود، فيمنع الاستيراد كليًا.
+  if (row.docDiscVal > 0 && tplHasDocDisc(tpl) && (!row.docDiscAcc || !row.docDiscTax)) {
     E('خصم المستند يتطلب تعبئة الحساب والفئة الضريبية (العمودان K وL)');
   }
   if (tpl) {

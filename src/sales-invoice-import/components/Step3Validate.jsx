@@ -40,7 +40,7 @@ export default function Step3Validate({ engine }) {
       <div className="qsv-actions-bar">
         <button type="button" className="qsv-btn secondary" onClick={() => goToStep(2)}>→ رجوع للإدخال</button>
         <div className="qsv-right">
-          <button type="button" className="qsv-btn secondary" onClick={revalidateNow}>🔄 إعادة التحقق</button>
+          <button type="button" className="qsv-btn secondary" onClick={() => revalidateNow()}>🔄 إعادة التحقق</button>
           <button type="button" className="qsv-btn" disabled={stats.err > 0} onClick={() => goToStep(4)}>التالي: تحميل الملف الجاهز ←</button>
         </div>
       </div>

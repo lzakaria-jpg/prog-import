@@ -126,7 +126,10 @@ export async function extractAttachmentText(file) {
     if (/\.(xlsx|xls|csv)$/i.test(name)) {
       const rows = await readSpreadsheetRows(file);
       if (!rows.length) return `[ملف "${file.name}": جدول بيانات فارغ]`;
-      return `[محتوى ملف "${file.name}" (${rows.length} سطر)]\n` + rowsToText(rows);
+      // [إصلاح] كان هذا المسار وحده بلا clampText: ملف جداول عريض (مئات الأعمدة)
+      // يتجاوز 300 صف × 120 حرفًا لكل خلية بمئات الآلاف من الأحرف، فيصل برومبت
+      // ضخم يستهلك الحد الأقصى للمدخلات ويُفشل الطلب كاملاً بدل اقتصاصه كبقية المسارات.
+      return clampText(`[محتوى ملف "${file.name}" (${rows.length} سطر)]\n` + rowsToText(rows));
     }
     if (/\.pdf$/i.test(name)) {
       const lines = await readPdfLines(file);

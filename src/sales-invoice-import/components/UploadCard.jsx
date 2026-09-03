@@ -17,7 +17,7 @@ export default function UploadCard({ id, required, title, hint, accept, status, 
           ref={inputRef}
           type="file"
           accept={accept}
-          onChange={(e) => { const f = e.target.files[0]; if (f) onFile(f); e.target.value = ''; }}
+          onChange={(e) => { const f = e.target.files[0]; if (f) Promise.resolve(onFile(f)).catch(() => {}); e.target.value = ''; }}
         />
       </label>
       <div className="qsv-status-line">{status || 'لم يُرفع بعد'}</div>

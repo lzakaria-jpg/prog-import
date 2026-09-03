@@ -4,11 +4,30 @@ import * as XLSX from "xlsx";
 export function normalizeDateGuess(raw) {
   if (raw === null || raw === undefined || raw === "") return "";
   const s = String(raw).trim();
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  const twoDigit = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (twoDigit) {
+    // [إصلاح] هذا المسار كان يُعيد النص كما هو لأنه مطابق شكليًا لـdd/mm/yyyy، لكن
+    // "12/25/2025" (M/D/YYYY من تصدير إنجليزي) مطابق للشكل أيضًا وشهره 25! فيمر
+    // حتى فحص التاريخ ويُصدَّر تاريخ مستحيل. لو الجزء الثاني > 12 فهو اليوم قطعًا.
+    const d1 = Number(twoDigit[1]), d2 = Number(twoDigit[2]);
+    if (d2 > 12 && d1 <= 12) return `${twoDigit[2]}/${twoDigit[1]}/${twoDigit[3]}`;
+    return s;
+  }
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[3].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[1]}`;
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+  if (m) {
+    // [إصلاح] نفس قاعدة الغموض المطبَّقة أدناه للسنة برقمين، كانت غائبة هنا للسنة
+    // بأربعة أرقام: لو الجزء الثاني > 12 فهو اليوم قطعًا (لا يوجد شهر 13+)، أي أن
+    // الملف بصيغة M/D/YYYY لا dd/mm/yyyy، فيجب تبديلهما. بلا هذا التبديل كان
+    // "12/25/2025" يُمرَّر حرفيًا كما هو (شهر 25!) ويعبر فحص صيغة التاريخ لأنه
+    // مطابق للشكل dd/mm/yyyy شكليًا، فيُصدَّر تاريخ مستحيل ترفضه قيود عند الرفع.
+    // لو كلاهما ≤ 12 (غموض حقيقي مثل "3/4/2025") يبقى الافتراض dd/mm كما كان
+    // تمامًا — لا تغيير في أي حالة تعمل حاليًا بشكل صحيح.
+    const first = Number(m[1]), second = Number(m[2]);
+    if (second > 12 && first <= 12) return `${m[2].padStart(2, "0")}/${m[1].padStart(2, "0")}/${m[3]}`;
+    return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+  }
   /*
    * [إصلاح] خطأ حقيقي شاهده المستخدم: ملف عميل حقيقي (344655 قيود.xls) تُخرِج
    * فيه SheetJS التاريخ بصيغة "M/D/YY" حرفيًا (شهر/يوم/سنة برقمين، مثال:
@@ -41,17 +60,37 @@ export function normalizeCode(raw) {
   if (raw === null || raw === undefined || raw === "") return "";
   if (typeof raw === "number") return String(raw);
   let s = String(raw).trim();
-  s = s.replace(/\.0$/, "");
+  // [إصلاح] readWorkbookRows تقرأ بـraw:false، أي أن SheetJS يعيد نص الخلية
+  // *المنسَّق* لا قيمتها الخام — فرمز حساب رقمي بخلية تنسيقها "#,##0" يصل
+  // كنص "110,101" ورمز بتنسيق "0.00" يصل "110101.00". شجرة الحسابات عادةً
+  // نصية فتصل "110101"، فيفشل التطابق ويُرفَع خطأ "رمز الحساب غير موجود في
+  // شجرة الحسابات" على أرقام موجودة فعلًا بالشجرة. نحذف فاصل الآلاف والكسر
+  // العشري الصفري فقط (لا نلمس الأرقام الهرمية المنقوطة مثل "1.10").
+  s = s.replace(/[,\u066C]/g, "");
+  s = s.replace(/^(\d+)\.0+$/, "$1");
   return s;
 }
 
 export function parseAmount(raw) {
   if (raw === null || raw === undefined || raw === "") return null;
   if (typeof raw === "number") return raw;
-  const s = String(raw).replace(/,/g, "").trim();
+  let s = String(raw).replace(/[,\u066C\s\u00A0]/g, "").trim();
   if (s === "" || s === "-") return null;
+  // [إصلاح] صيغتا السالب الشائعتان بتصدير الأنظمة المحاسبية لم تكونا مغطاتين:
+  // إشارة السالب اللاحقة "1000-" كانت تُقرأ 1000 موجَبًا (parseFloat يتوقف عند
+  // الإشارة فيفقدها) — خطأ جوهري بالاتجاه يمر بفحص التوازن بصمت؛ والقيمة بين
+  // قوسين "(1,000)" كانت تُقرأ null أي "لا توجد قيمة" فيختل القيد بلا سبب واضح.
+  let negative = false;
+  const parenthesised = s.match(/^\((.+)\)$/);
+  if (parenthesised) { negative = true; s = parenthesised[1]; }
+  if (/-$/.test(s)) { negative = true; s = s.replace(/-+$/, ""); }
+  if (s.startsWith("-")) { negative = !negative; s = s.slice(1); }
+  if (s === "") return null;
+  // نرفض أي بقايا غير رقمية بدل قبول بادئة رقمية فقط (parseFloat يقبل "12abc")
+  if (!/^\d*(\.\d+)?$/.test(s) || s === ".") return null;
   const n = parseFloat(s);
-  return isNaN(n) ? null : n;
+  if (isNaN(n)) return null;
+  return negative ? -n : n;
 }
 
 function cellText(v) {
@@ -415,12 +454,15 @@ export function buildParentInfo(chartAccounts) {
     if (!childrenByParent[pc]) childrenByParent[pc] = [];
     childrenByParent[pc].push(a);
   });
-  // Root/category-level accounts (e.g. Level 1 "الأصول") carry no parent code of their own,
-  // so nothing above ever lists them as a parent via the loop above — but they are never valid
-  // posting targets either. Any account with a blank parent code is itself a category header.
-  chartAccounts.forEach((a) => {
-    if (!extractParentCode(a.parentCode)) parentCodes.add(a.code);
-  });
+  // [إصلاح جذري] كان هنا مرور إضافي يضيف *كل* حساب خانة الأب فيه فارغة إلى
+  // parentCodes بحجة أنه "عنوان فئة". أثره الحقيقي كارثي: شجرة حسابات بلا عمود
+  // "الحساب الأب" إطلاقًا (شائعة جدًا بملفات العملاء) تجعل كل حساباتها بلا
+  // استثناء "حسابات رئيسية" غير قابلة للترحيل، فيرفع الفحص خطأ "لا يمكن الترحيل
+  // على حساب رئيسي" على كل سطر بالملف وتصبح الأداة غير قابلة للاستخدام مع ذلك
+  // الملف نهائيًا (وكذلك خانة اختيار الحساب تظهر فارغة تمامًا). وهو مرور زائد
+  // أصلًا: أي حساب له أبناء فعليًا أضافته الحلقة أعلاه بالفعل (إما لأن ابنه يصرّح
+  // بكوده كأب، أو لأنه يُشتق منه بالبادئة)، فبقي أثره الوحيد هو حجب الترحيل عن
+  // حسابات بلا أب وبلا أبناء — وهي أوراق ترحيل سليمة بقيود.
   return { parentCodes, childrenByParent };
 }
 
@@ -486,8 +528,20 @@ export function findSystemAccountCodes(chartAccounts, targetName) {
   const list = chartAccounts || [];
   const matches = list
     .map((a) => ({ code: a.code, score: accountNameSimilarity(targetName, a.name) }))
-    .filter(({ score }) => score >= 0.85);
-  return matches.map((m) => m.code);
+    .filter(({ score }) => score >= 0.85)
+    .sort((x, y) => y.score - x.score);
+  if (!matches.length) return [];
+  // [إصلاح] كانت الدالة تُعيد *كل* المطابقات الضبابية ≥ 0.85، وبما أن احتواء نص
+  // أحد الاسمين بالآخر يمنح 0.9 فإن حسابين مختلفين تمامًا يُصنَّفان معًا كنفس
+  // حساب النظام: مثال حقيقي مؤكَّد — "ضريبة القيمة المضافة المستحقة على المبيعات"
+  // (التزام) و"…على المشتريات" (أصل) كلاهما يطابق "ضريبة القيمة المضافة المستحقة"،
+  // فيُكتَب رمز نوع الضريبة تلقائيًا بخانة الجهة لسطور ضريبة المشتريات أيضًا. نأخذ
+  // الأفضل وحده، وعند تعادل الأفضل مع غيره لا نُرجّح شيئًا (تبقى الحالة "لم يُكتشف
+  // تلقائيًا — اختره يدويًا" الموجودة أصلًا بالواجهة) بدل تخمين قد يكون خاطئًا.
+  const best = matches[0].score;
+  const top = matches.filter((m) => m.score === best);
+  if (top.length > 1) return [];
+  return [top[0].code];
 }
 
 export function getPostingSuggestions(code, accountName, chartAccounts, parentInfo, limit = 5) {
@@ -496,10 +550,6 @@ export function getPostingSuggestions(code, accountName, chartAccounts, parentIn
     .slice()
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
   if (!accounts.length) return [];
-  const nameMatches = accounts
-    .map((account) => ({ account, score: accountNameSimilarity(accountName, account.name) }))
-    .filter(({ score }) => score >= 0.5)
-    .sort((a, b) => b.score - a.score || a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
   const rawCode = normalizeCode(code);
   for (let end = rawCode.length - 1; end > 0; end -= 1) {
     const parentCode = rawCode.slice(0, end);
@@ -521,6 +571,16 @@ export function getPostingSuggestions(code, accountName, chartAccounts, parentIn
     if (accounts.some((account) => account.code === parentCode)) return [exactParent];
   }
 
+  // [أداء] كانت مطابقة الأسماء تُحسَب مسبقًا قبل حلقة البادئة أعلاه ثم تُهمَل
+  // كليًا في الحالة الشائعة (رمز مكتوب خطأً تُحَل بادئته لأب معروف فترجع الدالة
+  // من داخل الحلقة). حسابها هنا فقط — عند الحاجة إليها فعلًا — يوفّر مرور
+  // Levenshtein كامل على شجرة الحسابات لكل رمز مجهول: على ملف كبير حقيقي
+  // (آلاف الرموز المجهولة × آلاف الحسابات) كان هذا وحده يجمّد الواجهة ثوانٍ
+  // بكل دفعة تدقيق. لا تغيير في المخرجات إطلاقًا — نفس القيم بنفس الترتيب.
+  const nameMatches = accounts
+    .map((account) => ({ account, score: accountNameSimilarity(accountName, account.name) }))
+    .filter(({ score }) => score >= 0.5)
+    .sort((a, b) => b.score - a.score || a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
   if (nameMatches.length) return nameMatches.slice(0, limit).map(({ account, score }) => ({ ...account, confidence: score >= 0.8 ? "high" : "medium", score }));
 
   return accounts
@@ -1247,13 +1307,28 @@ export function validateEntryStructure(entry, chartMap, parentInfo) {
       message: `القيد غير صالح: إجمالي المدين ${totalDebit.toLocaleString()} وإجمالي الدائن ${totalCredit.toLocaleString()} — يجب ألا يكون مجموع أي طرف صفراً (يُسمح بسطر قيمته صفر داخل قيد ذي إجماليين غير صفريين)`,
     });
   }
-  if (!entry.date || !/^\d{2}\/\d{2}\/\d{4}$/.test(entry.date)) {
+  const dateMatch = entry.date ? String(entry.date).match(/^(\d{2})\/(\d{2})\/(\d{4})$/) : null;
+  if (!dateMatch) {
     issues.push({
       id: `${entry.seq}-date`,
       type: "date_format",
       severity: "error",
       message: `تاريخ القيد مفقود أو غير مطابق لصيغة dd/mm/yyyy (القيمة الحالية: "${entry.date || "فارغ"}")`,
     });
+  } else {
+    // [إصلاح] كان الفحص شكليًا فقط (dd/mm/yyyy كنمط)، فيمر تاريخ مستحيل مثل
+    // "12/25/2025" (شهر 25) أو "31/02/2025" (31 فبراير) بلا أي خطأ، ثم يرفضه
+    // قيود عند الرفع فيرجع العميل بالملف كاملًا. نتحقق فعليًا من النطاقات.
+    const dd = Number(dateMatch[1]), mm = Number(dateMatch[2]), yyyy = Number(dateMatch[3]);
+    const daysInMonth = mm >= 1 && mm <= 12 ? new Date(yyyy, mm, 0).getDate() : 0;
+    if (mm < 1 || mm > 12 || dd < 1 || dd > daysInMonth) {
+      issues.push({
+        id: `${entry.seq}-date`,
+        type: "date_format",
+        severity: "error",
+        message: `تاريخ القيد غير موجود فعليًا بالتقويم (القيمة الحالية: "${entry.date}") — الصيغة المطلوبة dd/mm/yyyy (يوم/شهر/سنة)`,
+      });
+    }
   }
   if (!entry.desc) {
     issues.push({ id: `${entry.seq}-desc`, type: "missing_desc", severity: "error", message: "وصف القيد مفقود في السطر الأول" });

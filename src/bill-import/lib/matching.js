@@ -19,26 +19,36 @@ export const isBuyable = (p) => p.purchasable !== false && p.active !== false;
 export function buildVendorIndex(vendors) {
   const refMap = new Map();
   const nameMap = new Map();
+  // [أداء] الأسماء المُقيَّسة تُحسَب مرة واحدة هنا بدل إعادة حسابها لكل مورد لكل
+  // صف داخل المطابقة الجزئية (كانت norm تُنفَّذ 6 مرات لكل عنصر لكل صف: ملف
+  // 5000 سطر × 3000 مورد = ملايين استدعاءات regex تجمّد التبويب دقائق)، مع
+  // ذاكرة نتائج بمفتاح الاسم المكتوب لأن نفس الاسم يتكرر بمئات السطور.
+  const list = [];
   for (const v of vendors) {
     const r = norm(v.ref);
+    const nn = norm(v.name);
     if (!refMap.has(r)) refMap.set(r, v);
-    if (!nameMap.has(norm(v.name))) nameMap.set(norm(v.name), []);
-    nameMap.get(norm(v.name)).push(v);
+    if (!nameMap.has(nn)) nameMap.set(nn, []);
+    nameMap.get(nn).push(v);
+    list.push({ v, nn });
   }
-  return { refMap, nameMap };
+  return { refMap, nameMap, list, looseCache: new Map() };
 }
 
 /** فهرسة المنتجات مرة واحدة — نفس مبدأ buildVendorIndex أعلاه */
 export function buildProductIndex(products) {
   const skuMap = new Map();
   const nameMap = new Map();
+  const list = [];
   for (const p of products) {
     const s = norm(p.sku);
+    const nn = norm(p.name);
     if (!skuMap.has(s)) skuMap.set(s, p);
-    if (!nameMap.has(norm(p.name))) nameMap.set(norm(p.name), []);
-    nameMap.get(norm(p.name)).push(p);
+    if (!nameMap.has(nn)) nameMap.set(nn, []);
+    nameMap.get(nn).push(p);
+    list.push({ p, nn });
   }
-  return { skuMap, nameMap };
+  return { skuMap, nameMap, list, looseCache: new Map() };
 }
 
 /**
@@ -59,9 +69,19 @@ export function matchVendor(row, vendors, idx) {
   if (name) {
     let c = idx ? (idx.nameMap.get(norm(name)) || []) : vendors.filter((v) => norm(v.name) === norm(name));
     if (!c.length) {
-      c = vendors.filter(
-        (v) => norm(v.name) && norm(name) && (norm(v.name).includes(norm(name)) || norm(name).includes(norm(v.name)))
-      );
+      const nn = norm(name);
+      if (idx && idx.list) {
+        const cached = idx.looseCache.get(nn);
+        if (cached) c = cached;
+        else {
+          c = idx.list.filter((e) => e.nn && nn && (e.nn.includes(nn) || nn.includes(e.nn))).map((e) => e.v);
+          idx.looseCache.set(nn, c);
+        }
+      } else {
+        c = vendors.filter(
+          (v) => norm(v.name) && nn && (norm(v.name).includes(nn) || nn.includes(norm(v.name)))
+        );
+      }
     }
     if (c.length === 1) return { v: c[0], by: 'name', cands: [] };
     if (c.length > 1) return { v: null, by: 'dup', cands: c };
@@ -99,9 +119,21 @@ export function matchProduct(row, products, idx) {
   if (name) {
     let c = prefer(idx ? (idx.nameMap.get(norm(name)) || []) : products.filter((p) => norm(p.name) === norm(name)));
     if (!c.length) {
-      c = prefer(products.filter(
-        (p) => norm(p.name) && norm(name) && (norm(p.name).includes(norm(name)) || norm(name).includes(norm(p.name)))
-      ));
+      const nn = norm(name);
+      let loose;
+      if (idx && idx.list) {
+        const cached = idx.looseCache.get(nn);
+        if (cached) loose = cached;
+        else {
+          loose = idx.list.filter((e) => e.nn && nn && (e.nn.includes(nn) || nn.includes(e.nn))).map((e) => e.p);
+          idx.looseCache.set(nn, loose);
+        }
+      } else {
+        loose = products.filter(
+          (p) => norm(p.name) && nn && (norm(p.name).includes(nn) || nn.includes(norm(p.name)))
+        );
+      }
+      c = prefer(loose);
     }
     if (c.length === 1) return { p: c[0], by: 'name', cands: [] };
     if (c.length > 1) return { p: null, by: 'dup', cands: c.slice(0, 25) };

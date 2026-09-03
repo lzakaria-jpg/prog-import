@@ -43,7 +43,7 @@ export default function Step2Entry({ engine }) {
           اختر ملف الفواتير
           <input
             ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
-            onChange={(e) => { const f = e.target.files[0]; if (f) uploadInvoiceImportFile(f); e.target.value = ''; }}
+            onChange={(e) => { const f = e.target.files[0]; if (f) Promise.resolve(uploadInvoiceImportFile(f)).catch(() => {}); e.target.value = ''; }}
           />
         </label>
         <div className="qsv-status-line">{invoiceImportStatus}</div>

@@ -1,5 +1,10 @@
 /** رسالة حالة صغيرة تحت كل شاشة */
 export default function Note({ note }) {
   if (!note || !note.text) return null;
-  return <div className={`qbi-msg ${note.kind || 'info'}`} dangerouslySetInnerHTML={{ __html: note.text }} />;
+  // [إصلاح أمني] كان النص يُحقَن كـHTML عبر dangerouslySetInnerHTML، ونصوص
+  // الملاحظات تُبنى من مدخلات غير موثوقة (اسم ورقة القالب، اسم الملف المرفوع،
+  // نص رسالة الخطأ) — فملف xlsx مُعَدّ باسم ورقة يحتوي وسمًا مع onerror ينفّذ
+  // سكربتًا داخل الصفحة نفسها التي تحمل مفتاح واجهة قيود بخانة الإدخال. لا نص
+  // ملاحظة واحد بالأداة يحتوي وسوم HTML فعلًا، فالعرض النصي بلا أي فرق مرئي.
+  return <div className={`qbi-msg ${note.kind || 'info'}`}>{note.text}</div>;
 }

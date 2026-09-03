@@ -160,11 +160,15 @@ function MessageBubble({ msg, isOwn, isRTL, lang, canDeleteThis, canEditThis, ca
   const [editText, setEditText] = useState(msg.content || "");
   const menuRef = useRef(null);
 
+  // [أداء] كان المستمع يُسجَّل على document لكل بطاقة رسالة معروضة وطوال عمرها،
+  // فمحادثة بـ500 رسالة = 500 مستمع mousedown ينفَّذون جميعًا بكل نقرة بالصفحة.
+  // نسجّله فقط أثناء فتح قائمة هذه الرسالة تحديدًا (نفس السلوك بالضبط).
   useEffect(() => {
+    if (!showMenu) return undefined;
     const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [showMenu]);
 
   const handleSaveEdit = () => {
     if (editText.trim() && editText !== msg.content) {
@@ -392,9 +396,13 @@ async function notifyMention({ recipient, actor, message, channelLabel }) {
     if (recent && recent.length) return; // نُفَاد إرسال بريد مكرَّر خلال نافذة قصيرة
 
     await supabase.from("email_notifications_log").insert({ recipient_email: recipient, actor_email: actor, message_id: message?.id || null });
-    // أفضل جهد: يتطلب RESEND_API_KEY على الخادم (Netlify) ليعمل فعلياً — إن لم
-    // يكن مُعداً فالدالة تفشل بصمت، ويبقى الإشعار داخل التطبيق يعمل دائماً
-    fetch("/.netlify/functions/send-mention-email", {
+    // أفضل جهد: يتطلب RESEND_API_KEY وRESEND_FROM على الخادم ليعمل فعلياً — إن لم
+    // يكونا مُعدَّين تُعيد الدالة {skipped:true}، ويبقى الإشعار داخل التطبيق يعمل دائماً.
+    // [إصلاح 2026-09] كان المسار "/.netlify/functions/send-mention-email" وهو غير
+    // موجود إطلاقاً على نشر Cloudflare Pages الحالي، والاستدعاء مُغلَّف بـcatch فارغ
+    // فكان بريد الإشارة يفشل بصمت تام منذ الانتقال. المسار الصحيح للنشر الفعلي هو
+    // /api/send-mention-email (functions/api/send-mention-email.js).
+    fetch("/api/send-mention-email", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: recipient, actor, preview: (message?.content || "").slice(0, 300), channelLabel }),
     }).catch(() => {});
@@ -425,6 +433,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [unreadCounts, setUnreadCounts] = useState({});
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false); // حارس فوري ضد الإرسال المتزامن (Enter السريع)
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [attachError, setAttachError] = useState(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -516,7 +525,13 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         );
       }
       const { data, error } = await query.order("created_at", { ascending: true }).limit(500);
-      if (data) {
+      // [إصلاح] كان `if (data)` فقط: لو فشل الاستعلام (data=null مع error) تبقى
+      // رسائل القناة *السابقة* معروضة كما هي داخل القناة الجديدة — يظهر للمستخدم
+      // أنها محادثة هذه القناة، وأي إرسال بعدها يُقرأ بسياق محادثة أخرى تمامًا.
+      if (error) {
+        console.error("[chat] Load error:", error);
+        setMessages([]);
+      } else if (data) {
         if (activeChannel !== "public") {
           const filtered = data.filter((m) => isDmRelevant(m, currentUser, activeChannel));
           setMessages(filtered);
@@ -704,9 +719,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
 
   const handleSend = async () => {
     if (!canSend) return;
+    // [إصلاح] زر الإرسال معطَّل أثناء الإرسال (disabled={sending}) لكن Enter كان
+    // يستدعي handleSend مباشرةً بلا أي حارس: ضغطتان سريعتان تُرسلان الرسالة مرتين
+    // وتُطلقان ردَّي ذكاء اصطناعي متزامنين. الحارس بـref يعمل فورًا (setState غير
+    // متزامن فلا يكفي هنا).
+    if (sendingRef.current) return;
     const text = inputText.trim();
     const attachments = pendingAttachments;
     if (!text && attachments.length === 0) return;
+    sendingRef.current = true;
     setInputText("");
     setPendingAttachments([]);
     setAttachError(null);
@@ -752,7 +773,7 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           }
         }
       } else {
-        const { data } = await supabase.from("chat_messages").insert({
+        const { data, error: insertError } = await supabase.from("chat_messages").insert({
           sender_email: currentUser,
           recipient_email: recipientForDB,
           group_id: groupId,
@@ -760,6 +781,9 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
           message_type: "text",
           mentions: mentionedEmails.length ? mentionedEmails : null,
         }).select().maybeSingle();
+        // [إصلاح] خطأ الإدخال كان يُتجاهَل تمامًا (لا يُرمى ولا يُعرَض)، فتختفي
+        // الرسالة بصمت ويستمر المسار كأنها حُفظت.
+        if (insertError) throw insertError;
         lastInsertedMsg = data;
       }
 
@@ -890,7 +914,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
         content: replyText,
         message_type: "text",
       });
+    } catch (err) {
+      // [إصلاح] كانت الدالة try/finally بلا catch: أي فشل بالإدخال (انقطاع شبكة،
+      // رفض RLS) يضيع نص الرسالة نهائيًا لأنه فُرِّغ من الخانة قبل الإرسال، بلا أي
+      // إشعار — يظن المستخدم أنها أُرسلت. نُعيد النص للخانة ونُظهر السبب.
+      console.error("[chat] Send failed:", err);
+      setInputText((cur) => (cur ? cur : text));
+      setAttachError(err?.message || "تعذّر إرسال الرسالة — تحقق من الاتصال وحاول مرة أخرى.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
       setAgentTyping(false);
       setAiWorking(false);

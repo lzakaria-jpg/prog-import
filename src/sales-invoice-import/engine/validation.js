@@ -13,6 +13,12 @@ import { checkStockSequential } from './stockSimulation.js';
 
 // refs: {template:{loaded,dropdowns,missingFields}, products:{loaded,bySku,byName}, customers:{loaded,byRef,byName}, stock:{loaded,byKey}}
 export function runValidation(rows, refs = {}){
+  // [أداء] أرقام الصفوف بالرسائل كانت تُستخرَج بـrows.indexOf داخل حلقات تمرّ على
+  // كل مجموعة فاتورة — أي مسح خطي لكل صف بكل رسالة (ملف 5000 صف ≈ ملايين
+  // المقارنات بكل إعادة تحقق، وإعادة التحقق تجري بكل ضغطة مفتاح بالخطوة 3).
+  // خريطة id←فهرس تُبنى مرة واحدة: نفس الأرقام بالضبط، بلا أي تغيير بالمخرجات.
+  const rowIndexById = new Map();
+  (rows || []).forEach((r, i) => { if(r && r.id !== undefined) rowIndexById.set(r.id, i); });
   const issuesByRow = {}; // id -> {colKey: [{sev,msg}]}
   const summary = []; // {sev, msg, rowId, colKey}
 
@@ -103,7 +109,7 @@ export function runValidation(rows, refs = {}){
           rowsInGroup.forEach((r,i)=>{
             if(i===0) return;
             if(norm(r[hk]) !== '' && norm(r[hk]) !== norm(rowsInGroup[0][hk])){
-              const rn = rows.indexOf(r)+1;
+              const rn = (rowIndexById.get(r.id) ?? rows.indexOf(r))+1;
               addIssue(r.id, hk, 'err', `السطر ${rn}: قيمة "${COLUMNS.find(c=>c.key===hk).name}" تختلف عن السطر الأول لنفس مرجع الفاتورة (${key}). اتركها فارغة أو طابقها تمامًا.`);
             }
           });
@@ -115,7 +121,7 @@ export function runValidation(rows, refs = {}){
     ['C','D','G'].forEach(hk=>{
       const hasAny = rowsInGroup.some(r=>!isBlank(r[hk]));
       if(!hasAny){
-        const rn = rows.indexOf(rowsInGroup[0])+1;
+        const rn = (rowIndexById.get(rowsInGroup[0].id) ?? rows.indexOf(rowsInGroup[0]))+1;
         addIssue(rowsInGroup[0].id, hk, 'err', `مجموعة الفاتورة "${key}" (بدءًا من السطر ${rn}): حقل "${COLUMNS.find(c=>c.key===hk).name}" إلزامي ولم يُعبَّأ في أي سطر من المجموعة.`);
       }
     });
@@ -166,7 +172,7 @@ export function runValidation(rows, refs = {}){
     const k = parseFloat(kRow.K);
     if(isNaN(k)) return;
     if(k > Math.max(0, net) + 0.005){
-      const rn = rows.indexOf(kRow)+1;
+      const rn = (rowIndexById.get(kRow.id) ?? rows.indexOf(kRow))+1;
       addIssue(kRow.id,'K','err',`الفاتورة "${key}" (السطر ${rn}): قيمة خصم المستند (${k}) أعلى من إجمالي قيمة الفاتورة (${round2(net)}) — عدّل قيمة الخصم ليكون أقل من إجمالي الفاتورة أو مساويًا له.`);
     }
   });

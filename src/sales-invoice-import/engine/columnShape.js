@@ -3,7 +3,7 @@
    تقرآن state.template.dropdowns.G مباشرة؛ هنا تُمرَّر templateLocations كوسيط،
    وجسم كل دالة حرفي بلا أي تغيير آخر. */
 
-import { norm, normKey } from './text.js';
+import { norm, normKey, normalizeNumericText } from './text.js';
 import { tokenize } from './columnMatching.js';
 import { parseDateParts, formatDateParts } from './dates.js';
 
@@ -32,7 +32,11 @@ export function analyzeColumnShape(values){
   let numericCount=0, percentSuffixCount=0, fractionLikeCount=0, moneyLikeCount=0;
   sample.forEach(v=>{
     const isPercentSuffix = /%$/.test(v);
-    const numPart = v.replace('%','').replace(',','.').trim();
+    // [إصلاح] كان `replace(',','.')` يستبدل أول فاصلة فقط، فـ"1,200.00" تصبح
+    // "1.200.00" ولا تطابق نمط الرقم، فتهبط نسبة "رقمية" للعمود إلى ~0 ويُرفَض
+    // تخمين عمود صحيح تمامًا (الكمية/سعر الوحدة) بحُجّة أنه غير رقمي — بينما
+    // columnStats بنفس الملف تقبل الفواصل، فكانت الدالتان تتناقضان.
+    const numPart = normalizeNumericText(v).replace('%','').trim();
     const num = parseFloat(numPart);
     if(!isNaN(num) && /^-?\d+(\.\d+)?$/.test(numPart)){
       numericCount++;
@@ -114,9 +118,14 @@ export function bestTemplateLocationFor(header, templateLocations){
   const locs = templateLocations || [];
   if(!locs.length) return '';
   const nk = normKey(header);
+  // [إصلاح] عنوان عمود فارغ (شائع: عمود فاصل بملف CSV) كان يُعطي nk='' ثم
+  // `includes('')` صحيحة دائمًا، فيُعَدّ أول موقع بالقالب "مطابقًا" — فيُكتشَف
+  // تقرير مخزون طولي كأنه "عريض"، وينتهي الأمر بفهرس مخزون فارغ loaded:true
+  // فيُلغى فحص نقص المخزون بصمت لكل الملف. ونمنع كذلك المطابقة بحرف واحد.
+  if(nk.length < 2) return '';
   let exact = locs.find(l=>normKey(l)===nk);
   if(exact) return exact;
-  let partial = locs.find(l=>normKey(l).includes(nk) || nk.includes(normKey(l)));
+  let partial = locs.find(l=>{ const lk = normKey(l); return lk.length >= 2 && (lk.includes(nk) || nk.includes(lk)); });
   if(partial) return partial;
   const hTokens = tokenize(header);
   let best='', bestScore=0;

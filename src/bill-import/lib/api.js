@@ -78,16 +78,21 @@ export async function fetchCatalog(opts, tpl) {
     vendors: vends.map(normVendor).filter((v) => v.name || v.ref),
     units: [],
     locations: [],
-    taxes: []
+    taxes: [],
+    // [إصلاح] كانت أخطاء نقاط النهاية تُبتلَع بـcatch فارغ ثم تُلفَّق قيم بديلة
+    // (موقع "Main الرئيسي" وضرائب ثابتة) وتُعرَض الرسالة "تم جلب بيانات المنشأة"
+    // كأن كل شيء سليم — فيمرّ التحقق على موقع/ضريبة لا وجود لهما بالمنشأة، ثم
+    // يرفض قيود الرفع كاملاً وهو بالضبط ما وُجدت الأداة لمنعه. نُسجّل ما فشل.
+    warnings: []
   };
 
   try { catalog.units = (await getAll('product_units', opts)).map((u) => String(pick(u, 'name', 'name_ar', 'title'))); }
-  catch { catalog.units = []; }
+  catch { catalog.units = []; catalog.warnings.push('تعذّر جلب وحدات القياس من المنشأة.'); }
 
   try {
     catalog.locations = (await getAll('inventories', opts))
       .map((i) => String(pick(i, 'name', 'name_ar', 'title'))).filter(Boolean);
-  } catch { catalog.locations = []; }
+  } catch { catalog.locations = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
 
   let taxes = [];
   for (const ep of ['taxes', 'tax_rates', 'vat_rates']) {
@@ -112,9 +117,15 @@ export async function fetchCatalog(opts, tpl) {
     catalog.taxes = tpl.taxes.map(tplTax).filter((t) => t.percent != null);
     catalog.locations = tpl.locations.slice();
   } else {
-    catalog.taxes = taxes.length ? taxes
-      : [{ id: null, name: 'ضريبة القيمة المضافة 15%', percent: 15 }, { id: null, name: 'معفاة', percent: 0 }];
-    if (!catalog.locations.length) catalog.locations = ['Main الرئيسي'];
+    if (taxes.length) catalog.taxes = taxes;
+    else {
+      catalog.taxes = [{ id: null, name: 'ضريبة القيمة المضافة 15%', percent: 15 }, { id: null, name: 'معفاة', percent: 0 }];
+      catalog.warnings.push('لم تُجلَب ضرائب المنشأة — تُستخدم أسماء ضرائب افتراضية قد لا تطابق منشأتك. ارفع القالب لقراءة القوائم الفعلية منه.');
+    }
+    if (!catalog.locations.length) {
+      catalog.locations = ['Main الرئيسي'];
+      catalog.warnings.push('لم تُجلَب المواقع — يُستخدم موقع افتراضي قد لا يطابق منشأتك. ارفع القالب لقراءة قائمة المواقع الفعلية.');
+    }
   }
   return catalog;
 }

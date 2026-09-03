@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { COLUMNS, AUX_FIELD_KEYWORDS, AUX_FIELD_LABELS } from '../engine/constants.js';
 import { sampleValuesFor } from '../engine/columnShape.js';
 import { getMissingRequiredAfterDerivation } from '../engine/invoiceImportMapping.js';
@@ -12,6 +12,12 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 export default function InvoiceImportMappingPanel({ headers, rawRows, guesses, refs, onConfirm, onCancel }) {
   const [mapping, setMapping] = useState({ ...guesses.mainGuesses, ...guesses.auxGuesses });
   const [pendingConfirm, setPendingConfirm] = useState(null); // {names} | null
+  // [إصلاح] useState يُهيَّأ مرة واحدة فقط، واللوحة لا تُفرَّغ عند رفع ملف فواتير
+  // ثانٍ (شرط العرض يبقى صحيحًا)، فتبقى مطابقة أعمدة الملف الأول — وهي *أسماء*
+  // عناوين لا تنتمي للملف الجديد. النتيجة: كل عمود يُقرَأ فارغًا فتُرشَّح كل
+  // الصفوف وتظهر "تمت تعبئة 0 سطر"، أو أسوأ: مطابقة جزئية خاطئة عند تشابه بعض
+  // العناوين بين الملفين (شائع بتصدير شهري). نُزامن الحالة مع تخمينات الملف الحالي.
+  useEffect(() => { setMapping({ ...guesses.mainGuesses, ...guesses.auxGuesses }); }, [guesses]);
 
   const setField = (key, value) => setMapping((m) => ({ ...m, [key]: value }));
 

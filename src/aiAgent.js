@@ -93,7 +93,14 @@ function buildClaudeContent(text, attachments) {
       content.push({ type: "image", source: { type: "base64", media_type: mime, data: att.base64 } });
     }
   }
-  content.push({ type: "text", text: text || "" });
+  // [إصلاح] واجهة Anthropic ترفض كتلة نص فارغة بخطأ 400 ("text content blocks
+  // must be non-empty")، وهذا يحدث فعليًا لو أرسل المستخدم صورة بلا أي نص: كان
+  // الرد يصل كخطأ عام غامض. نرسل الكتلة النصية فقط إن كان فيها نص، ومع صورة بلا
+  // نص نرسل طلبًا افتراضيًا واضحًا بدل كتلة فارغة.
+  const trimmed = String(text || "").trim();
+  if (trimmed) content.push({ type: "text", text: trimmed });
+  else if (content.length) content.push({ type: "text", text: "حلّل المرفق أعلاه." });
+  else content.push({ type: "text", text: "مرحبا" });
   return content;
 }
 

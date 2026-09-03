@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
@@ -188,6 +188,35 @@ function SummaryStat({ label, value, color, onClick, active }) {
 // (القائمة مفتوحة بلا فلترة بعد).
 const ACCOUNT_PICKER_MAX_RESULTS = 200;
 
+// [إصلاح] خانة مبلغ (مدين/دائن) — كانت تستخدم parseFloat مباشرةً على نص الخانة،
+// وفيها خطآن حقيقيان:
+//  1) لصق مبلغ بفاصل آلاف من ملف العميل ("1,500.00") يعطي parseFloat القيمة 1
+//     بصمت (يتوقف عند الفاصلة)، فيُخزَّن السطر بمبلغ 1 ريال بدل 1500 ويظل القيد
+//     "متوازنًا" ظاهريًا إن عُدِّل طرفه الآخر بنفس الطريقة — خطأ جوهري لا يظهر بأي فحص.
+//  2) الخانة متحكَّم بها بالكامل (value={r.debit ?? ""}) وparseFloat("1.") = 1،
+//     فكانت النقطة العشرية تُمحى لحظة كتابتها ولا يمكن إدخال 1.5 إطلاقًا.
+// الحل: نحتفظ بنص المستخدم محليًا أثناء التحرير (فلا تُمحى نقطة ولا سالب أثناء
+// الكتابة)، ونمرّر للأعلى القيمة المحوَّلة بنفس parseAmount المستخدمة لقراءة
+// الملفات (تتعامل مع الفواصل والسالب اللاحق والأقواس)، فيبقى التحقق فوريًا كما هو.
+function NumericCell({ value, onCommit, className, style }) {
+  const [draft, setDraft] = useState(null);
+  const shown = draft !== null ? draft : (value ?? "");
+  return (
+    <SafeInput
+      dir="ltr"
+      value={shown}
+      onChange={(e) => {
+        const text = e.target.value;
+        setDraft(text);
+        onCommit(text.trim() === "" ? null : parseAmount(text));
+      }}
+      onBlur={() => setDraft(null)}
+      className={className}
+      style={style}
+    />
+  );
+}
+
 function AccountPicker({ accounts, value, onChange, hasError, parentCodes }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
@@ -329,11 +358,11 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                         style={{ borderColor: rowIssue?.type === "missing_contact_ref" ? COLORS.red : COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5 pe-2">
-                      <SafeInput dir="ltr" value={r.debit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "debit", e.target.value === "" ? null : parseFloat(e.target.value))}
+                      <NumericCell value={r.debit} onCommit={(v) => onUpdateRow(entry.seq, r._rowIndex, "debit", v)}
                         className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5 pe-2">
-                      <SafeInput dir="ltr" value={r.credit ?? ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "credit", e.target.value === "" ? null : parseFloat(e.target.value))}
+                      <NumericCell value={r.credit} onCommit={(v) => onUpdateRow(entry.seq, r._rowIndex, "credit", v)}
                         className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5">

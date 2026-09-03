@@ -7,6 +7,7 @@ import { COL_KEYS } from '../engine/constants.js';
 import { norm, escapeXml } from '../engine/text.js';
 import { indexToColLetter } from '../engine/columnMatching.js';
 import { compressHeaderFields } from '../engine/rows.js';
+import { reformatAllDates } from '../engine/dates.js';
 
 // يكتب كل قيمة تحت عمودها الفعلي في القالب (حسب الخريطة المستخرجة من صف العناوين نفسه)،
 // ويمرّ على كل أعمدة القالب بالترتيب حتى تبقى الأعمدة الأخرى فارغة بتنسيقها الأصلي دون أي إزاحة.
@@ -29,7 +30,12 @@ export function buildRowXml(rowNum, values, template){
 }
 
 export async function generateFinalXlsx(rowsOverride, template){
-  const rows = compressHeaderFields(rowsOverride);
+  // [إصلاح] كانت قيم التواريخ تُكتَب حرفيًا كما هي بالحالة، فأي تاريخ غير مقيَّس
+  // (ISO من زر "فاتورة جديدة"، أو M/D/YYYY ملصوق من إكسل) يصل الملف النهائي بصيغة
+  // لا يقبلها قيود، رغم أن التحقق وعد المستخدم بأنه "سيُكتب كـdd/mm/yyyy".
+  // reformatAllDates هي نفس دالة التقييس المستخدمة أصلًا عند تغيير فاصل التاريخ،
+  // وتترك أي قيمة غير قابلة للتحليل كما هي (التحقق الحاجب يمسكها أصلًا).
+  const rows = compressHeaderFields(reformatAllDates(rowsOverride));
   const headerRow = template.headerRow || 2;
   // نحتفظ بكل صفوف القالب حتى صف العناوين كما هي حرفيًا (لا نمسّ القالب ولا تنسيقه)،
   // ثم نكتب أسطر البيانات بعده مباشرة.

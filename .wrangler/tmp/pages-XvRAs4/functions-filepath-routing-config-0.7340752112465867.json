@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/claude-proxy",
+      "mountPath": "/api",
+      "method": "OPTIONS",
+      "module": [
+        "api/claude-proxy.js:onRequestOptions"
+      ]
+    },
+    {
+      "routePath": "/api/claude-proxy",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/claude-proxy.js:onRequestPost"
+      ]
+    },
+    {
+      "routePath": "/api/claude-proxy",
+      "mountPath": "/api",
+      "method": "",
+      "module": [
+        "api/claude-proxy.js:onRequest"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}

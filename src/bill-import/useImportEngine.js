@@ -49,7 +49,10 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
     try {
       const cat = await fetchCatalog({ base: baseUrl, proxy, apiKey: apiKey.trim() }, tpl);
       setCatalog(cat);
-      note('api', 'ok', 'تم جلب بيانات المنشأة.');
+      const warns = (cat.warnings || []);
+      // نعرض ما لم يُجلَب فعلًا بدل رسالة نجاح مطلقة تخفي قوائم مُلفَّقة
+      note('api', warns.length ? 'warn' : 'ok',
+        warns.length ? `تم جلب بيانات المنشأة جزئيًا — ${warns.join(' ')}` : 'تم جلب بيانات المنشأة.');
       if (cat.products.length && cat.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) {
       note('api', 'err',

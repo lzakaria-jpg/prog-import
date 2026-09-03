@@ -233,6 +233,14 @@ export function applyOperations(sheetsIn, operations) {
   const notes = [];
 
   for (const op of operations) {
+    // [إصلاح] getSheet تُعيد undefined لو سمّى الموديل ورقةً غير موجودة (يحدث فعليًا:
+    // اسم ورقة مترجَم أو بمسافة زائدة)، ثم يرمي s.headers خطأ TypeError يُفشِل
+    // التحويل كاملاً برسالة غامضة بلا أي ناتج. نتخطى العملية ونُسجّل ملاحظة صريحة
+    // بدل الانهيار — نفس نمط التسامح المطبَّق أصلاً بباقي خطوات المحرك.
+    if (op && typeof op.sheet === "string" && !getSheet(sheets, op.sheet)) {
+      notes.push(`تم تخطي عملية "${op.op}" — لا توجد ورقة باسم "${op.sheet}" في الملف.`);
+      continue;
+    }
     switch (op.op) {
       case "rename_column": {
         const s = getSheet(sheets, op.sheet);

@@ -43,6 +43,11 @@ export default function useSalesInvoiceImportEngine() {
   const [invoiceImportFile, setInvoiceImportFile] = useState({ headers: [], rows: [] });
   const [invoiceImportGuesses, setInvoiceImportGuesses] = useState(null); // {mainGuesses, auxGuesses} | null
   const [invoiceImportStatus, setInvoiceImportStatus] = useState('');
+  // [إصلاح] كل مسارات رفع الملفات كانت بلا try/catch ومكوّنات الرفع تستدعيها بلا
+  // .catch — فأي ملف تالف/بصيغة غير متوقعة (xls مُسمّى xlsx، قالب بورقة ظاهرة
+  // بمسار مختلف، ملف مرجعي فارغ) يرمي استثناءً يُبتلَع كـunhandled rejection:
+  // البطاقة تبقى "لم يُرفع بعد" وزر التالي معطّل بلا أي سبب معروض للمستخدم.
+  const [uploadError, setUploadError] = useState('');
 
   const [rows, setRows] = useState([]);
   const [issues, setIssues] = useState(EMPTY_ISSUES);
@@ -59,21 +64,42 @@ export default function useSalesInvoiceImportEngine() {
   }), [template, productsRef, customersRef, stockRef]);
 
   const revalidateNow = useCallback((rowsOverride) => {
-    const list = rowsOverride || rows;
+    // [إصلاح] كان زر "إعادة التحقق" يمرّر حدث النقر (SyntheticEvent) كـrowsOverride،
+    // وهو كائن غير فارغ فيُستخدَم بدل الصفوف ثم يرمي runValidation استثناءً
+    // (rows.forEach ليست دالة) داخل معالِج الحدث: الزر ميت تمامًا والأخطاء القديمة
+    // تبقى معروضة بلا أي إشارة. نقبل مصفوفة فقط، وأي شيء آخر يعني "استخدم rows".
+    const list = Array.isArray(rowsOverride) ? rowsOverride : rows;
     setIssues(runValidation(list, refs));
   }, [rows, refs]);
 
   /* ========================= الخطوة 1: الملفات المرجعية ========================= */
 
   const uploadTemplate = useCallback(async (file) => {
-    const res = await parseTemplateFile(file);
-    setTemplate({ loaded: true, ...res });
+    setUploadError('');
+    try {
+      const res = await parseTemplateFile(file);
+      setTemplate({ loaded: true, ...res });
+    } catch (err) {
+      setTemplate(EMPTY_TEMPLATE);
+      setUploadError(`تعذّر قراءة ملف القالب: ${err?.message || String(err)} — تأكد أنه ملف قالب قيود الأصلي بصيغة xlsx.`);
+    }
   }, []);
 
   const uploadReferenceFile = useCallback(async (kind, file) => {
-    const { headers, rows: raw } = await readGenericSpreadsheet(file);
+    setUploadError('');
+    let headers, raw;
+    try {
+      ({ headers, rows: raw } = await readGenericSpreadsheet(file));
+    } catch (err) {
+      setUploadError(`تعذّر قراءة الملف المرجعي: ${err?.message || String(err)}`);
+      return;
+    }
     const setter = kind === 'products' ? setProductsRef : kind === 'stock' ? setStockRef : setCustomersRef;
-    setter((prev) => ({ ...prev, loaded: false, raw, headers, mapping: null }));
+    // [إصلاح] كان النشر ({...prev}) يُبقي فهارس الملف السابق (bySku/byName/byRef)
+    // حيةً بعد رفع ملف مرجعي جديد، وresolveNamesToRefs تعتمد على وجود الفهرس لا على
+    // loaded — فأسماء العملاء/المنتجات كانت تُحوَّل لأرقام مرجعية من الملف *القديم*
+    // الذي استبدله المستخدم، وبلا أي خطأ لأن فحص الوجود يتخطّى المرجع غير المحمَّل.
+    setter(() => ({ ...EMPTY_REF, raw, headers }));
   }, []);
 
   // mapping: {mode?, sku, name, sellable, stocked} لـ products، {mode:'long'|'wide', sku, location/qty | locCols} لـ stock،
@@ -93,7 +119,14 @@ export default function useSalesInvoiceImportEngine() {
   /* ========================= الخطوة 2: استيراد ملف فواتير غير منظم ========================= */
 
   const uploadInvoiceImportFile = useCallback(async (file) => {
-    const { headers, rows: raw } = await readGenericSpreadsheet(file);
+    setUploadError('');
+    let headers, raw;
+    try {
+      ({ headers, rows: raw } = await readGenericSpreadsheet(file));
+    } catch (err) {
+      setInvoiceImportStatus(`تعذّر قراءة الملف: ${err?.message || String(err)}`);
+      return;
+    }
     if (!raw.length) { setInvoiceImportStatus('الملف لا يحتوي على بيانات قابلة للقراءة.'); return; }
     setInvoiceImportFile({ headers, rows: raw });
     setInvoiceImportStatus(`تم قراءة ${raw.length} سطر — رجاءً طابق الأعمدة أدناه ثم اضغط "تأكيد المطابقة".`);
@@ -145,7 +178,9 @@ export default function useSalesInvoiceImportEngine() {
   /* ========================= الخطوة 2: الجدول وإدخال البيانات ========================= */
 
   const addInvoiceRow = useCallback(() => {
-    setRows((prev) => [...prev, makeRow({ D: new Date().toISOString().slice(0, 10) })]);
+    // [إصلاح] كان يُعبَّأ بصيغة ISO (2026-09-02) فيُصدَّر حرفيًا كذلك بعمود يتطلب
+    // dd/mm/yyyy — التحقق كان ينبّه "سيُكتب كـ.." كتحذير غير حاجب فقط، ثم يُكتب الأصل.
+    setRows((prev) => [...prev, makeRow({ D: toDMY(new Date().toISOString().slice(0, 10)) })]);
   }, [makeRow]);
 
   const addItemRow = useCallback(() => {
@@ -284,7 +319,7 @@ export default function useSalesInvoiceImportEngine() {
   return {
     step, goToStep, readyForStep2,
     template, productsRef, stockRef, customersRef,
-    uploadTemplate, uploadReferenceFile, confirmReferenceMapping,
+    uploadTemplate, uploadReferenceFile, confirmReferenceMapping, uploadError,
 
     invoiceImportFile, invoiceImportGuesses, invoiceImportStatus, hasExistingData,
     uploadInvoiceImportFile, cancelInvoiceImportMapping, confirmInvoiceImportMapping,

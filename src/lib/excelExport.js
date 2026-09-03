@@ -14,7 +14,11 @@ function findHeaderRowNumber(worksheet, mustInclude) {
   let found = 1;
   worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     row.eachCell({ includeEmpty: true }, (cell) => {
-      if (typeof cell.value === "string" && cell.value.trim() === mustInclude) found = rowNumber;
+      // cell.value يكون كائنًا لا نصًا حين تكون الخلية نصًا منسَّقًا (richText)،
+      // فكان صف العنوان المنسَّق لا يُطابَق أبدًا ويبقى الافتراض الصامت 1 فتُكتَب
+      // أول سطور القيود فوق صف العنوان نفسه. cell.text يسطّح النص المنسَّق دائمًا.
+      const text = typeof cell.value === "string" ? cell.value : (cell.text || "");
+      if (String(text).trim() === mustInclude) found = rowNumber;
     });
   });
   return found;
@@ -37,8 +41,12 @@ export async function buildImportFile(entries) {
         row.accType || "حسابات دفتر الاستاذ",
         row.code || "",
         row.contact || "",
-        row.debit || "",
-        row.credit || "",
+        // [إصلاح] كان `||` يعامل الصفر كقيمة غائبة فتُصدَّر خلية المبلغ فارغة تمامًا
+        // لسطر قيمته 0 المسموح به صراحةً بالمحرك (سطر ضريبة بنسبة صفر مثلاً)، فيصل
+        // القيد لقيود بسطر بلا مدين ولا دائن فيُرفَض أو يُحذَف السطر بصمت. `??` تُصدّر
+        // 0 كما هو — وهو نفس ما تفعله buildPasteText أصلاً بنفس الملف (r.debit ?? "").
+        row.debit ?? "",
+        row.credit ?? "",
         row.comment || "",
       ];
       vals.forEach((val, cIdx) => {
