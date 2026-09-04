@@ -69,6 +69,22 @@ const SALE_PATTERN = encodeURIComponent(`
   <text x='86' y='300' font-family='Cairo, Segoe UI, sans-serif' font-size='28' font-weight='700' fill='#162560' opacity='0.18'>SALE INVOICE</text>
 </svg>`);
 
+const PRODUCT_PATTERN_AR = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#162560' stroke-width='2' opacity='0.22'>
+    <path d='M160 46 82 84v128l78 38 78-38V84z'/><path d='M82 84l78 38 78-38M160 122v130'/>
+    <path d='M121 65l78 38'/>
+  </g><text x='70' y='300' font-family='Cairo, Segoe UI, sans-serif' font-size='27' font-weight='700' fill='#162560' opacity='0.18'>منتجات</text>
+</svg>`);
+
+const PRODUCT_PATTERN_EN = encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>
+  <g fill='none' stroke='#162560' stroke-width='2' opacity='0.22'>
+    <path d='M160 46 82 84v128l78 38 78-38V84z'/><path d='M82 84l78 38 78-38M160 122v130'/>
+    <path d='M121 65l78 38'/>
+  </g><text x='78' y='300' font-family='Cairo, Segoe UI, sans-serif' font-size='25' font-weight='700' fill='#162560' opacity='0.18'>PRODUCTS</text>
+</svg>`);
+
 export function Watermark({ type = "journal", lang = "ar" }) {
   const pattern = type === "tree"
     ? (lang === "en" ? TREE_PATTERN_EN : TREE_PATTERN_AR)
@@ -76,6 +92,8 @@ export function Watermark({ type = "journal", lang = "ar" }) {
       ? (lang === "en" ? BILL_PATTERN_EN : BILL_PATTERN_AR)
       : type === "sale"
         ? SALE_PATTERN
+      : type === "product"
+        ? (lang === "en" ? PRODUCT_PATTERN_EN : PRODUCT_PATTERN_AR)
       : (lang === "en" ? JOURNAL_PATTERN_EN : JOURNAL_PATTERN_AR);
   return (
     <div
@@ -95,7 +113,7 @@ export function Watermark({ type = "journal", lang = "ar" }) {
           backgroundImage: `url("data:image/svg+xml,${pattern}")`,
           backgroundRepeat: "repeat",
           backgroundSize: "320px 320px",
-          opacity: type === "tree" ? 0.52 : type === "bill" || type === "sale" ? 0.2 : 0.08,
+          opacity: type === "tree" ? 0.52 : type === "bill" || type === "sale" || type === "product" ? 0.2 : 0.08,
         }}
       />
       {type === "tree" && <svg

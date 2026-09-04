@@ -9,14 +9,16 @@ import { NotificationBell } from "./lib/notifications.jsx";
 import { Watermark } from "./Watermark";
 import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
+import ProductUploadTool from "./product-upload";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, CheckCircle2 } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2 } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
   { id: "merge", permKey: "tool.merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
   { id: "bills", permKey: "tool.bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
   { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
+  { id: "products", permKey: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Upload Products to Qoyod" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
 ];
 
 function LanguageToggle({ compact }) {
@@ -166,7 +168,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.7.0";
+  const currentVersion = "1.8.0";
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
@@ -320,7 +322,7 @@ function AppShell() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto relative" style={{ background: "var(--qoyod-bg)" }}>
-        <Watermark type={tab === "merge" ? "tree" : tab === "bills" ? "bill" : tab === "sales" ? "sale" : "journal"} lang={lang} />
+        <Watermark type={tab === "merge" ? "tree" : tab === "bills" ? "bill" : tab === "sales" ? "sale" : tab === "products" ? "product" : "journal"} lang={lang} />
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
           {/*
@@ -342,6 +344,9 @@ function AppShell() {
           )}
           {can(currentUserRecord, "tool.sales") && (
             <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool showHeader={false} /></div>
+          )}
+          {can(currentUserRecord, "tool.products") && (
+            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}><ProductUploadTool showHeader={false} /></div>
           )}
           {visibleNavItems.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#94A3B8", fontSize: 14, textAlign: "center" }}>
