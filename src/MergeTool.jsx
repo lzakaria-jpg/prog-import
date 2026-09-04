@@ -2485,7 +2485,7 @@ export function computeDropValidity(draggedNode, targetNode, level1CodeMap, leve
   if (wouldExceedMaxLevel(newLevel, maxRelativeDepth(draggedNode))) {
     return { valid: false, reason: "max-level", message: `تعذّر النقل - سيجعل هذا بعض الحسابات الفرعية تتجاوز المستوى ${MAX_ACCOUNT_LEVEL}، أقصى مستوى مسموح` };
   }
-  return { valid: true, newLevel, targetCategory };
+  return { valid: true, newLevel, targetLevel, targetCategory };
 }
 
 /**
@@ -2817,7 +2817,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
       setDropMessage({ type: "error", text: validity.message });
       return;
     }
-    const { newLevel, targetCategory } = validity;
+    const { newLevel, targetLevel, targetCategory } = validity;
     const patch = { parent: targetCode, level: newLevel, level2Category: targetCategory || "" };
 
     const targetType = targetNode.isAnchor ? (LEVEL3_MAP[targetCategory]?.[0] || "") : targetNode.row.type;
@@ -3132,19 +3132,18 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
           </div>
           {draggedCode && ghostPos && draggedNode && (
             <div
-              className={`pointer-events-none fixed z-[10000] flex flex-col justify-center rounded-lg border-2 bg-white px-2.5 py-1.5 text-[11px] shadow-2xl transition-colors ${
+              className={`animate-drop-ghost pointer-events-none fixed z-[10000] flex flex-col justify-center rounded-lg border-2 bg-white px-2.5 py-1.5 text-[11px] shadow-2xl transition-colors duration-150 ${
                 dragOverFeedback === "valid" ? "border-emerald-500" :
                 dragOverFeedback === "invalid" ? "border-red-500" :
                 "border-blue-500"
               }`}
               style={{
                 left: ghostPos.x - NODE_W / 2, top: ghostPos.y - NODE_H / 2, width: NODE_W, height: NODE_H, opacity: 0.97,
-                transform: "scale(1.04)",
-                boxShadow: dragOverFeedback === "valid" ? "0 0 0 4px rgba(16,185,129,0.18)" : dragOverFeedback === "invalid" ? "0 0 0 4px rgba(220,38,38,0.18)" : undefined,
+                boxShadow: dragOverFeedback === "valid" ? "0 0 0 5px rgba(16,185,129,0.2), 0 14px 26px -8px rgba(16,185,129,0.4)" : dragOverFeedback === "invalid" ? "0 0 0 5px rgba(220,38,38,0.2), 0 14px 26px -8px rgba(220,38,38,0.4)" : "0 14px 26px -8px rgba(15,23,42,0.35)",
               }}
             >
-              {dragOverFeedback === "valid" && (<span className="absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow"><CheckCircle2 size={13} strokeWidth={2.5} /></span>)}
-              {dragOverFeedback === "invalid" && (<span className="absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow"><XCircle size={13} strokeWidth={2.5} /></span>)}
+              {dragOverFeedback === "valid" && (<span className="animate-drop-badge absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow"><CheckCircle2 size={13} strokeWidth={2.5} /></span>)}
+              {dragOverFeedback === "invalid" && (<span className="animate-drop-badge absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow"><XCircle size={13} strokeWidth={2.5} /></span>)}
               <span className="truncate font-mono text-[10px] text-[#94A3B8]">{draggedNode.row.code}</span>
               <div className="truncate font-semibold text-[#0F172A]">{draggedNode.row.nameAr || draggedNode.row.nameEn}</div>
             </div>
