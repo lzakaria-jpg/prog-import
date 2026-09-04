@@ -1,7 +1,7 @@
 // اختبارات الطبقة النقية لأداة رفع المنتجات إلى قيود — منقولة من قواعد
 // qoyod_uploader.html الأصلية (core.js بتوثيق opencode).
 import { describe, it, expect } from "vitest";
-import { isTrue, detectColumns, buildProductsFromRows, parseCostNumber, buildProductPayload, chooseTax } from "../parsing.js";
+import { isTrue, detectColumns, buildProductsFromRows, parseCostNumber, buildProductPayload, chooseTax, resolveAccountId } from "../parsing.js";
 
 describe("isTrue", () => {
   it("يتعرّف على مؤشرات المخزون الموجبة", () => {
@@ -31,6 +31,25 @@ describe("detectColumns", () => {
     expect(cols.expense).toBe(6);
   });
 
+  it("[إصلاح 2026-09-04] يتعرّف على 'حساب المبيعات' كعمود حساب إيراد (لا 'حساب الإيراد' فقط)", () => {
+    const cols = detectColumns(["الأسم", "الرمز", "حساب المبيعات", "حساب المصروف"]);
+    expect(cols.revenue).toBe(2);
+    expect(cols.expense).toBe(3);
+  });
+
+  it("[إصلاح 2026-09-04] يتعرّف على 'حساب البيع' كعمود حساب إيراد بلا تصادم مع عمود 'حالة البيع' (sellable)", () => {
+    const cols = detectColumns(["الأسم", "حالة البيع", "حساب البيع", "حساب المصروف"]);
+    expect(cols.sellable).toBe(1);
+    expect(cols.revenue).toBe(2);
+    expect(cols.expense).toBe(3);
+  });
+
+  it("[إصلاح 2026-09-04] يتعرّف على 'الإيرادات' (جمع) كعمود حساب إيراد", () => {
+    const cols = detectColumns(["الأسم", "الإيرادات", "حساب المصروف"]);
+    expect(cols.revenue).toBe(1);
+    expect(cols.expense).toBe(2);
+  });
+
   it("يستثني أعمدة الحساب من مطابقة الفئة والتكلفة", () => {
     const cols = detectColumns(["التكلفة", "اسم الوحدة", "اسم الصنف", "رقم الصنف", "مخزن", "الأسم", "الرمز"]);
     expect(cols.cost).toBe(0);
@@ -40,6 +59,17 @@ describe("detectColumns", () => {
     expect(cols.inventory).toBe(4);
     expect(cols.name).toBe(5);
     expect(cols.sku).toBe(6);
+  });
+
+  it("[إصلاح 2026-09-04] يتعرّف على 'الصنف' منفردة كعمود فئة، مع بقاء 'رقم الصنف' مخصصاً لـ category_code فقط (لا يُطابَق كفئة أيضاً)", () => {
+    const cols = detectColumns(["الأسم", "الصنف", "رقم الصنف"]);
+    expect(cols.category).toBe(1);
+    expect(cols.category_code).toBe(2);
+  });
+
+  it("[إصلاح 2026-09-04] يتعرّف على 'تصنيف المنتج' كعمود فئة", () => {
+    const cols = detectColumns(["الأسم", "تصنيف المنتج"]);
+    expect(cols.category).toBe(1);
   });
 });
 
@@ -106,6 +136,30 @@ describe("buildProductPayload", () => {
     const p = { name: "منتج", sku: "", is_inventory: false, is_sellable: true, cost: "" };
     const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
     expect(payload.selling_price).toBeUndefined();
+  });
+});
+
+describe("resolveAccountId — [إصلاح 2026-09-04] خلل الربط الافتراضي الكامل رغم وجود عمود حساب لكل منتج", () => {
+  const accountsByCode = { "4102": { id: 501, code: "4102" }, "5102": { id: 502, code: "5102" } };
+  const accountsByName = { "إيرادات خدمات": { id: 601 }, "مصروف تشغيلي": { id: 602 } };
+
+  it("يطابق برقم الحساب (الحالة الحقيقية: ملف العميل يكتب رقم الحساب لا اسمه)", () => {
+    const r = resolveAccountId("4102", accountsByCode, accountsByName);
+    expect(r).toEqual({ id: 501, matched: true });
+  });
+
+  it("يطابق باسم الحساب كبديل لمن يكتب الاسم فعلاً", () => {
+    const r = resolveAccountId("إيرادات خدمات", accountsByCode, accountsByName);
+    expect(r).toEqual({ id: 601, matched: true });
+  });
+
+  it("لا يطابق شيئاً ويُعيد matched:false لرقم/اسم غير موجود (بدل استبدال صامت بالافتراضي هنا)", () => {
+    expect(resolveAccountId("9999", accountsByCode, accountsByName)).toEqual({ id: null, matched: false });
+  });
+
+  it("يُعيد matched:false للقيمة الفارغة", () => {
+    expect(resolveAccountId("", accountsByCode, accountsByName)).toEqual({ id: null, matched: false });
+    expect(resolveAccountId(null, accountsByCode, accountsByName)).toEqual({ id: null, matched: false });
   });
 });
 

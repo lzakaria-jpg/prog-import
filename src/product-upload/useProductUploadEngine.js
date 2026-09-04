@@ -11,7 +11,7 @@
  ============================================================================
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildProductsFromRows, buildProductPayload, chooseTax } from "./engine/parsing.js";
+import { buildProductsFromRows, buildProductPayload, chooseTax, resolveAccountId } from "./engine/parsing.js";
 import { api, fetchAll } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
 import { readWorkbookRows } from "./io/excelReader.js";
@@ -277,20 +277,32 @@ export default function useProductUploadEngine() {
           }
         }
 
-        // Resolve revenue account
+        // Resolve revenue account — [إصلاح] يطابق برقم الحساب أولاً ثم بالاسم
+        // (راجع resolveAccountId بـengine/parsing.js)؛ عدم المطابقة يُسجَّل
+        // تحذيراً بدل الاستبدال الصامت بالحساب الافتراضي.
         let revId = null;
         if (p.revenue_account_name) {
-          const found = accountsByName[p.revenue_account_name.toLowerCase()];
-          revId = found ? found.id : defaultRev ? defaultRev.id : null;
+          const resolved = resolveAccountId(p.revenue_account_name, accountsByCode, accountsByName);
+          if (resolved.matched) {
+            revId = resolved.id;
+          } else {
+            appendLog(`  WARNING: revenue account '${p.revenue_account_name}' for '${p.name}' not found — using default ${revCode}`, "warn");
+            revId = defaultRev ? defaultRev.id : null;
+          }
         } else {
           revId = defaultRev ? defaultRev.id : null;
         }
 
-        // Resolve expense account
+        // Resolve expense account — نفس منطق المطابقة أعلاه.
         let expId = null;
         if (p.expense_account_name) {
-          const found = accountsByName[p.expense_account_name.toLowerCase()];
-          expId = found ? found.id : defaultExp ? defaultExp.id : null;
+          const resolved = resolveAccountId(p.expense_account_name, accountsByCode, accountsByName);
+          if (resolved.matched) {
+            expId = resolved.id;
+          } else {
+            appendLog(`  WARNING: expense account '${p.expense_account_name}' for '${p.name}' not found — using default ${expCode}`, "warn");
+            expId = defaultExp ? defaultExp.id : null;
+          }
         } else {
           expId = defaultExp ? defaultExp.id : null;
         }

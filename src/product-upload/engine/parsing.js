@@ -37,11 +37,24 @@ export function detectColumns(headerRow) {
     // Unit
     if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh)) map.unit = i;
     // Revenue account
-    if (map.revenue === -1 && /حساب الإيراد|ايراد|revenue/i.test(hh)) map.revenue = i;
+    // [إصلاح 2026-09-04] عملاء قيود يسمّون هذا العمود بعدة صيغ حقيقية شائعة:
+    // "حساب الإيراد"/"الإيرادات"/"حساب المبيعات"/"حساب البيع" — كان النمط
+    // الأصلي يقتصر على "حساب الإيراد"/"ايراد" فقط فيفوت الاكتشاف كاملاً على
+    // أي ملف يستخدم تسمية "مبيعات"/"بيع". "حساب البيع" (لا "البيع" منفردة) كي
+    // لا يتصادم مع نمط عمود "حالة البيع" (sellable) أسفله.
+    if (map.revenue === -1 && /حساب الإيراد|الإيراد|ايراد|المبيعات|حساب البيع|revenue|sales/i.test(hh)) map.revenue = i;
     // Expense account (only when 'حساب المصروف' or explicit expense/cost account column)
     if (map.expense === -1 && /حساب المصروف|حساب التكلفة|مصروف|expense/i.test(hh)) map.expense = i;
     // Category
-    if (map.category === -1 && /اسم الصنف|فئة|تصنيف|cat(egory)?/i.test(hh) && !/حساب|account/i.test(hh)) map.category = i;
+    // [إصلاح 2026-09-04] أضيف "الصنف" منفردة (بلا "اسم") لأنها تسمية شائعة أخرى
+    // بملفات العملاء — لكن باستثناء صريح لعمود "رقم الصنف" (وهو category_code
+    // عمود مختلف تماماً، انظر الشرط التالي) كي لا يُخلَط العمودان معاً.
+    if (
+      map.category === -1 &&
+      /اسم الصنف|الصنف|فئة|تصنيف|cat(egory)?/i.test(hh) &&
+      !/حساب|account/i.test(hh) &&
+      !/رقم الصنف/i.test(hh)
+    ) map.category = i;
     // Category code (رقم الصنف) - must check after category
     if (map.category_code === -1 && /رقم الصنف/i.test(hh)) map.category_code = i;
     // Cost price (التكلفة as a price column - exact match "التكلفة")
@@ -140,6 +153,23 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
   if (selectedTaxId) payload.tax_id = selectedTaxId;
   payload.tax_inclusive = taxInclusive;
   return payload;
+}
+
+// [إصلاح 2026-09-04] يطابق قيمة عمود حساب الإيراد/المصروف بملف العميل بحساب
+// فعلي من منشأة قيود. الكود الأصلي (وpayload الأول المنقول حرفياً هنا) كان
+// يطابق بالاسم فقط (accountsByName)، فإن كانت قيمة العمود رقم حساب صريح (مثال:
+// "4102") لا اسمًا — وهو ما يكتبه أغلب العملاء فعلياً — كانت المطابقة تفشل
+// دائماً وتُستبدل الحسابات كلها بصمت بالحساب الافتراضي (4101/5101)، حتى لو
+// وُجد عمود حساب مخصص لكل منتج. الآن تُجرَّب المطابقة بالرقم أولاً
+// (accountsByCode)، ثم بالاسم (accountsByName) كبديل لمن يكتب اسم الحساب فعلاً.
+export function resolveAccountId(rawValue, accountsByCode, accountsByName) {
+  const trimmed = rawValue ? String(rawValue).trim() : "";
+  if (!trimmed) return { id: null, matched: false };
+  const byCode = accountsByCode[trimmed];
+  if (byCode) return { id: byCode.id, matched: true };
+  const byName = accountsByName[trimmed.toLowerCase()];
+  if (byName) return { id: byName.id, matched: true };
+  return { id: null, matched: false };
 }
 
 // يختار الضريبة ذات نسبة 15%، وإلا أول ضريبة — منقول حرفياً من startUpload.
