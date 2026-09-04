@@ -2452,6 +2452,43 @@ function isDescendantCode(node, targetCode) {
 }
 
 /**
+ * [إصلاح 2026-09-04] تلوين السحب أخضر/أحمر حسب صلاحية النقل. دالة نقية
+ * تُكرّر بالضبط سلسلة تحقّق handleDrop (بلا أي تغيير بالمنطق نفسه) لتُستخدم
+ * بمكانين: (أ) handleDrop نفسه عند الإفلات الفعلي، و(ب) أثناء التحويم فوق
+ * هدف محتمل لتحديد لون التنويه الفوري قبل الإفلات. القيم المُرجعة:
+ * - { valid:false, reason:"self"|"same-parent" } → حالة صامتة (لا خطأ ولا
+ *   نقل - نفس سلوك handleDrop الأصلي عند هذين الشرطين، لا تُلوَّن حمراء).
+ * - { valid:false, reason:"...", message } → مرفوض فعليًا، مع نفس نص رسالة
+ *   الخطأ العربية المستخدمة بـhandleDrop حرفيًا.
+ * - { valid:true, newLevel, targetCategory } → مسموح، مع كل ما يحتاجه
+ *   handleDrop لإتمام النقل الفعلي.
+ */
+export function computeDropValidity(draggedNode, targetNode, level1CodeMap, level2CodeMap) {
+  if (!draggedNode || !targetNode) return { valid: false, reason: "no-node" };
+  const draggedCode = draggedNode.isAnchor ? draggedNode.code : draggedNode.row.code;
+  const targetCode = targetNode.isAnchor ? targetNode.code : targetNode.row.code;
+  if (targetCode === draggedCode) return { valid: false, reason: "self" };
+  if (!draggedNode.isAnchor && draggedNode.row.parent === targetCode) return { valid: false, reason: "same-parent" };
+  const draggedRoot = draggedNode.isAnchor ? draggedNode.root : deriveRootForRow(draggedNode.row);
+  const targetRoot = targetNode.isAnchor ? targetNode.root : deriveRootForRow(targetNode.row);
+  if (!targetRoot || targetRoot !== draggedRoot) {
+    return { valid: false, reason: "different-root", message: "ما تقدر تنقل الحساب هون - النقل مسموح بس بين حسابات نفس الفئة الرئيسية" };
+  }
+  if (isDescendantCode(draggedNode, targetCode)) {
+    return { valid: false, reason: "descendant", message: "ما تقدر تنقل حساب تحت أحد فروعه نفسه" };
+  }
+  const { level: targetLevel, category: targetCategory } = getNodeLevelAndCategory(targetNode, level1CodeMap, level2CodeMap);
+  if (!targetLevel || targetLevel < 2) {
+    return { valid: false, reason: "no-level", message: "تعذّر تحديد مستوى هذا الحساب - عدّل الأب يدويًا" };
+  }
+  const newLevel = targetLevel + 1;
+  if (wouldExceedMaxLevel(newLevel, maxRelativeDepth(draggedNode))) {
+    return { valid: false, reason: "max-level", message: `تعذّر النقل - سيجعل هذا بعض الحسابات الفرعية تتجاوز المستوى ${MAX_ACCOUNT_LEVEL}، أقصى مستوى مسموح` };
+  }
+  return { valid: true, newLevel, targetCategory };
+}
+
+/**
  * [نقل حساب من المخطط] الرمز التالي المتاح لحساب فرعي تحت أب معيّن، بنفس منطق
  * nextSiblingCode في compareTrees بالضبط (أعلى رمز شقيق موجود + 1 بنفس عرض
  * الأرقام) - من الشجرة الحالية (tree1Index) ومن حسابات هذا الملف الجديدة معًا،
@@ -2585,13 +2622,9 @@ export function wouldExceedMaxLevel(baseLevel, extraDepth = 0) {
 const NODE_W = 172, NODE_H = 56;
 // [إصلاح 2026-09-04] سقف عدد مستويات شجرة الحسابات في قيود - لا يوجد مستوى ثامن إطلاقاً.
 export const MAX_ACCOUNT_LEVEL = 7;
-// ثوابت طريقة العرض المضغوطة (outline) الجديدة لمخطط الشجرة: مستوى 1-2 يبقيان
-// بتخطيط شجري أفقي كالمعتاد (d3.tree)، ومن مستوى 3 إلى 7 كل فرع يتحول لقائمة
-// عمودية مضغوطة - إزاحة أفقية ثابتة صغيرة بكل تعمّق (لا تتوسّع مع عدد الإخوة).
-const COMPACT_INDENT = 30, COMPACT_ROW_GAP = 14;
 
 const TreeNodeBox = React.memo(function TreeNodeBox({
-  node, nodeKey, x, y, isOpen, isBeingDragged, isDragOverTarget, isRecentlyMoved, isEditing, isIssueOpen, isRelayouting,
+  node, nodeKey, x, y, isOpen, isBeingDragged, dropFeedback, isRecentlyMoved, isEditing, isIssueOpen,
   onToggle, onDragStart, onOpenIssue, onCloseIssue, onAddChild, onDeleteNode, onToggleEditing, updateRow, availableTypesFor,
 }) {
   const { t } = useLanguage();
@@ -2605,7 +2638,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
   const [isHovering, setIsHovering] = useState(false);
   const showIssuePopover = isIssueOpen && !isReviewed && issueList.length > 0;
   return (
-    <div className="absolute flex flex-col items-center" data-tree-node-code={code} style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: isBeingDragged ? "none" : isRelayouting ? "left 450ms cubic-bezier(0.22,1,0.36,1), top 450ms cubic-bezier(0.22,1,0.36,1)" : "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : (isHovering || showIssuePopover) ? 25 : isBeingDragged ? 20 : 1 }}
+    <div className="absolute flex flex-col items-center" data-tree-node-code={code} style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W, transition: isBeingDragged ? "none" : "left 200ms ease, top 200ms ease", zIndex: isEditing ? 30 : (isHovering || showIssuePopover) ? 25 : isBeingDragged ? 20 : 1 }}
       onMouseEnter={() => { setIsHovering(true); if (!isReviewed && issueList.length > 0) onOpenIssue(); }} onMouseLeave={() => setIsHovering(false)}>
       {showIssuePopover && (
         <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
@@ -2626,18 +2659,22 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
       )}
       <div
         onPointerDown={(e) => { if (!isDraggable) return; e.stopPropagation(); onToggleEditing(null); onDragStart(code, e.clientX, e.clientY); }}
-        style={{ width: NODE_W, height: NODE_H }}
+        style={{ width: NODE_W, height: NODE_H, cursor: dropFeedback === "invalid" ? "not-allowed" : undefined }}
         className={`relative flex flex-col justify-center rounded-lg border px-2.5 py-1.5 text-[11px] shadow-sm transition-all ${
           node.isAnchor ? "border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-[#64748B]" :
           isBeingDragged ? "border-blue-400 bg-blue-500/10 opacity-40 ring-2 ring-blue-300" :
-          isDragOverTarget ? "scale-105 border-blue-600 bg-blue-500/10 ring-2 ring-blue-500 shadow-lg" :
+          dropFeedback === "valid" ? "scale-105 border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-400 shadow-lg animate-drop-valid" :
+          dropFeedback === "invalid" ? "scale-105 border-red-600 bg-red-500/10 ring-2 ring-red-500 shadow-lg animate-drop-invalid" :
+          dropFeedback === "neutral" ? "scale-105 border-blue-600 bg-blue-500/10 ring-2 ring-blue-500 shadow-lg" :
           isRecentlyMoved ? "border-emerald-400 bg-emerald-500/10 ring-2 ring-emerald-300" :
           isAutoParent ? "border-violet-500/40 bg-violet-500/10 hover:border-violet-500 hover:shadow-md" :
           "border-[#E2E8F0] bg-[#FFFFFF] hover:border-blue-400 hover:shadow-md"
         } ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}>
         {isBeingDragged && (<span className="absolute -top-2.5 right-1 rounded-full bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "جاري النقل...", en: "Moving..." })}</span>)}
-        {isRecentlyMoved && (<span className="absolute -top-2.5 right-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "تم النقل ✓", en: "Moved ✓" })}</span>)}
-        {!isBeingDragged && !isRecentlyMoved && isAutoParent && (<span className="absolute -top-2.5 right-1 rounded-full bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "أب تلقائي", en: "Auto parent" })}</span>)}
+        {dropFeedback === "valid" && (<span className="absolute -top-2.5 -left-2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg animate-drop-badge"><CheckCircle2 size={13} strokeWidth={2.5} /></span>)}
+        {dropFeedback === "invalid" && (<span className="absolute -top-2.5 -left-2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow-lg animate-drop-badge"><XCircle size={13} strokeWidth={2.5} /></span>)}
+        {!dropFeedback && isRecentlyMoved && (<span className="absolute -top-2.5 right-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "تم النقل ✓", en: "Moved ✓" })}</span>)}
+        {!isBeingDragged && !dropFeedback && !isRecentlyMoved && isAutoParent && (<span className="absolute -top-2.5 right-1 rounded-full bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">{t({ ar: "أب تلقائي", en: "Auto parent" })}</span>)}
         <div className="flex items-center justify-between gap-1">
           <span className="truncate font-mono text-[10px] text-[#94A3B8]">{code}</span>
           <div className="flex items-center gap-1">
@@ -2669,139 +2706,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
       )}
     </div>
   );
-}, (p, n) => p.node === n.node && p.x === n.x && p.y === n.y && p.isOpen === n.isOpen && p.isBeingDragged === n.isBeingDragged && p.isDragOverTarget === n.isDragOverTarget && p.isRecentlyMoved === n.isRecentlyMoved && p.isEditing === n.isEditing && p.isIssueOpen === n.isIssueOpen && p.isRelayouting === n.isRelayouting && p.node.children.length === n.node.children.length);
-
-/*
- * [إصلاح 2026-09-04] "طريقة العرض المضغوطة" الجديدة لمخطط الشجرة - نفس بيانات
- * المخطط الشجري الحالي (positioned/links/canvasW/canvasH بنفس الشكل تمامًا،
- * بديل متجانس drop-in)، لكن بتخطيط هجين اختاره المستخدم صراحةً: مستوى 1 و2
- * يبقيان بتخطيط شجري أفقي (d3.tree) كالمعتاد تمامًا، ومن مستوى 3 إلى 7 كل فرع
- * (تحت كل حساب مستوى2) يتحول لقائمة عمودية مضغوطة بإزاحة أفقية ثابتة صغيرة لكل
- * تعمّق (COMPACT_INDENT) - بصرف النظر عن عدد الإخوة (كل عقدة مرئية تأخذ صفها
- * الخاص، لا تفريع أفقي) - تمامًا كشجرة ملفات/outline، توفيرًا هائلاً بالعرض
- * الأفقي مع الأشجار العميقة.
- *
- * ملاحظة بنيوية مهمة: لا حاجة لأي معرفة بـ"رقم المستوى" الفعلي هنا إطلاقاً -
- * الشجرة الممررة (pruned) مبنية أصلاً بحيث تعكس الهرمية level1→level2→level3...
- * حرفياً عبر علاقة أب/ابن، والجذر الوهمي (isVirtual) يُستخدم فقط لتغليف عدة
- * جذور مستوى1 معاً (نفس الاتفاقية المستخدمة بالمخطط الشجري الحالي أعلاه) - لذا
- * الانقسام "مستوى1/2 شجري ⇄ مستوى3+ مضغوط" بنيوي بحت (عمق ضمن الشجرة الممررة
- * نفسها)، لا يحتاج level1CodeMap/level2CodeMap ولا getNodeLevelAndCategory.
- */
-export function computeHybridTreeLayout(pruned) {
-  if (!pruned) return { positioned: [], links: [], canvasW: 0, canvasH: 0 };
-
-  // جذور مستوى1 المرئية: أبناء الجذر الوهمي إن وُجد، وإلا الجذر نفسه فقط.
-  const level1Prunes = pruned._node.isVirtual ? pruned.children : [pruned];
-
-  // الطور الشجري (مستوى1+مستوى2): هيكلية d3 مؤقتة بعمق مستويين فقط (بلا نزول
-  // لمستوى3 فأعمق) - جذر اصطناعي دائمًا (نفس اتفاقية isVirtual) لتوحيد الفلترة
-  // بصرف النظر عن عدد جذور مستوى1 الفعلي (واحد أو أكثر).
-  const graphData = {
-    _key: "__hybrid_super_root__",
-    _node: { isVirtual: true },
-    children: level1Prunes.map((l1) => ({
-      _key: l1._key,
-      _node: l1._node,
-      children: (l1.children || []).map((l2) => ({ _key: l2._key, _node: l2._node, children: [] })),
-    })),
-  };
-  const graphRoot = d3.hierarchy(graphData, (d) => d.children);
-  d3.tree().nodeSize([NODE_W + 28, NODE_H + 54])(graphRoot);
-  const graphDescendants = graphRoot.descendants();
-  let minX = Infinity, maxX = -Infinity;
-  graphDescendants.forEach((d) => { minX = Math.min(minX, d.x); maxX = Math.max(maxX, d.x); });
-  if (!isFinite(minX)) { minX = 0; maxX = 0; }
-  const offsetX = -minX + NODE_W / 2 + 24, offsetY = NODE_H / 2 + 24;
-
-  const positioned = [];
-  const links = [];
-  const posByKey = new Map();
-
-  graphDescendants.filter((d) => !d.data._node.isVirtual).forEach((d) => {
-    const x = d.x + offsetX, y = d.y + offsetY;
-    posByKey.set(d.data._key, { x, y });
-    positioned.push({ node: d.data._node, key: d.data._key, x, y });
-  });
-  graphRoot.links().filter((l) => !l.source.data._node.isVirtual).forEach((l) => {
-    links.push({ key: `${l.source.data._key}=>${l.target.data._key}`, sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY });
-  });
-
-  // الطور المضغوط (مستوى3 فأعمق): لكل فرع مستوى2 على حدة - DFS تسلسلي (بنفس
-  // ترتيب الأبناء الأصلي) يمنح كل عقدة مرئية صفها الخاص (y متزايد أحاديًا)
-  // وإزاحة أفقية = COMPACT_INDENT × العمق النسبي داخل هذا الفرع فقط.
-  level1Prunes.forEach((l1) => {
-    (l1.children || []).forEach((l2) => {
-      const l2Pos = posByKey.get(l2._key);
-      if (!l2Pos) return;
-      let rowIndex = 0;
-      const walk = (prune, parentPos, parentKey, depth) => {
-        const x = l2Pos.x + COMPACT_INDENT * depth;
-        const y = l2Pos.y + NODE_H + COMPACT_ROW_GAP + rowIndex * (NODE_H + COMPACT_ROW_GAP);
-        rowIndex += 1;
-        const pos = { x, y };
-        if (!prune._node.isVirtual) {
-          posByKey.set(prune._key, pos);
-          positioned.push({ node: prune._node, key: prune._key, x, y });
-          links.push({ key: `${parentKey}=>${prune._key}`, sx: parentPos.x, sy: parentPos.y, tx: x, ty: y });
-        }
-        (prune.children || []).forEach((child) => walk(child, pos, prune._key, depth + 1));
-      };
-      (l2.children || []).forEach((l3) => walk(l3, l2Pos, l2._key, 1));
-    });
-  });
-
-  let allMinX = Infinity, allMaxX = -Infinity, allMaxY = 0;
-  positioned.forEach((p) => { allMinX = Math.min(allMinX, p.x); allMaxX = Math.max(allMaxX, p.x); allMaxY = Math.max(allMaxY, p.y); });
-  if (!isFinite(allMinX)) { allMinX = 0; allMaxX = 0; allMaxY = 0; }
-  return { positioned, links, canvasW: (allMaxX - allMinX) + NODE_W + 48, canvasH: allMaxY + NODE_H + 48 };
-}
-
-/*
- * [إصلاح 2026-09-04] الخطوط الرابطة (<path>) كانت تُرسم فورًا بالموضع الجديد
- * كلما تغيّرت إحداثيات المخطط (طي/توسيع، أو تبديل طريقة العرض) - بخلاف صناديق
- * الحسابات (TreeNodeBox) التي تنزلق بسلاسة عبر CSS transition على left/top.
- * هذا الـ hook يعمل نفس الأثر يدويًا للخطوط عبر requestAnimationFrame (لا توجد
- * مكتبة أنيميشن بالمشروع، ولا CSS transition موثوق عبر المتصفحات لخاصية "d"
- * بمسارات مختلفة البنية): يطابق كل رابط بمعرّف ثابت (l.key = "أب=>ابن")، ويحرّك
- * إحداثياته من آخر إطار مرسوم فعليًا (لا من نقطة البداية الأصلية فقط) إلى
- * الموضع الجديد - فتبديل متكرر وسريع بين طريقتي العرض يبقى سلسًا بلا قفزة.
- */
-function useAnimatedLinks(targetLinks, durationMs) {
-  const lastRenderMapRef = useRef(new Map());
-  const [renderLinks, setRenderLinks] = useState(targetLinks);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    const fromMap = lastRenderMapRef.current;
-    const to = targetLinks;
-    const startTime = performance.now();
-
-    const tick = (now) => {
-      const progress = Math.min(1, (now - startTime) / durationMs);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out-cubic - نفس إحساس منحنى صناديق TreeNodeBox
-      const frame = to.map((l) => {
-        const from = fromMap.get(l.key);
-        if (!from) return l; // رابط جديد كليًا (لا نظير سابق) - يظهر مباشرة بموضعه النهائي
-        return {
-          key: l.key,
-          sx: from.sx + (l.sx - from.sx) * eased, sy: from.sy + (l.sy - from.sy) * eased,
-          tx: from.tx + (l.tx - from.tx) * eased, ty: from.ty + (l.ty - from.ty) * eased,
-        };
-      });
-      const frameMap = new Map();
-      frame.forEach((l) => frameMap.set(l.key, l));
-      lastRenderMapRef.current = frameMap;
-      setRenderLinks(frame);
-      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
-    };
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [targetLinks, durationMs]);
-
-  return renderLinks;
-}
+}, (p, n) => p.node === n.node && p.x === n.x && p.y === n.y && p.isOpen === n.isOpen && p.isBeingDragged === n.isBeingDragged && p.dropFeedback === n.dropFeedback && p.isRecentlyMoved === n.isRecentlyMoved && p.isEditing === n.isEditing && p.isIssueOpen === n.isIssueOpen && p.node.children.length === n.node.children.length);
 
 function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAccount, availableTypesFor }) {
   const { t, dir, lang } = useLanguage();
@@ -2856,7 +2761,6 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const [recentlyMovedCode, setRecentlyMovedCode] = useState(null);
   const [editingCode, setEditingCode] = useState(null);
   const draggedNode = draggedCode ? nodesByCode.get(draggedCode) : null;
-  const draggedRoot = draggedNode ? deriveRootForRow(draggedNode.row) : null;
 
   /*
    * [نظام نقل جديد بالكامل بنمط "موشن"] استبدال drag & drop الأصلي بالمتصفح
@@ -2903,21 +2807,17 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     setDropMessage(null); setDragOverCode(null);
     if (!draggedCode || !draggedNode) return;
     const targetCode = targetNode.isAnchor ? targetNode.code : targetNode.row.code;
-    if (targetCode === draggedCode) return;
-    if (draggedNode.row.parent === targetCode) return;
-    const targetRoot = targetNode.isAnchor ? targetNode.root : deriveRootForRow(targetNode.row);
-    if (!targetRoot || targetRoot !== draggedRoot) { setDropMessage({ type: "error", text: "ما تقدر تنقل الحساب هون - النقل مسموح بس بين حسابات نفس الفئة الرئيسية" }); return; }
-    if (isDescendantCode(draggedNode, targetCode)) { setDropMessage({ type: "error", text: "ما تقدر تنقل حساب تحت أحد فروعه نفسه" }); return; }
-    const { level: targetLevel, category: targetCategory } = getNodeLevelAndCategory(targetNode, level1CodeMap, level2CodeMap);
-    if (!targetLevel || targetLevel < 2) { setDropMessage({ type: "error", text: "تعذّر تحديد مستوى هذا الحساب - عدّل الأب يدويًا" }); return; }
-    const newLevel = targetLevel + 1;
-    // [إصلاح 2026-09-04] شجرة الحسابات أقصى عمق لها 7 مستويات - الحساب المسحوب
-    // ينتقل بكل ذريته معه بنفس الإزاحة، فيجب التأكد أن أعمق حفيد له لن يتجاوز
-    // المستوى 7 بعد النقل، لا فقط الحساب المسحوب نفسه.
-    if (wouldExceedMaxLevel(newLevel, maxRelativeDepth(draggedNode))) {
-      setDropMessage({ type: "error", text: `تعذّر النقل - سيجعل هذا بعض الحسابات الفرعية تتجاوز المستوى ${MAX_ACCOUNT_LEVEL}، أقصى مستوى مسموح` });
+    // [إصلاح 2026-09-04] كل سلسلة التحقق (الفئة الرئيسية، الذرية، المستوى،
+    // سقف 7 مستويات) انتقلت لدالة نقية واحدة computeDropValidity، مشتركة مع
+    // تلوين التحويم أخضر/أحمر أدناه - بلا أي تغيير بنفس رسائل الخطأ أو ترتيب
+    // الشروط.
+    const validity = computeDropValidity(draggedNode, targetNode, level1CodeMap, level2CodeMap);
+    if (!validity.valid) {
+      if (validity.reason === "self" || validity.reason === "same-parent") return;
+      setDropMessage({ type: "error", text: validity.message });
       return;
     }
+    const { newLevel, targetCategory } = validity;
     const patch = { parent: targetCode, level: newLevel, level2Category: targetCategory || "" };
 
     const targetType = targetNode.isAnchor ? (LEVEL3_MAP[targetCategory]?.[0] || "") : targetNode.row.type;
@@ -2986,19 +2886,6 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   };
 
   const bucketEntries = Object.entries(buckets).filter(([, b]) => b.items.length > 0);
-  // [إصلاح 2026-09-04] طريقة عرض ثانية للمخطط: "graph" (الشجري الحالي الأفقي
-  // بكل المستويات) و"compact" (مستوى1-2 شجري، ومن مستوى3 قائمة عمودية مضغوطة
-  // outline لكل فرع). isRelayouting يميّز "تبديل طريقة عرض" (أنيميشن أطول
-  // وأكثر احترافية) عن الطي/التوسيع العادي (يبقى سريعًا كما هو).
-  const [diagramStyle, setDiagramStyle] = useState("graph");
-  const [isRelayouting, setIsRelayouting] = useState(false);
-  const relayoutTimerRef = useRef(null);
-  useEffect(() => {
-    setIsRelayouting(true);
-    if (relayoutTimerRef.current) clearTimeout(relayoutTimerRef.current);
-    relayoutTimerRef.current = setTimeout(() => setIsRelayouting(false), 500);
-    return () => { if (relayoutTimerRef.current) clearTimeout(relayoutTimerRef.current); };
-  }, [diagramStyle]);
   const [fullView, setFullView] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const treeViewportRef = useRef(null);
@@ -3035,9 +2922,6 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const { positioned, links, canvasW, canvasH } = useMemo(() => {
     if (!rootForLayout) return { positioned: [], links: [], canvasW: 0, canvasH: 0 };
     const pruned = pruneForDisplay(rootForLayout);
-    // [إصلاح 2026-09-04] طريقة العرض المضغوطة (outline) - دالة نقية منفصلة،
-    // انظر computeHybridTreeLayout أعلاه لتفاصيل الخوارزمية.
-    if (diagramStyle === "compact") return computeHybridTreeLayout(pruned);
     const root = d3.hierarchy(pruned, (d) => d.children);
     d3.tree().nodeSize([NODE_W + 28, NODE_H + 54])(root);
     const descendants = root.descendants();
@@ -3045,12 +2929,9 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     descendants.forEach((d) => { minX = Math.min(minX, d.x); maxX = Math.max(maxX, d.x); maxY = Math.max(maxY, d.y); });
     const offsetX = -minX + NODE_W / 2 + 24, offsetY = NODE_H / 2 + 24;
     const positioned = descendants.filter((d) => !d.data._node.isVirtual).map((d) => ({ node: d.data._node, key: d.data._key, x: d.x + offsetX, y: d.y + offsetY }));
-    const links = root.links().filter((l) => !l.source.data._node.isVirtual).map((l) => ({ key: `${l.source.data._key}=>${l.target.data._key}`, sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY }));
+    const links = root.links().filter((l) => !l.source.data._node.isVirtual).map((l) => ({ sx: l.source.x + offsetX, sy: l.source.y + offsetY, tx: l.target.x + offsetX, ty: l.target.y + offsetY }));
     return { positioned, links, canvasW: (isFinite(maxX) ? maxX - minX : 0) + NODE_W + 48, canvasH: maxY + NODE_H + 48 };
-  }, [rootForLayout, expanded, diagramStyle]);
-
-  // نفس مدة/منحنى انتقال صناديق الحسابات بالضبط - تبقى الخطوط والصناديق متزامنة بصريًا.
-  const animatedLinks = useAnimatedLinks(links, isRelayouting ? 450 : 200);
+  }, [rootForLayout, expanded]);
 
   // خريطة رمز← عقدة لكل ما هو معروض حاليًا فقط (نفس ما يراه المستخدم فعليًا) -
   // تُستخدم لتحديد هدف الإفلات الحقيقي (حساب حقيقي أو "أب تلقائي" آنكور) عند
@@ -3063,6 +2944,24 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     });
     return map;
   }, [positioned]);
+
+  /*
+   * [إصلاح 2026-09-04] تلوين هدف التحويم أخضر (نقل مسموح) أو أحمر (مرفوض)
+   * فورًا أثناء السحب، قبل الإفلات - نفس دالة التحقق المستخدمة فعليًا
+   * بـhandleDrop (computeDropValidity) فلا يمكن أن يختلف لون التنويه عن
+   * النتيجة الفعلية عند الإفلات. "same-parent" (إفلات فوق الأب الحالي نفسه)
+   * محايد (neutral) بدل أخضر لأنه لا ينقل شيئًا فعليًا (نفس سلوك handleDrop
+   * الصامت بهذه الحالة).
+   */
+  const dragOverValidity = useMemo(() => {
+    if (!draggedCode || !dragOverCode || !draggedNode) return null;
+    const targetNode = positionedByCode.get(dragOverCode);
+    if (!targetNode) return null;
+    return computeDropValidity(draggedNode, targetNode, level1CodeMap, level2CodeMap);
+  }, [draggedCode, dragOverCode, draggedNode, positionedByCode, level1CodeMap, level2CodeMap]);
+  const dragOverFeedback = !dragOverValidity ? null
+    : dragOverValidity.reason === "self" || dragOverValidity.reason === "same-parent" ? "neutral"
+    : dragOverValidity.valid ? "valid" : "invalid";
 
   // مرجع يحمل أحدث نسخة من الدوال/الخرائط التي يحتاجها مستمع pointerup على
   // window - بلا هذا المرجع كانت الدالة المُسجَّلة عند بدء السحب (draggedCode
@@ -3196,14 +3095,6 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               <button key={key} onClick={() => { setFullView(false); setActiveRootKey(key); }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${!fullView && activeRootKey === key ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{bucket.label} ({bucket.items.length})</button>
             ))}
           </div>
-          {/* [إصلاح 2026-09-04] تبويب طريقة العرض: الشجري الأفقي الحالي، أو المضغوط
-              الجديد (مستوى1-2 شجري، ومن مستوى3 قائمة عمودية مضغوطة outline لكل فرع).
-              تغيير diagramStyle يعيد حساب الإحداثيات فقط بنفس مفاتيح العقد - فتتحرك
-              الصناديق والخطوط بأنيميشن سلس بدل القفز أو إعادة الرسم من الصفر. */}
-          <div className="mb-2 flex shrink-0 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] p-1">
-            <button onClick={() => setDiagramStyle("graph")} className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${diagramStyle === "graph" ? "bg-white text-blue-700 shadow-sm" : "text-[#64748B] hover:text-blue-700"}`}>{t({ ar: "⊞ عرض شجري كامل", en: "⊞ Full graph view" })}</button>
-            <button onClick={() => setDiagramStyle("compact")} className={`rounded-md px-3 py-1.5 text-xs font-bold transition-all ${diagramStyle === "compact" ? "bg-white text-blue-700 shadow-sm" : "text-[#64748B] hover:text-blue-700"}`}>{t({ ar: "☰ عرض مضغوط (قائمة)", en: "☰ Compact (outline) view" })}</button>
-          </div>
           <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2">
             {bucketEntries.length > 1 && (
               <button onClick={() => setFullView((v) => !v)} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${fullView ? "border-[#12B886] bg-[#12B886] text-[#04120C]" : "border-[#CBD5E1] bg-[#F8FAFC] text-[#64748B] hover:border-[#12B886] hover:text-[#15803D]"}`}>{t({ ar: "☰ العرض الكامل للشجرة", en: "☰ View Entire Tree" })}</button>
@@ -3227,28 +3118,33 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
             <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div
                 className="absolute inset-0 origin-top-left"
-                style={{
-                  transform: `scale(${zoom})`, width: canvasW, height: canvasH,
-                  // [إصلاح 2026-09-04] نبضة خفيفة (لا remount) عند تبديل طريقة العرض فقط -
-                  // فوق انزلاق الصناديق/الخطوط أدناه، لإحساس "استقرار" احترافي عند التبديل.
-                  opacity: isRelayouting ? 0.6 : 1, transition: "opacity 320ms ease, transform 320ms ease",
-                }}
+                style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}
               >
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
-                {animatedLinks.map((l) => { const midY = (l.sy + l.ty) / 2; return (<path key={l.key} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#2A3A5C" strokeWidth={1.5} />); })}
+                {links.map((l, i) => { const midY = (l.sy + l.ty) / 2; return (<path key={i} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#2A3A5C" strokeWidth={1.5} />); })}
               </svg>
               {positioned.map(({ node, key, x, y }) => {
                 const code = node.isAnchor ? node.code : node.row.code;
-                return (<TreeNodeBox key={key} node={node} nodeKey={key} x={x} y={y} isOpen={expanded.has(key)} isBeingDragged={draggedCode === code} isDragOverTarget={!!draggedCode && draggedCode !== code && dragOverCode === code} isRecentlyMoved={recentlyMovedCode === code} isEditing={editingCode === code && !node.isAnchor} isIssueOpen={openIssueCode === code} isRelayouting={isRelayouting} onToggle={toggleExpand} onDragStart={handleDragStart} onOpenIssue={() => setOpenIssueCode(code)} onCloseIssue={() => setOpenIssueCode(null)} onAddChild={handleAddChild} onDeleteNode={handleDeleteNode} onToggleEditing={setEditingCode} updateRow={updateRow} availableTypesFor={availableTypesFor} />);
+                return (<TreeNodeBox key={key} node={node} nodeKey={key} x={x} y={y} isOpen={expanded.has(key)} isBeingDragged={draggedCode === code} dropFeedback={!!draggedCode && draggedCode !== code && dragOverCode === code ? dragOverFeedback : null} isRecentlyMoved={recentlyMovedCode === code} isEditing={editingCode === code && !node.isAnchor} isIssueOpen={openIssueCode === code} onToggle={toggleExpand} onDragStart={handleDragStart} onOpenIssue={() => setOpenIssueCode(code)} onCloseIssue={() => setOpenIssueCode(null)} onAddChild={handleAddChild} onDeleteNode={handleDeleteNode} onToggleEditing={setEditingCode} updateRow={updateRow} availableTypesFor={availableTypesFor} />);
               })}
               </div>
             </div>
           </div>
           {draggedCode && ghostPos && draggedNode && (
             <div
-              className="pointer-events-none fixed z-[10000] flex flex-col justify-center rounded-lg border-2 border-blue-500 bg-white px-2.5 py-1.5 text-[11px] shadow-2xl"
-              style={{ left: ghostPos.x - NODE_W / 2, top: ghostPos.y - NODE_H / 2, width: NODE_W, height: NODE_H, opacity: 0.97, transform: "scale(1.04)" }}
+              className={`pointer-events-none fixed z-[10000] flex flex-col justify-center rounded-lg border-2 bg-white px-2.5 py-1.5 text-[11px] shadow-2xl transition-colors ${
+                dragOverFeedback === "valid" ? "border-emerald-500" :
+                dragOverFeedback === "invalid" ? "border-red-500" :
+                "border-blue-500"
+              }`}
+              style={{
+                left: ghostPos.x - NODE_W / 2, top: ghostPos.y - NODE_H / 2, width: NODE_W, height: NODE_H, opacity: 0.97,
+                transform: "scale(1.04)",
+                boxShadow: dragOverFeedback === "valid" ? "0 0 0 4px rgba(16,185,129,0.18)" : dragOverFeedback === "invalid" ? "0 0 0 4px rgba(220,38,38,0.18)" : undefined,
+              }}
             >
+              {dragOverFeedback === "valid" && (<span className="absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow"><CheckCircle2 size={13} strokeWidth={2.5} /></span>)}
+              {dragOverFeedback === "invalid" && (<span className="absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow"><XCircle size={13} strokeWidth={2.5} /></span>)}
               <span className="truncate font-mono text-[10px] text-[#94A3B8]">{draggedNode.row.code}</span>
               <div className="truncate font-semibold text-[#0F172A]">{draggedNode.row.nameAr || draggedNode.row.nameEn}</div>
             </div>
