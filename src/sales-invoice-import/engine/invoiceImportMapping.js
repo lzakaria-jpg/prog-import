@@ -15,7 +15,7 @@ import { columnValues, sampleValuesFor, analyzeColumnShape, dateLikeRatio, norma
 import { normalizeYesNo, normalizePercentValue, normalizeDiscountPercentNumber, parseRateFromDropdownLabel, deriveTaxInclusive, deriveTaxRate, snapTaxCategory } from './taxAndDiscount.js';
 import { rowGet } from './referenceIndexes.js';
 import { resolveNamesToRefs } from './resolveNames.js';
-import { fillDownHeaderFields } from './rows.js';
+import { fillDownHeaderFields, forwardFillInvoiceRef } from './rows.js';
 
 // من renderInvoiceImportMappingUI (أسطر 1101-1172 و 1186-1189 لجزء التخمين، بلا أي HTML/DOM).
 // refs: {template:{loaded,dropdowns}, customers:{loaded}, products:{loaded}} (لأخذ قرارات الاستنتاج بالقيم فقط).
@@ -232,9 +232,15 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
     return row;
   }).filter(row => COLUMNS.some(c=>!isBlank(row[c.key])));
 
+  // [إصلاح 2026-09-05] قبل أي تجميع بحسب مرجع الفاتورة (fillDownHeaderFields يجمّع الصفوف
+  // حسب A نفسه، فصف بـA فارغ لا يدخل أي مجموعة إطلاقًا) - ننشر آخر مرجع فاتورة غير فارغ على
+  // صفوف بنود الفاتورة التالية التي ترك فيها ملف العميل خانة المرجع فارغة (أسلوب الخلايا
+  // المدمجة الشائع). انظر تعليق forwardFillInvoiceRef بـrows.js.
+  const refFilledRows = forwardFillInvoiceRef(importedRows);
+
   // العميل/المنتج المكتوب بالاسم داخل خانة الرقم المرجعي/الكود يُستبدل بالرقم المرجعي الصحيح،
   // ثم تُكرَّر بيانات رأس الفاتورة على كل صفوف نفس المرجع.
-  const resolved = resolveNamesToRefs(importedRows, true, refs.customers, refs.products);
+  const resolved = resolveNamesToRefs(refFilledRows, true, refs.customers, refs.products);
   resolved.ambiguities.forEach(a=>ambiguities.push(a));
   const finalRows = fillDownHeaderFields(resolved.rows);
 

@@ -3243,6 +3243,17 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               </div>
             </div>
           )}
+          {draggedCode && ghostPos && dragOverFeedback === "invalid" && dragOverValidity?.message && (
+            <div
+              className="animate-fadeIn pointer-events-none fixed z-[10001] w-56 rounded-lg border border-red-400 bg-white/95 p-2.5 text-[11px] shadow-xl backdrop-blur-sm"
+              style={{ left: ghostPos.x + NODE_W / 2 + 16, top: ghostPos.y - NODE_H / 2 }}
+            >
+              <div className="mb-1.5 flex items-center gap-1 font-bold text-red-600">
+                <XCircle size={12} /> {t({ ar: "النقل غير مسموح", en: "Move not allowed" })}
+              </div>
+              <div className="text-[#475569]">{lang === "en" ? localizeMergeError(dragOverValidity.message) : dragOverValidity.message}</div>
+            </div>
+          )}
         </>
       )}
     </div>

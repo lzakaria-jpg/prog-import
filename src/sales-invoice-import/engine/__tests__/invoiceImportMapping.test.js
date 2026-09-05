@@ -197,4 +197,22 @@ describe("applyInvoiceImportMapping — تعبئة رأس الفاتورة وت�
     const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
     expect(importedRows.length).toBe(0);
   });
+
+  // [إصلاح 2026-09-05] السيناريو الحقيقي الذي أبلغ عنه المستخدم: ملف العميل يكتب مرجع الفاتورة
+  // بأول سطر فقط ويترك خانة المرجع نفسها فارغة بباقي سطور بنودها (خلايا مدمجة بإكسل) - قبل
+  // forwardFillInvoiceRef كان الصف الثاني هنا يبقى بمرجع فارغ للأبد (لا يدخل أي مجموعة تجميع
+  // بالأساس)، فيظهر بالملف النهائي كصف بمرجع فاتورة فارغ.
+  it("مرجع الفاتورة (A) فارغ فعليًا بملف المصدر بسطر بند تالٍ لنفس الفاتورة يُنشَر تلقائيًا قبل التجميع", () => {
+    const headers = ['Ref', 'Qty', 'Price', 'Date', 'Cust', 'Loc', 'SKU'];
+    const rawRows = [
+      ['INV-10', '2', '50', '01/01/2026', 'C-1', 'الرياض', 'SKU-1'],
+      ['', '1', '30', '', '', '', 'SKU-2'], // خانة المرجع فارغة فعليًا بالملف الخام - لا "INV-10" مكرر يدويًا
+    ];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', D: 'Date', C: 'Cust', G: 'Loc', N: 'SKU' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[1].A).toBe('INV-10');
+    expect(importedRows[1].D).toBe('01/01/2026');
+    expect(importedRows[1].C).toBe('C-1');
+    expect(importedRows[1].G).toBe('الرياض');
+  });
 });

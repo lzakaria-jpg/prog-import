@@ -23,7 +23,7 @@ export { analyzeColumnShape, columnValues, sampleValuesFor, columnStats, refineR
 // المحرك — الضريبة والخصم
 export { normalizeYesNo, normalizePercentValue, normalizeDiscountPercentNumber, parseRateFromDropdownLabel, matchNearestTaxRate, snapTaxCategory, snapTaxCategoriesInRows, deriveTaxInclusive, deriveTaxRate } from './engine/taxAndDiscount.js';
 // المحرك — الصفوف والتجميع والفهارس
-export { createRow, fillDownHeaderFields, compressHeaderFields } from './engine/rows.js';
+export { createRow, fillDownHeaderFields, compressHeaderFields, forwardFillInvoiceRef } from './engine/rows.js';
 export { groupRowsByInvoiceRef } from './engine/grouping.js';
 export { rowGet, buildProductsIndex, buildStockIndex, buildCustomersIndex } from './engine/referenceIndexes.js';
 export { resolveNamesToRefs } from './engine/resolveNames.js';

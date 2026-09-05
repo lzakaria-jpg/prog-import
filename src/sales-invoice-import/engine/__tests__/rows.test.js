@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createRow, fillDownHeaderFields, compressHeaderFields } from "../rows.js";
+import { createRow, fillDownHeaderFields, compressHeaderFields, forwardFillInvoiceRef } from "../rows.js";
 import { COL_KEYS } from "../constants.js";
 
 describe("createRow", () => {
@@ -13,6 +13,61 @@ describe("createRow", () => {
     expect(r.A).toBe('INV-1');
     expect(r.P).toBe('5');
     expect(r.B).toBe('');
+  });
+});
+
+describe("forwardFillInvoiceRef — [إصلاح 2026-09-05] نشر مرجع الفاتورة على صفوف بنودها التي تركها ملف العميل فارغة (أسلوب الخلايا المدمجة)", () => {
+  it("ينشر آخر مرجع فاتورة غير فارغ على الصفوف التالية بمرجع فارغ، حتى ظهور مرجع جديد", () => {
+    const rows = [
+      createRow(1, { A: 'INV-1', N: 'SKU-1' }),
+      createRow(2, { A: '', N: 'SKU-2' }),
+      createRow(3, { A: '', N: 'SKU-3' }),
+      createRow(4, { A: 'INV-2', N: 'SKU-4' }),
+      createRow(5, { A: '', N: 'SKU-5' }),
+    ];
+    const next = forwardFillInvoiceRef(rows);
+    expect(next.map(r => r.A)).toEqual(['INV-1', 'INV-1', 'INV-1', 'INV-2', 'INV-2']);
+  });
+
+  it("لا يلمس صفًا مرجعه غير فارغ أصلًا (لا يُعيد كتابته حتى لو تطابق آخر مرجع محفوظ)", () => {
+    const rows = [
+      createRow(1, { A: 'INV-1' }),
+      createRow(2, { A: 'INV-1' }), // مرجع صريح مكرر - يبقى كما هو، لا "نشر"
+    ];
+    const next = forwardFillInvoiceRef(rows);
+    expect(next[1].A).toBe('INV-1');
+  });
+
+  it("صف بمرجع فارغ يسبق أي مرجع فعلي بالملف يبقى فارغًا (لا مرجع سابق لنشره)", () => {
+    const rows = [
+      createRow(1, { A: '', N: 'SKU-orphan' }),
+      createRow(2, { A: 'INV-1', N: 'SKU-1' }),
+    ];
+    const next = forwardFillInvoiceRef(rows);
+    expect(next[0].A).toBe('');
+    expect(next[1].A).toBe('INV-1');
+  });
+
+  it("لا تُعدَّل الصفوف الأصلية (immutable)", () => {
+    const rows = [
+      createRow(1, { A: 'INV-1' }),
+      createRow(2, { A: '' }),
+    ];
+    const before = JSON.stringify(rows);
+    forwardFillInvoiceRef(rows);
+    expect(JSON.stringify(rows)).toBe(before);
+  });
+
+  it("مخرجاته تُغذّي fillDownHeaderFields بنجاح - الصف الذي كان سيبقى بلا مجموعة الآن يُملأ بحقول الرأس أيضًا", () => {
+    const rows = [
+      createRow(1, { A: 'INV-1', C: 'CUST-1', D: '01/01/2026' }),
+      createRow(2, { A: '', C: '', D: '' }), // مرجع فارغ - كان يبقى بلا مجموعة قبل الإصلاح
+    ];
+    const refFilled = forwardFillInvoiceRef(rows);
+    const next = fillDownHeaderFields(refFilled);
+    expect(next[1].A).toBe('INV-1');
+    expect(next[1].C).toBe('CUST-1');
+    expect(next[1].D).toBe('01/01/2026');
   });
 });
 
