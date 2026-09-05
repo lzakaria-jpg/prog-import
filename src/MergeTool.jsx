@@ -2581,6 +2581,33 @@ export function nextAvailableCodeForParent(parentCode, parentLevel, rows, tree1I
  * exceeded" فعلياً — نفس الخطأ الجوهري المُصلَح بـexcelCore.js.readWorkbookRows، وهذا نفس
  * الحل (حلقة .push بسيطة بلا أي spread) بلا أي تغيير في القيم أو ترتيبها.
  */
+/**
+ * [إصلاح 2026-09-05] الحقل الوحيد الذي كان يُعاد ترقيمه لذرية حساب مُنقول هو
+ * code/parent (فقط عند تغيّر رمز الحساب المنقول نفسه) - أما level فكان يبقى
+ * كما هو بلا أي تحديث، فتصبح مستويات الذرية المخزَّنة غير مطابقة لعمقها
+ * الحقيقي بعد أي نقل لحساب متفرّع. هذا يفتح ثغرة تجاوز المستوى 7 لاحقًا: أي
+ * نقل جديد يستهدف أحد هذه الحسابات (target) يعتمد على targetLevel المأخوذ من
+ * هذا الحقل الخاطئ (getNodeLevelAndCategory)، فيمرّ تحقق wouldExceedMaxLevel
+ * بصمت رغم أن العمق الفعلي تجاوز المستوى 7 فعلاً. هذه الدالة (نقية، مُصدَّرة
+ * ومُختبَرة مباشرة) تحسب تصحيح صف ذرية واحد: code/parent يُزاحان فقط إذا
+ * codeChanged، وlevel يُصحَّح دائمًا بمقدار levelDelta - مستقل تمامًا عن
+ * تغيّر الرمز - حتى يبقى مطابقًا للعمق الحقيقي بعد النقل.
+ */
+export function computeDescendantMovePatch(childRow, { oldCode, newCode, codeChanged, levelDelta }) {
+  const patch = {};
+  if (codeChanged) {
+    const childCode = String(childRow.code || "").trim();
+    if (childCode && childCode.startsWith(oldCode)) patch.code = newCode + childCode.slice(oldCode.length);
+    const childParent = String(childRow.parent || "").trim();
+    if (childParent && childParent.startsWith(oldCode)) patch.parent = newCode + childParent.slice(oldCode.length);
+  }
+  if (levelDelta) {
+    const childLevel = Number(childRow.level);
+    if (!isNaN(childLevel)) patch.level = childLevel + levelDelta;
+  }
+  return patch;
+}
+
 function collectNewDescendantRows(node) {
   const acc = [];
   for (const child of node.children) {
@@ -2620,6 +2647,16 @@ export function wouldExceedMaxLevel(baseLevel, extraDepth = 0) {
 }
 
 const NODE_W = 172, NODE_H = 56;
+/*
+ * [إصلاح 2026-09-05] تحريك الشاشة (pan) بالسحب كان يعمل فقط عبر تغيير
+ * scrollLeft/scrollTop للحاوية - وهذا لا يحرّك شيئًا إطلاقًا إذا كانت مساحة
+ * الشجرة المعروضة (canvasW/canvasH) أصغر من أو تساوي حجم الحاوية المرئية
+ * (لا يوجد overflow فعلي ليتحرّك) - بالضبط ما يحصل عند طي الفروع حتى يظهر
+ * حساب واحد لوحده (شجرة صغيرة جدًا). الحل: هامش ثابت إضافي (PAN_PADDING)
+ * حول محتوى الشجرة الفعلي بصرف النظر عن حجمها - فيبقى هناك overflow حقيقي
+ * قابل للتحريك دائمًا، مهما كانت الشجرة صغيرة.
+ */
+const PAN_PADDING = 500;
 // [إصلاح 2026-09-04] سقف عدد مستويات شجرة الحسابات في قيود - لا يوجد مستوى ثامن إطلاقاً.
 export const MAX_ACCOUNT_LEVEL = 7;
 
@@ -2833,26 +2870,40 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
      */
     const oldCode = draggedNode.row.code;
     const newCode = nextAvailableCodeForParent(targetCode, targetLevel, rows, treeMeta?.tree1Index);
-    const descendantRows = newCode && newCode !== oldCode ? collectNewDescendantRows(draggedNode) : [];
-    if (newCode && newCode !== oldCode) patch.code = newCode;
+    const codeChanged = !!(newCode && newCode !== oldCode);
+    /*
+     * [إصلاح 2026-09-05] خلل كان يسمح بتجاوز المستوى 7 فعليًا: عند نقل حساب
+     * "متفرّع" (له ذرية)، كان يُعاد ترقيم رمز (code) وأب (parent) كل ذريته
+     * فقط - بينما حقل المستوى (level) المخزَّن بكل صف من صفوفهم يبقى كما هو
+     * بلا أي تحديث! فبعد أي نقل لحساب متفرّع، تصبح مستويات ذريته المخزَّنة
+     * غير صحيحة (أقل من عمقها الحقيقي الجديد بمقدار الإزاحة). لاحقًا، أي محاولة
+     * نقل تستهدف أحد هذه الحسابات (target) تعتمد على targetLevel المأخوذ من
+     * هذا الحقل الخاطئ في computeDropValidity/getNodeLevelAndCategory - فيُحسب
+     * newLevel أقل من العمق الحقيقي، ويمرّ تحقق wouldExceedMaxLevel بصمت رغم
+     * أن العمق الفعلي تجاوز المستوى 7 فعلاً. الحل: إزاحة level لكل ذرية بنفس
+     * levelDelta المطبَّق على الحساب المنقول نفسه - بصرف النظر عن تغيّر
+     * الرمز من عدمه - حتى تبقى مستويات الذرية المخزَّنة مطابقة لعمقها الحقيقي
+     * دائمًا، ولا يتكرر هذا الالتفاف مستقبلاً.
+     */
+    const oldLevel = Number(draggedNode.row.level);
+    const levelDelta = !isNaN(oldLevel) ? newLevel - oldLevel : 0;
+    const descendantRows = (codeChanged || levelDelta !== 0) ? collectNewDescendantRows(draggedNode) : [];
+    if (codeChanged) patch.code = newCode;
 
     setDropMessage({
       type: "success",
-      text: newCode && newCode !== oldCode
+      text: codeChanged
         ? `تم نقل "${draggedNode.row.nameAr}" بنجاح - رمزه الجديد ${newCode}`
         : `تم نقل "${draggedNode.row.nameAr}" بنجاح`,
     });
     updateRow(draggedNode.row.id, patch);
-    if (newCode && newCode !== oldCode) {
-      // كل ذرية الحساب المنقول تُعاد ترقيمها بنفس الإزاحة - الرمز نفسه، وحقل
-      // "الحساب الرئيسي" أيضًا لأنه قد يشير لرمز الحساب المنقول القديم مباشرة
-      // (أبناؤه المباشرون) أو لرمز حفيد آخر أُعيد ترقيمه للتو (أحفاده الأعمق)
+    if (codeChanged || levelDelta !== 0) {
+      // كل ذرية الحساب المنقول: الرمز والأب يُعاد ترقيمهما بنفس الإزاحة فقط
+      // إذا تغيّر رمز الحساب المنقول نفسه (codeChanged)، أما المستوى (level)
+      // فيُصحَّح دائمًا بمقدار levelDelta - مستقل تمامًا عن تغيّر الرمز - حتى
+      // يبقى مطابقًا للعمق الحقيقي بعد النقل (انظر تعليق الإصلاح أعلاه).
       descendantRows.forEach((childRow) => {
-        const childPatch = {};
-        const childCode = String(childRow.code || "").trim();
-        if (childCode && childCode.startsWith(oldCode)) childPatch.code = newCode + childCode.slice(oldCode.length);
-        const childParent = String(childRow.parent || "").trim();
-        if (childParent && childParent.startsWith(oldCode)) childPatch.parent = newCode + childParent.slice(oldCode.length);
+        const childPatch = computeDescendantMovePatch(childRow, { oldCode, newCode, codeChanged, levelDelta });
         if (Object.keys(childPatch).length) updateRow(childRow.id, childPatch);
       });
     }
@@ -2963,6 +3014,29 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     : dragOverValidity.reason === "self" || dragOverValidity.reason === "same-parent" ? "neutral"
     : dragOverValidity.valid ? "valid" : "invalid";
 
+  /*
+   * [إصلاح 2026-09-05] معاينة فورية لحالة الحساب الجديدة قبل الإفلات - رمزه
+   * الجديد، مستواه الجديد، فئته، وعدد الحسابات الفرعية التي سيُعاد ترقيمها
+   * معه - بنفس دوال handleDrop الفعلية (nextAvailableCodeForParent،
+   * collectNewDescendantRows) فلا يمكن أن تختلف المعاينة عن نتيجة الإفلات
+   * الحقيقية. تُحسب فقط عندما يكون الهدف الحالي صالحًا فعلاً (dragOverFeedback
+   * === "valid").
+   */
+  const dragOverPreview = useMemo(() => {
+    if (!dragOverValidity || !dragOverValidity.valid || !draggedNode || !dragOverCode) return null;
+    const oldCode = draggedNode.row.code;
+    const computedCode = nextAvailableCodeForParent(dragOverCode, dragOverValidity.targetLevel, rows, treeMeta?.tree1Index);
+    const codeChanged = !!(computedCode && computedCode !== oldCode);
+    const descendantsCount = codeChanged ? collectNewDescendantRows(draggedNode).length : 0;
+    return {
+      newCode: codeChanged ? computedCode : oldCode,
+      codeChanged,
+      newLevel: dragOverValidity.newLevel,
+      targetCategory: dragOverValidity.targetCategory,
+      descendantsCount,
+    };
+  }, [dragOverValidity, draggedNode, dragOverCode, rows, treeMeta]);
+
   // مرجع يحمل أحدث نسخة من الدوال/الخرائط التي يحتاجها مستمع pointerup على
   // window - بلا هذا المرجع كانت الدالة المُسجَّلة عند بدء السحب (draggedCode
   // يتحول من null لقيمة) تبقى حاملة لقيمًا قديمة (rows/treeMeta وقت ذاك)
@@ -3016,10 +3090,13 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitW, fitH)));
     zoomRef.current = z;
     setZoom(z);
-    el.scrollLeft = 0;
-    el.scrollTop = 0;
+    // PAN_PADDING (لا 0) - محتوى الشجرة نفسه يبدأ عند هذا الإزاحة بالضبط
+    // داخل اللوحة المبطّنة (انظر تعليق PAN_PADDING أعلاه)، فهذا هو نفس منظور
+    // "أعلى-يسار الشجرة" الذي كان يعطيه scrollLeft/scrollTop = 0 سابقًا.
+    el.scrollLeft = PAN_PADDING;
+    el.scrollTop = PAN_PADDING;
   }, [canvasW, canvasH]);
-  const resetZoom = useCallback(() => { zoomRef.current = 1; setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = 0; el.scrollTop = 0; } }, []);
+  const resetZoom = useCallback(() => { zoomRef.current = 1; setZoom(1); const el = treeScrollRef.current; if (el) { el.scrollLeft = PAN_PADDING; el.scrollTop = PAN_PADDING; } }, []);
   const fittedRef = useRef(null);
   useEffect(() => {
     const key = fullView ? "__all_roots__" : (activeRootKey || "");
@@ -3115,10 +3192,10 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
             style={{ maxHeight: isFullscreen ? "none" : 640, cursor: panRef.current ? "grabbing" : "grab" }}
             onPointerDown={handlePanStart} onPointerMove={handlePanMove} onPointerUp={handlePanEnd} onPointerCancel={handlePanEnd}
           >
-            <div className="relative" style={{ width: canvasW * zoom, height: canvasH * zoom, minWidth: "100%", transition: "width 0.15s, height 0.15s" }}>
+            <div className="relative" style={{ width: canvasW * zoom + PAN_PADDING * 2, height: canvasH * zoom + PAN_PADDING * 2, minWidth: "100%", minHeight: "100%", transition: "width 0.15s, height 0.15s" }}>
               <div
-                className="absolute inset-0 origin-top-left"
-                style={{ transform: `scale(${zoom})`, width: canvasW, height: canvasH }}
+                className="absolute origin-top-left"
+                style={{ left: PAN_PADDING, top: PAN_PADDING, transform: `scale(${zoom})`, width: canvasW, height: canvasH }}
               >
               <svg width={canvasW} height={canvasH} className="absolute inset-0" style={{ pointerEvents: "none" }}>
                 {links.map((l, i) => { const midY = (l.sy + l.ty) / 2; return (<path key={i} d={`M ${l.sx} ${l.sy + NODE_H / 2} V ${midY} H ${l.tx} V ${l.ty - NODE_H / 2}`} fill="none" stroke="#2A3A5C" strokeWidth={1.5} />); })}
@@ -3146,6 +3223,24 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
               {dragOverFeedback === "invalid" && (<span className="animate-drop-badge absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow"><XCircle size={13} strokeWidth={2.5} /></span>)}
               <span className="truncate font-mono text-[10px] text-[#94A3B8]">{draggedNode.row.code}</span>
               <div className="truncate font-semibold text-[#0F172A]">{draggedNode.row.nameAr || draggedNode.row.nameEn}</div>
+            </div>
+          )}
+          {draggedCode && ghostPos && dragOverFeedback === "valid" && dragOverPreview && (
+            <div
+              className="animate-fadeIn pointer-events-none fixed z-[10001] w-52 rounded-lg border border-emerald-400 bg-white/95 p-2.5 text-[11px] shadow-xl backdrop-blur-sm"
+              style={{ left: ghostPos.x + NODE_W / 2 + 16, top: ghostPos.y - NODE_H / 2 }}
+            >
+              <div className="mb-1.5 flex items-center gap-1 font-bold text-emerald-700">
+                <CheckCircle2 size={12} /> {t({ ar: "معاينة النقل", en: "Move preview" })}
+              </div>
+              <div className="space-y-0.5 text-[#475569]">
+                <div>{t({ ar: "الفئة", en: "Category" })}: <span className="font-semibold text-[#0F172A]">{dragOverPreview.targetCategory || "—"}</span></div>
+                <div>{t({ ar: "المستوى الجديد", en: "New level" })}: <span className="font-semibold text-[#0F172A]">{dragOverPreview.newLevel}</span></div>
+                <div>{t({ ar: "الرمز الجديد", en: "New code" })}: <span className={`font-mono font-semibold ${dragOverPreview.codeChanged ? "text-emerald-700" : "text-[#0F172A]"}`}>{dragOverPreview.newCode}</span></div>
+                {dragOverPreview.descendantsCount > 0 && (
+                  <div>{t({ ar: "سيُعاد ترقيم", en: "Will renumber" })}: <span className="font-semibold text-[#0F172A]">{dragOverPreview.descendantsCount}</span> {t({ ar: "حساب فرعي", en: "sub-account(s)" })}</div>
+                )}
+              </div>
             </div>
           )}
         </>
