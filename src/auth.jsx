@@ -64,9 +64,13 @@ async function verifyAdminPassword(password) {
     const calculated = await hashPassword(password, targetSalt);
     return calculated === targetHash;
   } catch (err) {
+    // [إصلاح أمني 2026-09-07] كان أي استثناء هنا (حتى قطع شبكة عابر أثناء
+    // التحقق) يُسقِط النظام على هاش/ملح ثابتين بالكود كـfallback — أي أن أي
+    // خطأ عابر، حتى لو Supabase شغّال وكلمة مرور حقيقية مضبوطة، كان يفتح باباً
+    // خلفياً للدخول بكلمة المرور الافتراضية الثابتة. الفشل الآمن هنا رفض
+    // الدخول، لا قبوله بقيمة ثابتة.
     console.error("Error verifying admin password:", err);
-    const calculated = await hashPassword(password, DEFAULT_ADMIN_SALT);
-    return calculated === DEFAULT_ADMIN_HASH;
+    return false;
   }
 }
 

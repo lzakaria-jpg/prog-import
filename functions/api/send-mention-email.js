@@ -16,23 +16,38 @@
 // وحتى تُضبَط الاثنان، تُعيد الدالة 200 مع { skipped: true } بدل الفشل — الإشعار
 // داخل التطبيق يبقى القناة الموثوقة دائماً، وهذا إضافة أفضل-جهد فوقه لا شرط له.
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// [إصلاح أمني 2026-09-07] كان Access-Control-Allow-Origin ثابتاً "*" — يسمح
+// لأي موقع يستخدم هذا الوكيل لإرسال بريد باسم دومين قيود الموثَّق بـResend.
+// نردّ أصل الطلب فقط لو كان ضمن القائمة المسموحة (نفس سلوك الأداة الفعلي).
+const ALLOWED_ORIGINS = [
+  "https://iqoyod.pages.dev",
+  "https://test.iqoyod.pages.dev",
+  "http://localhost:5173",
+];
 
-const JSON_HEADERS = { ...CORS_HEADERS, "Content-Type": "application/json" };
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  const headers = {
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+export async function onRequestOptions(context) {
+  return new Response(null, { status: 204, headers: corsHeaders(context.request) });
 }
 
 export async function onRequestPost(context) {
+  const JSON_HEADERS = { ...corsHeaders(context.request), "Content-Type": "application/json" };
   const apiKey = context.env && context.env.RESEND_API_KEY;
   const from = context.env && context.env.RESEND_FROM;
   if (!apiKey || !from) {
@@ -77,6 +92,9 @@ export async function onRequestPost(context) {
 // أي طريقة غير POST/OPTIONS
 export async function onRequest(context) {
   if (context.request.method === "POST") return onRequestPost(context);
-  if (context.request.method === "OPTIONS") return onRequestOptions();
-  return new Response(JSON.stringify({ error: "Method Not Allowed" }), { status: 405, headers: JSON_HEADERS });
+  if (context.request.method === "OPTIONS") return onRequestOptions(context);
+  return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
+    status: 405,
+    headers: { ...corsHeaders(context.request), "Content-Type": "application/json" },
+  });
 }

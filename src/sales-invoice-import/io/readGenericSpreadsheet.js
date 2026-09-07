@@ -23,7 +23,22 @@ export function readGenericSpreadsheet(file){
         } else {
           const data = new Uint8Array(e.target.result);
           const wb = XLSX.read(data, {type:'array'});
-          const ws = wb.Sheets[wb.SheetNames[0]];
+          // [إصلاح 2026-09-07] كان يقرأ دائمًا أول ورقة بالملف (wb.SheetNames[0])
+          // بلا اعتبار لحالة الإخفاء. لو رفع المستخدم قالب قيود الرسمي نفسه بعد
+          // تعبئته ببيانات حقيقية (سيناريو شائع)، ورقته الأولى فعليًا هي
+          // "do_not_edit" المخفية (state="veryHidden" — قوائم القيم الداخلية)
+          // وليست ورقة الفواتير الظاهرة، فتُقرأ قيم القائمة المخفية كأنها صف
+          // عناوين/بيانات الفاتورة، ويفشل كل اكتشاف الأعمدة بصمت بلا أي خطأ ظاهر.
+          // نفضّل أول ورقة "ظاهرة" (Hidden ليست 1 ولا 2) حين تتوفر بيانات الحالة
+          // من مكتبة xlsx، ونسقط تلقائيًا على الورقة الأولى كالسابق لو تعذّرت
+          // قراءة الحالة — توافق كامل مع كل الملفات العادية بلا أي أثر عليها.
+          const sheetMeta = wb.Workbook && Array.isArray(wb.Workbook.Sheets) ? wb.Workbook.Sheets : null;
+          let sheetName = wb.SheetNames[0];
+          if (sheetMeta) {
+            const visibleName = wb.SheetNames.find((name, idx) => !sheetMeta[idx] || !sheetMeta[idx].Hidden);
+            if (visibleName) sheetName = visibleName;
+          }
+          const ws = wb.Sheets[sheetName];
           rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
         }
         // ابحث عن أول صف يبدو كصف عناوين (أكثر من خلية نصية غير فارغة)

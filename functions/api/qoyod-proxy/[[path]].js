@@ -18,18 +18,39 @@
 
 const QOYOD_BASE = "https://api.qoyod.com/2.0";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type, API-KEY",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-};
+// [إصلاح أمني 2026-09-07] كان Access-Control-Allow-Origin ثابتاً "*" — أي موقع
+// بالإنترنت (لو معه مفتاح Qoyod API صالح من أي مصدر) يقدر يستخدم هذا الوكيل
+// كـ relay مفتوح لأي مسار على api.qoyod.com من متصفح أي طرف ثالث. الآن نردّ
+// أصل الطلب (Origin) فقط لو كان ضمن القائمة المسموحة أدناه — نفس سلوك الأداة
+// الفعلي (تُستدعى دائماً بمسار نسبي من نفس الدومين) بلا أي تغيير على عملها،
+// فقط يمنع استخدام الوكيل من مواقع خارجية. عدّل هذي القائمة لو أُضيف دومين
+// مخصص (custom domain) لاحقاً على مشروع Cloudflare Pages.
+const ALLOWED_ORIGINS = [
+  "https://iqoyod.pages.dev",
+  "https://test.iqoyod.pages.dev",
+  "http://localhost:5173",
+];
 
-export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  const headers = {
+    "Access-Control-Allow-Headers": "Content-Type, API-KEY",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Vary": "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+export async function onRequestOptions(context) {
+  return new Response(null, { status: 204, headers: corsHeaders(context.request) });
 }
 
 async function handle(context) {
   const { request, params } = context;
+  const CORS_HEADERS = corsHeaders(request);
 
   const apiKey = request.headers.get("API-KEY");
   if (!apiKey) {

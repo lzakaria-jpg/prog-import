@@ -993,8 +993,15 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
+  // [إصلاح أمني 2026-09-07] لا نمرّر file_url لـwindow.open بلا تحقق من مخطط
+  // الرابط (scheme) — لو وصل يومًا صف رسالة بقيمة file_url غير طبيعية (مثلاً
+  // "javascript:...") فسينفَّذ فورًا بجلسة أي مستخدم يضغط على المرفق. كل روابط
+  // المرفقات الحقيقية تأتي من رفع فعلي لـSupabase Storage وتبدأ دائمًا بـ
+  // https:// — هذا الفحص لا يرفض أي مرفق شرعي إطلاقًا.
   const handleDownload = (msg) => {
-    if (msg.file_url) window.open(msg.file_url, "_blank");
+    if (msg.file_url && /^https:\/\//i.test(msg.file_url)) {
+      window.open(msg.file_url, "_blank", "noopener,noreferrer");
+    }
   };
 
   const switchChannel = (ch) => {

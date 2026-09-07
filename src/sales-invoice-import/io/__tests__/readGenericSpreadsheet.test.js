@@ -49,4 +49,36 @@ describe("readGenericSpreadsheet — ملف xlsx عام", () => {
     expect(headers).toEqual(["sku", "name"]);
     expect(rows).toEqual([["SKU-1", "منتج أ"]]);
   });
+
+  // [إصلاح 2026-09-07] كان يقرأ دائمًا wb.SheetNames[0] بلا اعتبار لحالة
+  // الإخفاء — لو رفع المستخدم قالب قيود الرسمي نفسه بعد تعبئته (ورقته الأولى
+  // فعليًا "do_not_edit" مخفية state="veryHidden")، تُقرأ قيم القائمة المخفية
+  // كأنها صف عناوين/بيانات الفاتورة، ويفشل كل اكتشاف الأعمدة بصمت. سيناريو حقيقي
+  // اكتُشف من ملف عميل فعلي (قالب قيود الرسمي معبّى ببيانات فواتير حقيقية).
+  it("يتخطى ورقة أولى مخفية (veryHidden) ويقرأ أول ورقة ظاهرة بدلها", async () => {
+    const wb = XLSX.utils.book_new();
+    const hiddenWs = XLSX.utils.aoa_to_sheet([["المركز الرئيسي", 1], ["نعم", "نعم"]]);
+    const visibleWs = XLSX.utils.aoa_to_sheet([["sku", "name"], ["SKU-1", "منتج أ"]]);
+    XLSX.utils.book_append_sheet(wb, hiddenWs, "do_not_edit");
+    XLSX.utils.book_append_sheet(wb, visibleWs, "Invoice Upload Template");
+    wb.Workbook = wb.Workbook || {};
+    wb.Workbook.Sheets = [{ Hidden: 2 }, { Hidden: 0 }]; // 2 = veryHidden، 0 = ظاهرة
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const file = new File([buf], "invoice.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const { headers, rows } = await readGenericSpreadsheet(file);
+    expect(headers).toEqual(["sku", "name"]);
+    expect(rows).toEqual([["SKU-1", "منتج أ"]]);
+  });
+
+  it("يسقط تلقائيًا على أول ورقة كالسابق حين لا تتوفر بيانات حالة الإخفاء إطلاقًا", async () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["sku", "name"], ["SKU-1", "منتج أ"]]);
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    delete wb.Workbook; // يحاكي ملفات لا تحمل بيانات Workbook.Sheets إطلاقًا
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const file = new File([buf], "no-meta.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const { headers, rows } = await readGenericSpreadsheet(file);
+    expect(headers).toEqual(["sku", "name"]);
+    expect(rows).toEqual([["SKU-1", "منتج أ"]]);
+  });
 });
