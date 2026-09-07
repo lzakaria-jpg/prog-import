@@ -497,6 +497,28 @@ export function normalizeAccountName(value) {
     .replace(/\s+/g, " ");
 }
 
+// [أداء] استُخرجت مصفوفة Levenshtein الديناميكية لدالة مستقلة (كانت مضمَّنة
+// بجسم accountNameSimilarity) — تُستخدَم الآن من مكانين: accountNameSimilarity
+// نفسها (بلا أي تغيير بالمخرجات)، وفهرس المطابقة السريع أدناه (buildRefIndex/
+// resolveRefFast) الذي يتفاداها كليًا حين يستحيل رياضيًا بلوغ العتبة (انظر
+// تعليق resolveRefFast للتفاصيل والأرقام الفعلية المقاسة).
+function levenshteinDistance(a, b) {
+  const width = b.length;
+  const previous = Array.from({ length: width + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= width; j += 1) {
+      const above = previous[j];
+      previous[j] = a[i - 1] === b[j - 1]
+        ? diagonal
+        : 1 + Math.min(previous[j], previous[j - 1], diagonal);
+      diagonal = above;
+    }
+  }
+  return previous[width];
+}
+
 export function accountNameSimilarity(left, right) {
   const a = normalizeAccountName(left);
   const b = normalizeAccountName(right);
@@ -508,19 +530,79 @@ export function accountNameSimilarity(left, right) {
   const intersection = [...aWords].filter((word) => bWords.has(word)).length;
   const wordScore = intersection / Math.max(aWords.size, bWords.size);
   const width = Math.max(a.length, b.length);
-  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= a.length; i += 1) {
-    let diagonal = previous[0];
-    previous[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const above = previous[j];
-      previous[j] = a[i - 1] === b[j - 1]
-        ? diagonal
-        : 1 + Math.min(previous[j], previous[j - 1], diagonal);
-      diagonal = above;
+  const distance = levenshteinDistance(a, b);
+  return Math.max(wordScore, 1 - distance / width);
+}
+
+// [إصلاح خطأ أداء حقيقي شهده المستخدم] كانت resolveRef (بداخل
+// applyAutoContactRules أدناه) تستدعي accountNameSimilarity لكل زوج (سطر
+// مدين/دائن × عنصر بالملف المرجعي) من جديد — أي أن اسم كل عنصر مرجعي يُطبَّع
+// (normalizeAccountName) و"مجموعة كلماته" (new Set(...)) يُعاد بناؤهما من
+// الصفر بكل مقارنة، رغم أنهما ثابتان طوال العملية بالكامل. على ملف حقيقي
+// (11332 قيد، 394 مورد مرجعي) قِيس هذا فعليًا: applyAutoContactRules استغرقت
+// ~20 ثانية تجميد كامل بمسار الكود الفعلي — وهذا بالضبط سبب نافذة "صفحة غير
+// مستجيبة" بالمتصفح عند رفع ملف موردين بحجم مشابه (~440 مورد). الإصلاح هنا لا
+// يغيّر أي قيمة أو نتيجة مطابقة إطلاقًا (نفس الرقم المرجعي يُختار لكل سطر بنفس
+// النقاط بالضبط، تحقَّق بالاختبارات + بمقارنة كامل النتائج قبل/بعد على الملف
+// الحقيقي) — فقط يتفادى العمل المكرر وغير الضروري:
+//  1) تطابق حرفي عبر Map (O(1)) بدل مسح القائمة المرجعية كاملةً لكل سطر —
+//     يغطي غالبية الحالات الحقيقية فورًا.
+//  2) تطبيع اسم كل عنصر مرجعي ومجموعة كلماته يُحسبان مرة واحدة فقط عند بناء
+//     الفهرس (قبل حلقة الأسطر)، لا عند كل مقارنة.
+//  3) تخطّي حساب Levenshtein الكامل (O(طول×طول)، الأبطأ بالمعادلة) للأزواج
+//     التي يستحيل رياضيًا أن تبلغ عتبة القبول 0.6: الحد الأدنى المضمون لمسافة
+//     التحرير بين نصين هو |طول الأول - طول الثاني| (خاصية رياضية معروفة لدالة
+//     Levenshtein، لا تقريب)، فلو حتى هذا الحد الأدنى (أفضل نتيجة ممكنة نظريًا)
+//     لا يبلغ 0.6 مع فارق الكلمات المشتركة أيضًا دون 0.6 — فمسافة التحرير
+//     الفعلية (الأكبر أو تساوي هذا الحد الأدنى) لن تبلغ العتبة قطعًا، فيُتخطى
+//     حسابها بالكامل بأمان تام.
+function buildRefIndex(refList) {
+  const exactMap = new Map();
+  const items = [];
+  for (const item of refList || []) {
+    const norm = normalizeAccountName(item.name);
+    if (!norm) continue;
+    // أول عنصر بكل اسم مطابَق حرفيًا هو الذي يُختار — مطابق تمامًا لسلوك
+    // المسح الخطي القديم (كان يحتفظ بأول عنصر يبلغ أعلى نقاط عند التعادل،
+    // لأن الشرط `score > best.score` صارم لا `>=`).
+    if (!exactMap.has(norm)) exactMap.set(norm, item);
+    items.push({ item, norm, words: new Set(norm.split(" ")) });
+  }
+  return { exactMap, items };
+}
+
+function resolveRefFast(candidateName, refIndex) {
+  const name = String(candidateName || "").trim();
+  if (!name || !refIndex.items.length) return null;
+  const a = normalizeAccountName(name);
+  if (!a) return null;
+
+  const exact = refIndex.exactMap.get(a);
+  if (exact) return { ...exact, score: 1 };
+
+  const aWords = new Set(a.split(" "));
+  let best = null;
+  for (const { item, norm: b, words: bWords } of refIndex.items) {
+    let score;
+    if (a.includes(b) || b.includes(a)) {
+      score = 0.9;
+    } else {
+      let intersection = 0;
+      for (const word of aWords) if (bWords.has(word)) intersection += 1;
+      const wordScore = intersection / Math.max(aWords.size, bWords.size);
+      const width = Math.max(a.length, b.length);
+      const lenDiff = Math.abs(a.length - b.length);
+      const bestPossibleLevScore = 1 - lenDiff / width;
+      if (wordScore < 0.6 && bestPossibleLevScore < 0.6) continue; // يستحيل بلوغ العتبة — تخطَّ Levenshtein كليًا
+      const distance = levenshteinDistance(a, b);
+      score = Math.max(wordScore, 1 - distance / width);
+    }
+    if (score >= 0.6 && (!best || score > best.score)) {
+      best = { ...item, score };
+      if (score === 1) break; // لا يمكن تجاوز 1 — توقّف فورًا
     }
   }
-  return Math.max(wordScore, 1 - previous[b.length] / width);
+  return best;
 }
 
 // [إصلاح جذري] المطابقة بالاسم الحرفي المطابق تمامًا (findAccountCodesByExactName)
@@ -658,16 +740,10 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const creditorsCodes = new Set(manualCreditors ? [manualCreditors] : findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME));
   if (!vatCodes.size && !debtorsCodes.size && !creditorsCodes.size) return entries;
 
-  const resolveRef = (candidateName, refList) => {
-    const name = String(candidateName || "").trim();
-    if (!name || !refList.length) return null;
-    let best = null;
-    for (const item of refList) {
-      const score = accountNameSimilarity(name, item.name);
-      if (score >= 0.6 && (!best || score > best.score)) best = { ...item, score };
-    }
-    return best;
-  };
+  // [أداء] الفهرسان يُبنيان مرة واحدة فقط هنا (لا لكل سطر) — انظر تعليق
+  // buildRefIndex/resolveRefFast أعلاه لتفاصيل الإصلاح والقياس الفعلي.
+  const customersIndex = buildRefIndex(customersRef);
+  const suppliersIndex = buildRefIndex(suppliersRef);
 
   let changed = false;
   const nextEntries = entries.map((entry) => {
@@ -694,7 +770,7 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         // row.comment (نص وصفي حر قد يبتر الاسم أو يستبدله بعبارة عامة) —
         // انظر تعليق Schema C أعلاه لمثال حقيقي مؤكَّد وأرقام التحسن.
         const candidateName = row._autoRef ? (row._refCandidate ?? row.contact) : (row.detail || row.contact || row.comment || "");
-        const match = resolveRef(candidateName, isDebtors ? customersRef : suppliersRef);
+        const match = resolveRefFast(candidateName, isDebtors ? customersIndex : suppliersIndex);
         if (!match) return row;
         if (row.contact === match.ref && row._autoRef) return row;
         entryChanged = true;

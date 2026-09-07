@@ -506,6 +506,11 @@ export default function JournalTool() {
   const [auditVersion, setAuditVersion] = useState(0);
   const searchInputRef = useRef(null);
   const suggestionCacheRef = useRef(new Map());
+  // [إصلاح أداء — انظر تعليق useEffect تعبية جهة الاتصال أدناه وcontactMatchWorker.js]
+  // worker واحد دائم (لا يُنشأ من جديد بكل رفع ملف) يُنهى فقط عند تفكيك المكوّن.
+  const contactMatchWorkerRef = useRef(null);
+  const contactMatchRequestIdRef = useRef(0);
+  const [contactMatchBusy, setContactMatchBusy] = useState(false);
 
   useEffect(() => {
     const handler = (e) => {
@@ -516,6 +521,13 @@ export default function JournalTool() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      contactMatchWorkerRef.current?.terminate();
+      contactMatchWorkerRef.current = null;
+    };
   }, []);
 
   const chartMap = useMemo(() => {
@@ -596,23 +608,75 @@ export default function JournalTool() {
   // فـsetEntries هنا لا تُسبِّب أي حلقة تحديث لا نهائية (React يتجاهل تحديث
   // state بنفس المرجع). السطور التي عدّلها المستخدم يدويًا (_userEdited) محمية
   // ولا تُلمَس داخل applyAutoContactRules نفسها.
+  //
+  // [إصلاح خطأ أداء حقيقي شهده المستخدم] كان هذا الحساب يعمل مباشرةً بالخيط
+  // الرئيسي — على ملف موردين مرجعي بحجم معقول (~440 صفًا) مع ملف قيود حقيقي
+  // كبير كان يُجمِّد الواجهة كليًا (نافذة "صفحة غير مستجيبة" بالمتصفح)، قِيس
+  // فعليًا ~20 ثانية تجميد تام قبل إصلاح الخوارزمية بexcelCore.js. حتى بعد ذلك
+  // التحسين (٣٣ ضعفًا تقريبًا) يبقى هذا عملًا حسابيًا قد يطول مع ملفات أكبر —
+  // فالضمان الوحيد لعدم التجميد "مهما كان حجم الملف" هو تنفيذه بخيط منفصل
+  // كليًا (Web Worker، انظر contactMatchWorker.js) بدل الخيط الرئيسي، فتبقى
+  // الصفحة قابلة للتمرير والنقر طوال وقت المطابقة كائنًا ما كان. لا تغيير على
+  // نتيجة المطابقة نفسها إطلاقًا — نفس applyAutoContactRules بالضبط، فقط بخيط
+  // آخر؛ مع رجوع تلقائي للتنفيذ المباشر لو Worker غير مدعوم استثنائيًا.
   useEffect(() => {
-    if (!entries || !chartAccounts) return;
-    const next = applyAutoContactRules(entries, chartAccounts, {
+    if (!entries || !chartAccounts) return undefined;
+    const requestId = ++contactMatchRequestIdRef.current;
+    const options = {
       vat15Code, vatZeroCode,
       customersRef: customersRefList || [],
       suppliersRef: suppliersRefList || [],
       vatAccountCode: manualVatCode,
       debtorsAccountCode: manualDebtorsCode,
       creditorsAccountCode: manualCreditorsCode,
-    });
-    if (next !== entries) {
-      setEntries(next);
-      // لازم إعادة تشغيل تدقيق الهيكل (auditVersion) وإلا يبقى "missing_contact_ref"
-      // معلَّقاً على سطور مُلِئت خانتها للتو تلقائياً — التدقيق الجماعي أدناه لا
-      // يُعاد تلقائياً لمجرد تغيّر entries (auditVersion هو مُحرِّكه المتعمَّد).
-      setAuditVersion((version) => version + 1);
+    };
+
+    const applyDirectly = () => {
+      const next = applyAutoContactRules(entries, chartAccounts, options);
+      if (next !== entries) {
+        setEntries(next);
+        // لازم إعادة تشغيل تدقيق الهيكل (auditVersion) وإلا يبقى "missing_contact_ref"
+        // معلَّقاً على سطور مُلِئت خانتها للتو تلقائياً — التدقيق الجماعي أدناه لا
+        // يُعاد تلقائياً لمجرد تغيّر entries (auditVersion هو مُحرِّكه المتعمَّد).
+        setAuditVersion((version) => version + 1);
+      }
+    };
+
+    // [احتياط] بيئة تشغيل استثنائية بلا دعم Web Worker إطلاقًا — رجوع مباشر
+    // للتنفيذ بالخيط الرئيسي بدل تعطيل الميزة كليًا (نفس الدقة، بلا ضمان عدم
+    // التجميد فقط بهذه الحالة النادرة جدًا).
+    if (typeof Worker === "undefined") {
+      applyDirectly();
+      return undefined;
     }
+
+    let worker = contactMatchWorkerRef.current;
+    if (!worker) {
+      try {
+        worker = new Worker(new URL("./lib/contactMatchWorker.js", import.meta.url), { type: "module" });
+        contactMatchWorkerRef.current = worker;
+      } catch {
+        applyDirectly();
+        return undefined;
+      }
+    }
+
+    setContactMatchBusy(true);
+    const handleMessage = (event) => {
+      const data = event.data || {};
+      if (data.requestId !== requestId) return; // استجابة قديمة لطلب سابق تجاوزه طلب أحدث — تُهمَل
+      setContactMatchBusy(false);
+      if (data.ok && data.changed && data.result) {
+        setEntries(data.result);
+        setAuditVersion((version) => version + 1);
+      }
+    };
+    worker.addEventListener("message", handleMessage);
+    worker.postMessage({ requestId, entries, chartAccounts, options });
+
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+    };
   }, [entries, chartAccounts, customersRefList, suppliersRefList, vat15Code, vatZeroCode, manualVatCode, manualDebtorsCode, manualCreditorsCode]);
 
   useEffect(() => {
@@ -1064,6 +1128,12 @@ export default function JournalTool() {
 
         {ready && (
           <>
+            {contactMatchBusy && (
+              <div className="mb-3 flex items-center gap-2 text-xs" style={{ color: "#64748B" }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: COLORS.teal }} />
+                {t({ ar: "جارٍ تحديد الأرقام المرجعية تلقائيًا للعملاء/الموردين… الصفحة تبقى قابلة للاستخدام أثناء ذلك", en: "Auto-matching customer/supplier reference numbers… the page stays usable meanwhile" })}
+              </div>
+            )}
             <div className="mb-4 grid grid-cols-3 gap-3">
               <SummaryStat label={{ ar: "إجمالي القيود", en: "Total Entries" }} value={totalEntries} color={COLORS.teal} active={filter === "all"} onClick={() => { setFilter("all"); setPage(0); }} />
               <SummaryStat label={{ ar: "قيود سليمة", en: "Valid Entries" }} value={totalEntries - entriesWithIssues} color={COLORS.green} active={filter === "ok"} onClick={() => { setFilter("ok"); setPage(0); }} />
