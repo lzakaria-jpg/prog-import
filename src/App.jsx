@@ -11,7 +11,7 @@ import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2 } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -20,6 +20,35 @@ const NAV_ITEMS = [
   { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
   { id: "products", permKey: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Upload Products to Qoyod" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
 ];
+
+// ── تجميع الأدوات ضمن 3 تبويبات رئيسية للصفحة الرئيسية ──────────────
+// هذا التجميع طبقة عرض/تنقّل فقط فوق NAV_ITEMS - لا يغيّر permKey ولا
+// أي شيء من آلية عمل الأدوات نفسها (المكوّنات، الصلاحيات، التوصيل بالحالة).
+const CATEGORIES = [
+  {
+    id: "setup",
+    label: { ar: "أدوات خدمات التأسيس", en: "Setup Services Tools" },
+    icon: Building2,
+    toolIds: ["merge", "products"],
+  },
+  {
+    id: "migration",
+    label: { ar: "أدوات خدمات نقل البيانات", en: "Data Migration Services Tools" },
+    icon: ArrowLeftRight,
+    toolIds: ["journal", "sales", "bills"],
+  },
+  {
+    id: "settings",
+    label: { ar: "الإعدادات", en: "Settings" },
+    icon: Settings,
+    toolIds: [], // لا أدوات تبويب هنا - تُبنى عناصره (إدارة المستخدمين/الذكاء الاصطناعي) بحسب الصلاحيات داخل AppShell
+  },
+];
+
+function categoryIdForTool(toolId) {
+  const cat = CATEGORIES.find((c) => c.toolIds.includes(toolId));
+  return cat ? cat.id : null;
+}
 
 function LanguageToggle({ compact }) {
   const { lang, toggle, t } = useLanguage();
@@ -144,6 +173,7 @@ function UpdateBanner() {
 function AppShell() {
   const [tab, setTab] = useState("journal");
   const [collapsed, setCollapsed] = useState(false);
+  const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("journal"));
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
@@ -162,13 +192,51 @@ function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleNavKey, tab]);
 
+  // إبقاء القائمة المنسدلة التي تحوي الأداة الحالية مفتوحة تلقائياً عند تغيّر التبويب
+  useEffect(() => {
+    const cid = categoryIdForTool(tab);
+    if (cid) setOpenCategory(cid);
+  }, [tab]);
+
+  // بناء تبويبات الصفحة الرئيسية الثلاثة وعناصر كل قائمة منسدلة تابعة لها،
+  // فوق نفس visibleNavItems (المفلترة بالصلاحيات) وبلا أي تغيير لآلية عمل الأدوات
+  const categoriesWithItems = CATEGORIES.map((cat) => {
+    if (cat.id === "settings") {
+      const items = [];
+      if (isUserManager) {
+        items.push({
+          id: "manage-users",
+          label: { ar: "إدارة المستخدمين", en: "Manage Users" },
+          desc: { ar: "الأدوار والصلاحيات وسجل التدقيق", en: "Roles, permissions & audit log" },
+          icon: Users,
+          action: () => setShowAdmin(true),
+        });
+      }
+      if (can(currentUserRecord, "tool.ai")) {
+        items.push({
+          id: "ai-settings",
+          label: { ar: "الذكاء الاصطناعي", en: "AI Analysis" },
+          desc: { ar: "إعدادات وتحليل ذكي للقيود", en: "AI settings & smart entry analysis" },
+          icon: Sparkles,
+          action: () => setShowAISettings(true),
+        });
+      }
+      return { ...cat, items };
+    }
+    const items = cat.toolIds
+      .map((id) => visibleNavItems.find((n) => n.id === id))
+      .filter(Boolean)
+      .map((n) => ({ ...n, action: () => setTab(n.id) }));
+    return { ...cat, items };
+  }).filter((cat) => cat.items.length > 0);
+
   if (loading || !currentUser) return <LoginScreen />;
 
   const chevBase = lang === "ar" ? 0 : 180;
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.8.6";
+  const currentVersion = "1.8.7";
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
@@ -198,79 +266,81 @@ function AppShell() {
           )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-1">
-          {visibleNavItems.map(({ id, label, icon: Icon, desc }) => {
-            const active = tab === id;
+        {/* Nav — 3 تبويبات رئيسية، كل تبويب ينبثق تحته قائمة منسدلة بأدواته */}
+        <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
+          {categoriesWithItems.map((cat) => {
+            const CatIcon = cat.icon;
+            const isOpen = openCategory === cat.id && !collapsed;
+            const isCurrent = cat.items.some((it) => it.id === tab);
             return (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
-                style={{
-                  padding: collapsed ? "10px 0" : "10px 14px",
-                  justifyContent: collapsed ? "center" : "flex-start",
-                  background: active ? "rgba(74,144,217,0.2)" : "transparent",
-                  color: active ? "#93C5FD" : "#94A3B8",
-                }}
-                title={collapsed ? t(label) : undefined}
-              >
-                <Icon size={18} className={active ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: active ? "#60A5FA" : undefined }} />
-                {!collapsed && (
-                  <div className="text-start animate-fadeIn">
-                    <p className={`text-sm font-semibold leading-tight ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(label)}</p>
-                    <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t(desc)}</p>
+              <div key={cat.id} className="space-y-1">
+                <button
+                  onClick={() => {
+                    if (collapsed) {
+                      setCollapsed(false);
+                      setOpenCategory(cat.id);
+                    } else {
+                      setOpenCategory((prev) => (prev === cat.id ? null : cat.id));
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
+                  style={{
+                    padding: collapsed ? "10px 0" : "10px 14px",
+                    justifyContent: collapsed ? "center" : "flex-start",
+                    background: isCurrent ? "rgba(74,144,217,0.2)" : isOpen ? "rgba(255,255,255,0.05)" : "transparent",
+                    color: isCurrent ? "#93C5FD" : "#94A3B8",
+                  }}
+                  title={collapsed ? t(cat.label) : undefined}
+                >
+                  <CatIcon size={18} className={isCurrent ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: isCurrent ? "#60A5FA" : undefined }} />
+                  {!collapsed && (
+                    <>
+                      <p className={`flex-1 text-start text-sm font-semibold leading-tight ${isCurrent ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>
+                        {t(cat.label)}
+                      </p>
+                      <ChevronDown
+                        size={14}
+                        style={{
+                          flexShrink: 0,
+                          color: isCurrent ? "#60A5FA" : "#64748B",
+                          transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "transform 0.2s",
+                        }}
+                      />
+                    </>
+                  )}
+                </button>
+
+                {isOpen && (
+                  <div className="space-y-1 animate-fadeIn" style={{ [lang === "ar" ? "paddingRight" : "paddingLeft"]: 14 }}>
+                    {cat.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = item.id === tab;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={item.action}
+                          className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
+                          style={{
+                            padding: "8px 14px",
+                            justifyContent: "flex-start",
+                            background: active ? "rgba(74,144,217,0.2)" : "transparent",
+                            color: active ? "#93C5FD" : "#94A3B8",
+                          }}
+                        >
+                          <Icon size={16} className={active ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: active ? "#60A5FA" : undefined }} />
+                          <div className="text-start animate-fadeIn">
+                            <p className={`text-xs font-semibold leading-tight ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(item.label)}</p>
+                            <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t(item.desc)}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-              </button>
+              </div>
             );
           })}
-
-          {/* Admin button (owner + full user managers only) */}
-          {isUserManager && (
-            <button
-              onClick={() => setShowAdmin(true)}
-              className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
-              style={{
-                padding: collapsed ? "10px 0" : "10px 14px",
-                justifyContent: collapsed ? "center" : "flex-start",
-                background: "transparent",
-                color: "#94A3B8",
-              }}
-              title={collapsed ? t({ ar: "إدارة المستخدمين", en: "Manage Users" }) : undefined}
-            >
-              <Settings size={18} style={{ flexShrink: 0 }} className="group-hover:text-slate-300" />
-              {!collapsed && (
-                <div className="text-start animate-fadeIn">
-                  <p className="text-sm font-semibold leading-tight text-slate-300 group-hover:text-white">{t({ ar: "إدارة المستخدمين", en: "Manage Users" })}</p>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t({ ar: "الأدوار والصلاحيات وسجل التدقيق", en: "Roles, permissions & audit log" })}</p>
-                </div>
-              )}
-            </button>
-          )}
-
-          {/* AI Settings button */}
-          {canUseAI && (
-          <button
-            onClick={() => setShowAISettings(true)}
-            className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
-            style={{
-              padding: collapsed ? "10px 0" : "10px 14px",
-              justifyContent: collapsed ? "center" : "flex-start",
-              background: "transparent",
-              color: "#94A3B8",
-            }}
-            title={collapsed ? t({ ar: "إعدادات الذكاء الاصطناعي", en: "AI Settings" }) : undefined}
-          >
-            <Sparkles size={18} style={{ flexShrink: 0 }} className="group-hover:text-amber-300" />
-            {!collapsed && (
-              <div className="text-start animate-fadeIn">
-                <p className="text-sm font-semibold leading-tight text-slate-300 group-hover:text-white">{t({ ar: "الذكاء الاصطناعي", en: "AI Analysis" })}</p>
-                <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t({ ar: "تحليل ذكي للقيود", en: "Smart entry analysis" })}</p>
-              </div>
-            )}
-          </button>
-          )}
         </nav>
 
         {/* User info */}
