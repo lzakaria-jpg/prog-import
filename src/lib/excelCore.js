@@ -1174,6 +1174,29 @@ export function parseEntriesFile(rows) {
   // This prevents a false-positive header match (e.g. "تسلسل القيد" appearing deep
   // inside a Qoyod Journal Report) from short-circuiting the whole parse.
 
+  // Schema C أولاً — قبل أي مخطط آخر (وليس أخيرًا كما كان سابقًا). [إصلاح خطأ
+  // حقيقي شهده المستخدم]: ملف "دفتر القيود" الأصلي من قيود (8624 قيد حقيقي) كان
+  // يُقرأ صحيحًا سابقًا، ثم صار يظهر بلوحة "تحديد الأعمدة يدويًا" رغم أن تنسيقه
+  // (كتل ID.../الحساب|التفصيل|مدين|دائن|التعليقات) لم يتغيّر. السبب الجذري:
+  // findHeaderRowIndex بالمخطط A (وكذلك B/D/E) يفحص كل صف بالملف بحثًا عن أي
+  // خلية تحوي كلمة عامة قصيرة مثل "تسلسل" أو "seq" — وبملف حقيقي 94082 صفًا
+  // فيه آلاف خانات "التعليقات" الحرة، وجدت المطابقة الزائفة صدفة داخل تعليق
+  // عادي غير محاسبي: "...— تسلسل: 402068810" (رقم تسلسلي لتجديد استمارة مركبة،
+  // لا علاقة له بهيكل القيود). ظنّ المخطط A أن هذا صف رأس فعلي، فقرأ كل ما
+  // بعده بعمودة خاطئة تمامًا (رمز/تاريخ/وصف فارغة لكل الأسطر) لكن أنتج 8624
+  // "قيد" ظاهريًا — رقم غير صفري فقطَع الفحص عند أول مخطط قبل الوصول لـSchema C
+  // (الذي يتعرّف على تنسيق قيود دفتر قيود نفسه بدقة تامة عبر QOYOD_REPORT_ID_RE،
+  // توقيع محدد جدًا "ID <رقم> ... ( أنشئ بواسطة ... في <تاريخ> )" يكاد يستحيل أن
+  // يتطابق زائفًا مع نص حر). الإصلاح: تفعيل توقيع Schema C المحدد جدًا أولًا —
+  // إن وُجد، فهو الأصدق دومًا بلا حاجة لتجربة المخططات العامة الأضعف قبله؛
+  // يمنع أي مخطط عام بمطابقة كلمة مفردة هشة من التقاط ملف قيود دفتر قيود بالخطأ.
+  if (findQoyodReportStart(rows) !== -1) {
+    dbg.push(`Schema C (Qoyod Journal Report) matched — checked first (highest-confidence signature)`);
+    const result = parseQoyodJournalReportSchema(rows);
+    dbg.push(`Schema C => ${result.length} groups`);
+    if (result.length > 0) { _parseDebug.info = dbg.join("\n"); return result; }
+  }
+
   // Schema A: bulk-import template
   let hIdx = findHeaderRowIndex(rows, "تسلسل القيد", "تسلسل", "serial", "seq", "رقم التسلسل", "رقم القيد");
   dbg.push(`Schema A hIdx=${hIdx}`);
@@ -1225,15 +1248,6 @@ export function parseEntriesFile(rows) {
       dbg.push(`Schema E => ${result.length} groups`);
       if (result.length > 0) { _parseDebug.info = dbg.join("\n"); return result; }
     }
-  }
-
-  // Schema C: Qoyod Journal Report (ID blocks)
-  if (findQoyodReportStart(rows) !== -1) {
-    dbg.push(`Schema C (Qoyod Journal Report) matched`);
-    const result = parseQoyodJournalReportSchema(rows);
-    dbg.push(`Schema C => ${result.length} groups`);
-    _parseDebug.info = dbg.join("\n");
-    return result;
   }
 
   // Generic flexible fallback
