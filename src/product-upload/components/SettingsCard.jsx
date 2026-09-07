@@ -6,7 +6,11 @@ import { SafeInput } from "../../lib/SafeInput.jsx";
  * الإيراد/المصروف الافتراضيان، وتبديلا "شامل الضريبة" و"تخطي المكررات".
  */
 export default function SettingsCard({ eng }) {
-  const { revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct, taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups } = eng;
+  const {
+    revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct, taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
+    updateExisting, toggleUpdateExisting,
+    openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
+  } = eng;
 
   return (
     <div className="qpu-panel">
@@ -30,6 +34,33 @@ export default function SettingsCard({ eng }) {
       <div className="qpu-toggle-row">
         <div className={"qpu-toggle" + (skipDups ? " active" : "")} onClick={toggleSkipDups} />
         <span className="qpu-toggle-label">تخطي المنتجات الموجودة مسبقاً (بالاسم أو الرمز)</span>
+      </div>
+      {/* [إضافة 2026-09-07] تحديث بدل تخطي — مؤكَّد عبر PUT /products/{id} حقيقي
+          من المستخدم. مطابقة بالرمز (sku) فقط عمداً — منتج بلا رمز بالملف لا
+          يمكن تحديثه أبداً (يستمر بمنطق التخطي/الإنشاء العادي). لو فعّلته
+          يتفوّق على "تخطي" لأي منتج تطابق رمزه فقط؛ الباقي (تطابق بالاسم فقط،
+          أو بلا تطابق إطلاقاً) يبقى بنفس السلوك الحالي. */}
+      <div className="qpu-toggle-row">
+        <div className={"qpu-toggle" + (updateExisting ? " active" : "")} onClick={toggleUpdateExisting} />
+        <span className="qpu-toggle-label">تحديث المنتجات الموجودة (بدل تخطيها) — مطابقة بالرمز فقط، يتطلب عمود رمز/كود بالملف</span>
+      </div>
+
+      {/* [إضافة 2026-09-07، محدَّث بعد مطابقة القالب الرسمي] إعدادا الرصيد
+          الافتتاحي — يظهر أثرهما فقط لو وُجد عمود "الكمية المتوفرة" (أو
+          مرادفاته) بملف العميل؛ بلا هذا العمود لا يتولّد أي ملف إطلاقاً بصرف
+          النظر عن هذين الإعدادين. القالب الرسمي لا يحمل التاريخ داخل ملف
+          Excel نفسه (تأكَّدنا من نسخة حقيقية منه) — التاريخ هنا للتذكير فقط
+          (يظهر باسم الملف وبسجل الرفع)، وتُدخله يدوياً على شاشة قيود عند
+          الاستيراد. */}
+      <div className="qpu-form-row">
+        <div className="qpu-form-group">
+          <label>تاريخ الرصيد الافتتاحي (تذكير — يُدخَل يدوياً بشاشة قيود، القالب لا يحمله)</label>
+          <SafeInput type="date" value={openingBalanceDate} onChange={(e) => setOpeningBalanceDate(e.target.value)} />
+        </div>
+        <div className="qpu-form-group">
+          <label>الموقع الافتراضي (لو ما وُجد عمود "الموقع" بالملف)</label>
+          <SafeInput type="text" value={defaultLocation} onChange={(e) => setDefaultLocation(e.target.value)} placeholder="المركز الرئيسي" />
+        </div>
       </div>
     </div>
   );

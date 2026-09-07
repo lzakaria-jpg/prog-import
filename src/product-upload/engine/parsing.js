@@ -20,16 +20,30 @@ export function detectColumns(headerRow) {
   const map = {
     sku: -1, name: -1, sellable: -1, inventory: -1, unit: -1,
     revenue: -1, expense: -1, category: -1, category_code: -1, cost: -1,
+    // [إضافة 2026-09-07] أعمدة اختيارية جديدة — طلب المستخدم: اسم إنجليزي، وصف،
+    // سعر بيع، باركود، كمية متوفرة (لرصيد افتتاحي)، وموقع اختياري لذلك الرصيد.
+    // كلها تُترك -1 (غير مكتشفة) عند غياب العمود بملف العميل، فلا يتغيّر أي
+    // سلوك حالي إطلاقاً لملف لا يحوي هذه الأعمدة — تماماً كما طلب المستخدم
+    // ("في حال لم توجد يبقى الحال كما هو").
+    name_en: -1, description: -1, sellingPrice: -1, barcode: -1, quantity: -1, location: -1,
   };
   headerRow.forEach((h, i) => {
     const hh = norm(h).toLowerCase();
-    // SKU / code
+    // SKU / code — بلا أي تغيير عن الأصل (يبقى "باركود" ضمن مطابقة الرمز كما
+    // كان دائماً، حتى لا ينكسر أي ملف عميل حالي يعتمد على هذا الاكتشاف).
     if (map.sku === -1 && /كود|رمز|باركود|sku|barcode|code/i.test(hh)) map.sku = i;
     // Name (avoid "اسم الصنف", "اسم الوحدة" etc by checking stricter order)
+    // [إضافة 2026-09-07] استثناء صريح لعمود اسم إنجليزي (يُكتشف أدناه كحقل
+    // مستقل name_en) كي لا يُخطَف عمود "اسم المنتج بالإنجليزي" كاسم عربي أساسي.
     if (
-      /^\s*(الأسم|الاسم|الاسم\/الصنف|اسم المنتج)\s*$/i.test(hh) ||
-      /كسوي|كسو|اسم المنتج|product name/i.test(hh)
+      (
+        /^\s*(الأسم|الاسم|الاسم\/الصنف|اسم المنتج)\s*$/i.test(hh) ||
+        /كسوي|كسو|اسم المنتج|product name/i.test(hh)
+      ) && !/[اأإآ]نجليزي|[اأإآ]نكليزي|english/i.test(hh)
     ) map.name = i;
+    // [إضافة 2026-09-07] الاسم بالإنجليزية — عمود اختياري جديد، مستقل عن name.
+    // [اأإآ] يغطي كل أشكال الألف (ا/أ/إ/آ) كي تُطابَق "بالإنجليزي"/"الانجليزي" معاً.
+    if (map.name_en === -1 && /(اسم.*([اأإآ]نجليزي|[اأإآ]نكليزي))|(([اأإآ]نجليزي|[اأإآ]نكليزي).*اسم)|english name|name.?\(?en\)?\b/i.test(hh)) map.name_en = i;
     // Sellable status (حالة البيع)
     if (map.sellable === -1 && /حالة البيع|sell/i.test(hh)) map.sellable = i;
     // Inventory (مخزن / حالة التخزين)
@@ -58,7 +72,29 @@ export function detectColumns(headerRow) {
     // Category code (رقم الصنف) - must check after category
     if (map.category_code === -1 && /رقم الصنف/i.test(hh)) map.category_code = i;
     // Cost price (التكلفة as a price column - exact match "التكلفة")
-    if (map.cost === -1 && /^التكلفة$/i.test(hh) && !/حساب/i.test(hh)) map.cost = i;
+    // [إضافة 2026-09-07] وسّعت المطابقة لتشمل "سعر الشراء" (تسمية طلبها
+    // المستخدم صراحةً) وما يرادفها بالإنجليزية — إضافة بديلة فقط، المطابقة
+    // الأصلية الحرفية لـ"التكلفة" لم تُمس.
+    if (
+      map.cost === -1 &&
+      (/^التكلفة$/i.test(hh) || /سعر الشراء|buying price|purchase price|cost price/i.test(hh)) &&
+      !/حساب/i.test(hh)
+    ) map.cost = i;
+    // [إضافة 2026-09-07] سعر البيع — عمود اختياري جديد. `map.revenue !== i`
+    // يمنع خطف نفس العمود لو كان عمود "Sales"/"سعر البيع" قد طابق مسبقاً نمط
+    // حساب الإيراد الفضفاض أعلاه (نادر لكن ممكن نظرياً).
+    if (map.sellingPrice === -1 && /سعر البيع|سعر المبيع|selling price|sale price|sales price/i.test(hh) && map.revenue !== i) map.sellingPrice = i;
+    // [إضافة 2026-09-07] باركود المنتج — عمود مستقل عن sku عمداً (قد يتطابقا
+    // على نفس العمود إن وُجد عمود واحد فقط لكليهما، وهذا مقصود وغير ضار).
+    if (map.barcode === -1 && /باركود|barcode/i.test(hh)) map.barcode = i;
+    // [إضافة 2026-09-07] الكمية المتوفرة — تُستخدم لاحقاً لبناء ملف الأرصدة
+    // الافتتاحية فقط (ليست جزءاً من حمولة إنشاء المنتج نفسها).
+    if (map.quantity === -1 && /الكمية المتوفرة|كمية متوفرة|^\s*(الكمية|كمية)\s*$|quantity|qty/i.test(hh)) map.quantity = i;
+    // [إضافة 2026-09-07] الموقع/المخزن — اختياري، لتوزيع صفوف الرصيد الافتتاحي
+    // على مواقع مختلفة بدل موقع افتراضي واحد.
+    if (map.location === -1 && /الموقع|موقع|المخزن|location|warehouse/i.test(hh)) map.location = i;
+    // [إضافة 2026-09-07] وصف المنتج — عمود اختياري جديد.
+    if (map.description === -1 && /وصف المنتج|وصف الصنف|^\s*(الوصف|وصف)\s*$|description/i.test(hh)) map.description = i;
   });
   return map;
 }
@@ -113,6 +149,14 @@ export function buildProductsFromRows(rows) {
           ? String(get(cols.category)).trim()
           : "",
       cost: get(cols.cost) !== null ? String(get(cols.cost)).trim() : "",
+      // [إضافة 2026-09-07] حقول اختيارية جديدة — تبقى سلاسل فارغة (لا تُرسَل أي
+      // قيمة API إضافية) عند غياب العمود المطابق بملف العميل.
+      name_en: get(cols.name_en) !== null ? String(get(cols.name_en)).trim() : "",
+      description: get(cols.description) !== null ? String(get(cols.description)).trim() : "",
+      selling_price_raw: get(cols.sellingPrice) !== null ? String(get(cols.sellingPrice)).trim() : "",
+      barcode: get(cols.barcode) !== null ? String(get(cols.barcode)).trim() : "",
+      quantity_raw: get(cols.quantity) !== null ? String(get(cols.quantity)).trim() : "",
+      location: get(cols.location) !== null ? String(get(cols.location)).trim() : "",
     };
 
     data.push(p);
@@ -135,11 +179,48 @@ export function parseCostNumber(rawCost) {
   return costNum;
 }
 
-// يبني حمولة POST /products الكاملة لمنتج واحد — منقول حرفياً من startUpload.
+// [إضافة 2026-09-07] سعر البيع من عمود اختياري بالملف — نفس منطق تنظيف الأرقام
+// المتبع بـparseCostNumber (فاصلة عشرية، إزالة رموز)، لكن بلا افتراض إلى 1: قيمة
+// فارغة/صفر/غير صالحة تُعيد null صراحةً كي يستمر buildProductPayload بسلوكه
+// الافتراضي الأصلي (1 للمنتج المخزون القابل للبيع فقط) عند غياب عمود حقيقي.
+export function parseSellingPriceNumber(rawPrice) {
+  const trimmed = rawPrice ? String(rawPrice).trim() : "";
+  if (trimmed === "" || trimmed === "0") return null;
+  const cleaned = trimmed.replace(/[^\d.,-]/g, "").replace(/,/g, ".");
+  const num = parseFloat(cleaned);
+  if (!isNaN(num) && isFinite(num) && num > 0) return num;
+  return null;
+}
+
+// [إضافة 2026-09-07] الكمية المتوفرة من عمود اختياري بالملف — تُستخدم فقط لبناء
+// صفوف ملف الأرصدة الافتتاحية (buildOpeningBalanceRows)، وليست جزءاً من حمولة
+// إنشاء المنتج نفسها. صفر/فارغ/غير صالح => null (لا رصيد افتتاحي لهذا المنتج).
+export function parseQuantityNumber(rawQty) {
+  const trimmed = rawQty ? String(rawQty).trim() : "";
+  if (trimmed === "" || trimmed === "0") return null;
+  const cleaned = trimmed.replace(/[^\d.,-]/g, "").replace(/,/g, ".");
+  const num = parseFloat(cleaned);
+  if (!isNaN(num) && isFinite(num) && num > 0) return num;
+  return null;
+}
+
+// يبني حمولة POST /products الكاملة لمنتج واحد — منقول حرفياً من startUpload،
+// مع إضافات 2026-09-07 الاختيارية (اسم إنجليزي حقيقي، وصف، باركود، سعر بيع
+// حقيقي) — كلها لا تُضاف للحمولة إطلاقاً إن غاب العمود المطابق بملف العميل، وكل
+// حقل حالي (name_en الافتراضي، selling_price=1 الافتراضي...) يبقى محفوظاً حرفياً
+// كما كان لأي منتج ليس فيه العمود الجديد.
+//
+// [تأكيد 2026-09-07] أسماء كل الحقول هنا — بما فيها description وbarcode —
+// مؤكَّدة فعلياً باختبار حقيقي مباشر على POST /products وPUT /products/{id}
+// (المستخدم أرسل الطلب والرد الفعليين: الحقلان رجعا بالضبط بنفس القيمة
+// والاسم بالـresponse، مرتين). لا حقل اجتهادي متبقٍّ بهذه الحمولة.
 export function buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive }) {
   const costNum = parseCostNumber(p.cost);
-  const payload = { name_en: p.name, name_ar: p.name };
+  const nameEn = p.name_en && p.name_en.trim() ? p.name_en.trim() : p.name;
+  const payload = { name_en: nameEn, name_ar: p.name };
   if (p.sku) payload.sku = p.sku;
+  if (p.barcode) payload.barcode = p.barcode;
+  if (p.description) payload.description = p.description;
   if (unitId) payload.product_unit_type_id = unitId;
   if (categoryId) payload.category_id = categoryId;
   if (revId) payload.sales_account_id = revId;
@@ -148,11 +229,37 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
   payload.track_quantity = p.is_inventory;
   payload.purchase_item = true;
   payload.sale_item = p.is_sellable;
-  // Selling price: no separate column in the file -> default 1 for inventory sellable items
-  if (p.is_inventory && p.is_sellable) payload.selling_price = 1;
+  // Selling price: عمود حقيقي بالملف (لمنتج قابل للبيع) يتفوّق على الافتراضي؛
+  // بلا عمود (أو قيمة غير صالحة) => نفس السلوك الأصلي حرفياً: 1 للمخزون القابل
+  // للبيع فقط.
+  const sellingPriceNum = parseSellingPriceNumber(p.selling_price_raw);
+  if (sellingPriceNum !== null && p.is_sellable) {
+    payload.selling_price = sellingPriceNum;
+  } else if (p.is_inventory && p.is_sellable) {
+    payload.selling_price = 1;
+  }
   if (selectedTaxId) payload.tax_id = selectedTaxId;
   payload.tax_inclusive = taxInclusive;
   return payload;
+}
+
+// [إضافة 2026-09-07] يبني صفوف "الأرصدة الافتتاحية" (الكمية المتوفرة) لكل منتج
+// له كمية صالحة (>0) بملف العميل — طبقة نقية بحتة، بلا أي استدعاء شبكة. تُستخدم
+// لاحقاً لتوليد ملف Excel مرجعي يرفعه المستخدم يدوياً من شاشة قيود الرسمية
+// (المحاسبة > قيود يدوية > أرصدة افتتاحية > المنتجات والتكاليف) — قرار صريح من
+// المستخدم بعد أن وثّق مركز مساعدة قيود هذه العملية كقيد خاص غير موثّق كـAPI،
+// ولا يمكن تعديله بعد الحفظ (يُحذف ويُعاد فقط لو صار خطأ) — فكتابته مباشرة عبر
+// API بحقول غير مؤكدة كانت ستُخاطر بقيود محاسبية خاطئة لا يمكن تصحيحها.
+export function buildOpeningBalanceRows(products, { defaultLocation } = {}) {
+  const rows = [];
+  (products || []).forEach((p) => {
+    const qty = parseQuantityNumber(p.quantity_raw);
+    if (qty === null) return;
+    const location = p.location && p.location.trim() ? p.location.trim() : (defaultLocation || "").trim();
+    const cost = parseCostNumber(p.cost);
+    rows.push({ sku: p.sku || "", name: p.name, location, quantity: qty, cost });
+  });
+  return rows;
 }
 
 // [إصلاح 2026-09-04] يطابق قيمة عمود حساب الإيراد/المصروف بملف العميل بحساب
@@ -170,6 +277,26 @@ export function resolveAccountId(rawValue, accountsByCode, accountsByName) {
   const byName = accountsByName[trimmed.toLowerCase()];
   if (byName) return { id: byName.id, matched: true };
   return { id: null, matched: false };
+}
+
+// [إضافة 2026-09-07] يقرر مصير صف: تحديث منتج موجود (PUT)، تخطٍّ (السلوك
+// الأصلي)، أو إنشاء عادي (POST) — قرار صريح من المستخدم بعد أن زوّدنا بمثال
+// حقيقي لـPUT /products/{id}:
+//  - التحديث يُطابَق **بالرمز (sku) فقط** (لا بالاسم إطلاقاً) — طلب صريح من
+//    المستخدم تفادياً لتحديث منتج خطأ بسبب تشابه أسماء. صف بلا رمز لا يمكن أن
+//    يُحدَّث أبداً مهما كان اسمه مطابقاً.
+//  - لو ما تحدَّد كـ"تحديث"، يستمر بنفس منطق التخطي الأصلي (بالرمز أو الاسم)
+//    حرفياً، بلا أي تغيير.
+export function resolveExistingProductAction(p, { skuToId, existingSkus, existingNames, updateExisting, skipDups }) {
+  if (updateExisting && p.sku && skuToId && Object.prototype.hasOwnProperty.call(skuToId, p.sku)) {
+    return { action: "update", id: skuToId[p.sku] };
+  }
+  if (skipDups) {
+    if (p.sku && existingSkus && existingSkus.has(p.sku)) return { action: "skip", reason: "sku" };
+    const nameLower = (p.name || "").trim().toLowerCase();
+    if (existingNames && existingNames.has(nameLower)) return { action: "skip", reason: "name" };
+  }
+  return { action: "create" };
 }
 
 // يختار الضريبة ذات نسبة 15%، وإلا أول ضريبة — منقول حرفياً من startUpload.

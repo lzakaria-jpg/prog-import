@@ -1,7 +1,10 @@
 // اختبارات الطبقة النقية لأداة رفع المنتجات إلى قيود — منقولة من قواعد
 // qoyod_uploader.html الأصلية (core.js بتوثيق opencode).
 import { describe, it, expect } from "vitest";
-import { isTrue, detectColumns, buildProductsFromRows, parseCostNumber, buildProductPayload, chooseTax, resolveAccountId } from "../parsing.js";
+import {
+  isTrue, detectColumns, buildProductsFromRows, parseCostNumber, buildProductPayload, chooseTax, resolveAccountId,
+  parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
+} from "../parsing.js";
 
 describe("isTrue", () => {
   it("يتعرّف على مؤشرات المخزون الموجبة", () => {
@@ -71,6 +74,54 @@ describe("detectColumns", () => {
     const cols = detectColumns(["الأسم", "تصنيف المنتج"]);
     expect(cols.category).toBe(1);
   });
+
+  describe("[إضافة 2026-09-07] الأعمدة الاختيارية الجديدة", () => {
+    it("يكتشف الاسم الإنجليزي كعمود مستقل، بلا خطف عمود الاسم العربي", () => {
+      const cols = detectColumns(["الاسم", "الاسم بالانجليزي", "الرمز"]);
+      expect(cols.name).toBe(0);
+      expect(cols.name_en).toBe(1);
+      expect(cols.sku).toBe(2);
+    });
+
+    it("لا يُخطف عمود 'اسم المنتج بالإنجليزي' كاسم عربي أساسي حتى لو ظهر قبل الاسم العربي", () => {
+      const cols = detectColumns(["اسم المنتج بالإنجليزي", "الاسم"]);
+      expect(cols.name_en).toBe(0);
+      expect(cols.name).toBe(1);
+    });
+
+    it("يكتشف عمود الوصف", () => {
+      const cols = detectColumns(["الاسم", "وصف المنتج", "الرمز"]);
+      expect(cols.description).toBe(1);
+    });
+
+    it("يكتشف عمود سعر البيع، ويكتشف 'سعر الشراء' كمرادف للتكلفة (بالإضافة إلى 'التكلفة' الأصلية)", () => {
+      const cols = detectColumns(["الاسم", "سعر الشراء", "سعر البيع"]);
+      expect(cols.cost).toBe(1);
+      expect(cols.sellingPrice).toBe(2);
+    });
+
+    it("يكتشف عمود الباركود كحقل مستقل عن الرمز عند وجود عمودين منفصلين", () => {
+      const cols = detectColumns(["الاسم", "كود المنتج", "الباركود"]);
+      expect(cols.sku).toBe(1);
+      expect(cols.barcode).toBe(2);
+    });
+
+    it("يكتشف عمود الكمية المتوفرة وعمود الموقع", () => {
+      const cols = detectColumns(["الاسم", "الكمية المتوفرة", "الموقع"]);
+      expect(cols.quantity).toBe(1);
+      expect(cols.location).toBe(2);
+    });
+
+    it("ملف قديم بلا أي عمود من الأعمدة الجديدة: كلها تبقى -1 (لا تغيير بالسلوك الحالي)", () => {
+      const cols = detectColumns(["كود المنتج", "الاسم", "حالة البيع", "حالة التخزين", "الوحدة", "حساب الإيراد", "حساب المصروف"]);
+      expect(cols.name_en).toBe(-1);
+      expect(cols.description).toBe(-1);
+      expect(cols.sellingPrice).toBe(-1);
+      expect(cols.barcode).toBe(-1);
+      expect(cols.quantity).toBe(-1);
+      expect(cols.location).toBe(-1);
+    });
+  });
 });
 
 describe("buildProductsFromRows", () => {
@@ -90,6 +141,29 @@ describe("buildProductsFromRows", () => {
     expect(headerFound).toBe(true);
     expect(data).toHaveLength(1);
     expect(data[0]).toMatchObject({ name: "منتج أ", sku: "SKU1", unit: "قطعة", category: "مشروبات", is_inventory: true, cost: "10.5" });
+  });
+
+  it("[إضافة 2026-09-07] يملأ الحقول الاختيارية الجديدة عند وجودها بالملف", () => {
+    const rows = [
+      ["الاسم", "الاسم بالانجليزي", "وصف المنتج", "الرمز", "الباركود", "سعر البيع", "الكمية المتوفرة", "الموقع"],
+      ["منتج أ", "Product A", "وصف تجريبي", "SKU1", "BC123", "99.5", "10", "فرع جدة"],
+    ];
+    const { data } = buildProductsFromRows(rows);
+    expect(data[0]).toMatchObject({
+      name: "منتج أ", name_en: "Product A", description: "وصف تجريبي", sku: "SKU1",
+      barcode: "BC123", selling_price_raw: "99.5", quantity_raw: "10", location: "فرع جدة",
+    });
+  });
+
+  it("[إضافة 2026-09-07] ملف قديم بلا هذه الأعمدة: الحقول الجديدة كلها سلاسل فارغة (سلوك محايد لا يغيّر شيئاً)", () => {
+    const rows = [
+      ["كود المنتج", "الاسم", "حالة البيع", "حالة التخزين", "الوحدة", "حساب الإيراد", "حساب المصروف"],
+      ["S1", "منتج ب", "نعم", "نعم", "كجم", "", ""],
+    ];
+    const { data } = buildProductsFromRows(rows);
+    expect(data[0]).toMatchObject({
+      name_en: "", description: "", barcode: "", selling_price_raw: "", quantity_raw: "", location: "",
+    });
   });
 
   it("يستخدم التخطيط الموضعي الاحتياطي (7 أعمدة قديمة) عند فشل اكتشاف name/sku/category معاً", () => {
@@ -136,6 +210,168 @@ describe("buildProductPayload", () => {
     const p = { name: "منتج", sku: "", is_inventory: false, is_sellable: true, cost: "" };
     const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
     expect(payload.selling_price).toBeUndefined();
+  });
+
+  describe("[إضافة 2026-09-07] الحقول الاختيارية الجديدة بالحمولة", () => {
+    it("يستخدم الاسم الإنجليزي الحقيقي عند وجوده بدل تكرار الاسم العربي", () => {
+      const p = { name: "منتج", name_en: "Product", sku: "S1", is_inventory: true, is_sellable: true, cost: "" };
+      const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+      expect(payload.name_en).toBe("Product");
+      expect(payload.name_ar).toBe("منتج");
+    });
+
+    it("بلا اسم إنجليزي بالملف: name_en يبقى تكراراً للاسم العربي كالسابق تماماً", () => {
+      const p = { name: "منتج", name_en: "", sku: "S1", is_inventory: true, is_sellable: true, cost: "" };
+      const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+      expect(payload.name_en).toBe("منتج");
+    });
+
+    it("يضيف description وbarcode فقط عند وجودهما، ولا يضيفهما إطلاقاً عند غيابهما", () => {
+      const withBoth = buildProductPayload(
+        { name: "منتج", sku: "S1", description: "وصف", barcode: "BC1", is_inventory: false, is_sellable: false, cost: "" },
+        { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false }
+      );
+      expect(withBoth.description).toBe("وصف");
+      expect(withBoth.barcode).toBe("BC1");
+
+      const withNeither = buildProductPayload(
+        { name: "منتج", sku: "S1", is_inventory: false, is_sellable: false, cost: "" },
+        { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false }
+      );
+      expect(withNeither.description).toBeUndefined();
+      expect(withNeither.barcode).toBeUndefined();
+    });
+
+    it("سعر بيع حقيقي بالملف يتفوّق على الافتراضي (1) لمنتج قابل للبيع، ولو لم يكن مخزوناً", () => {
+      const p = { name: "منتج", sku: "S1", selling_price_raw: "250", is_inventory: false, is_sellable: true, cost: "" };
+      const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+      expect(payload.selling_price).toBe(250);
+    });
+
+    it("سعر بيع غير صالح/فارغ: يرجع للسلوك الافتراضي الأصلي حرفياً (1 للمخزون القابل للبيع فقط)", () => {
+      const p = { name: "منتج", sku: "S1", selling_price_raw: "abc", is_inventory: true, is_sellable: true, cost: "" };
+      const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+      expect(payload.selling_price).toBe(1);
+    });
+
+    it("سعر بيع حقيقي لمنتج غير قابل للبيع: لا يُرسَل selling_price إطلاقاً", () => {
+      const p = { name: "منتج", sku: "S1", selling_price_raw: "250", is_inventory: false, is_sellable: false, cost: "" };
+      const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+      expect(payload.selling_price).toBeUndefined();
+    });
+  });
+});
+
+describe("parseSellingPriceNumber", () => {
+  it("يُرجع null للفارغ/الصفر/غير الصالح (بلا افتراض إلى 1)", () => {
+    expect(parseSellingPriceNumber("")).toBeNull();
+    expect(parseSellingPriceNumber("0")).toBeNull();
+    expect(parseSellingPriceNumber("abc")).toBeNull();
+    expect(parseSellingPriceNumber(null)).toBeNull();
+  });
+  it("يحوّل رقماً صالحاً (بما فيه فاصلة عشرية ورموز عملة)", () => {
+    expect(parseSellingPriceNumber("99.5")).toBe(99.5);
+    expect(parseSellingPriceNumber("150 ريال")).toBe(150);
+  });
+});
+
+describe("parseQuantityNumber", () => {
+  it("يُرجع null للفارغ/الصفر/غير الصالح", () => {
+    expect(parseQuantityNumber("")).toBeNull();
+    expect(parseQuantityNumber("0")).toBeNull();
+    expect(parseQuantityNumber("abc")).toBeNull();
+    expect(parseQuantityNumber(undefined)).toBeNull();
+  });
+  it("يحوّل كمية صالحة", () => {
+    expect(parseQuantityNumber("10")).toBe(10);
+    expect(parseQuantityNumber("12.5")).toBe(12.5);
+  });
+});
+
+describe("[إضافة 2026-09-07] buildOpeningBalanceRows", () => {
+  it("يبني صفاً فقط للمنتجات ذات كمية صالحة (>0)، ويتخطى الباقي", () => {
+    const products = [
+      { name: "أ", sku: "S1", quantity_raw: "10", cost: "5", location: "فرع جدة" },
+      { name: "ب", sku: "S2", quantity_raw: "", cost: "5", location: "" },
+      { name: "ج", sku: "S3", quantity_raw: "0", cost: "5", location: "" },
+    ];
+    const rows = buildOpeningBalanceRows(products, { defaultLocation: "المركز الرئيسي" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sku: "S1", name: "أ", location: "فرع جدة", quantity: 10, cost: 5 });
+  });
+
+  it("يستخدم الموقع الافتراضي عند غياب عمود الموقع لهذا المنتج", () => {
+    const products = [{ name: "أ", sku: "S1", quantity_raw: "5", cost: "", location: "" }];
+    const rows = buildOpeningBalanceRows(products, { defaultLocation: "المركز الرئيسي" });
+    expect(rows[0].location).toBe("المركز الرئيسي");
+    expect(rows[0].cost).toBe(1); // نفس افتراض parseCostNumber (1 لتكلفة فارغة)
+  });
+
+  it("يُرجع مصفوفة فارغة بلا أي منتج فيه كمية", () => {
+    const products = [{ name: "أ", sku: "S1", quantity_raw: "", cost: "" }];
+    expect(buildOpeningBalanceRows(products, {})).toEqual([]);
+  });
+});
+
+describe("[إضافة 2026-09-07] resolveExistingProductAction", () => {
+  const skuToId = { S1: 10 };
+  const existingSkus = new Set(["S1", "S2"]);
+  const existingNames = new Set(["منتج موجود"]);
+
+  it("يحدّث (update) عند تطابق الرمز وupdateExisting مفعَّل", () => {
+    const r = resolveExistingProductAction(
+      { name: "أ", sku: "S1" },
+      { skuToId, existingSkus, existingNames, updateExisting: true, skipDups: true }
+    );
+    expect(r).toEqual({ action: "update", id: 10 });
+  });
+
+  it("لا يحدّث أبداً بلا رمز بالصف، حتى لو الاسم مطابق — يستمر لمنطق التخطي العادي", () => {
+    const r = resolveExistingProductAction(
+      { name: "منتج موجود", sku: "" },
+      { skuToId, existingSkus, existingNames, updateExisting: true, skipDups: true }
+    );
+    expect(r).toEqual({ action: "skip", reason: "name" });
+  });
+
+  it("updateExisting مفعَّل لكن الرمز غير مطابق لأي منتج موجود => إنشاء عادي", () => {
+    const r = resolveExistingProductAction(
+      { name: "جديد", sku: "S9" },
+      { skuToId, existingSkus, existingNames, updateExisting: true, skipDups: true }
+    );
+    expect(r).toEqual({ action: "create" });
+  });
+
+  it("updateExisting=false (الافتراضي): نفس سلوك التخطي الأصلي حرفياً بالرمز", () => {
+    const r = resolveExistingProductAction(
+      { name: "أ", sku: "S1" },
+      { skuToId, existingSkus, existingNames, updateExisting: false, skipDups: true }
+    );
+    expect(r).toEqual({ action: "skip", reason: "sku" });
+  });
+
+  it("updateExisting=false: نفس سلوك التخطي الأصلي حرفياً بالاسم", () => {
+    const r = resolveExistingProductAction(
+      { name: "منتج موجود", sku: "" },
+      { skuToId, existingSkus, existingNames, updateExisting: false, skipDups: true }
+    );
+    expect(r).toEqual({ action: "skip", reason: "name" });
+  });
+
+  it("skipDups=false وupdateExisting=false: لا تخطي ولا تحديث — إنشاء عادي دائماً", () => {
+    const r = resolveExistingProductAction(
+      { name: "أ", sku: "S1" },
+      { skuToId, existingSkus, existingNames, updateExisting: false, skipDups: false }
+    );
+    expect(r).toEqual({ action: "create" });
+  });
+
+  it("لا تطابق إطلاقاً => إنشاء عادي", () => {
+    const r = resolveExistingProductAction(
+      { name: "منتج جديد كلياً", sku: "S99" },
+      { skuToId, existingSkus, existingNames, updateExisting: true, skipDups: true }
+    );
+    expect(r).toEqual({ action: "create" });
   });
 });
 

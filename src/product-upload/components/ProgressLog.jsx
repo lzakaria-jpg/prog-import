@@ -30,6 +30,12 @@ export default function ProgressLog({ eng }) {
           <div className="qpu-stat-num" style={{ color: "#22c55e" }}>{stats.uploaded}</div>
           <div className="qpu-stat-label">تم الرفع</div>
         </div>
+        {/* [إضافة 2026-09-07] عدّاد المنتجات المُحدَّثة (PUT) — يظهر فقط لو
+            الإعداد الجديد "تحديث بدل تخطي" مفعَّل أو استُخدم بهذه الدفعة. */}
+        <div className="qpu-stat-box">
+          <div className="qpu-stat-num" style={{ color: "#0ea5e9" }}>{stats.updated}</div>
+          <div className="qpu-stat-label">تم التحديث</div>
+        </div>
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#eab308" }}>{stats.skipped}</div>
           <div className="qpu-stat-label">تم التخطي</div>

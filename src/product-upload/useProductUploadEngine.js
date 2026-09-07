@@ -11,13 +11,22 @@
  ============================================================================
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildProductsFromRows, buildProductPayload, chooseTax, resolveAccountId } from "./engine/parsing.js";
+import {
+  buildProductsFromRows, buildProductPayload, chooseTax, resolveAccountId,
+  parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
+} from "./engine/parsing.js";
 import { api, fetchAll } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
 import { readWorkbookRows } from "./io/excelReader.js";
+import { buildOpeningBalanceWorkbook, workbookToBlob, downloadBlob } from "./io/openingBalanceExport.js";
 
 const DEFAULT_REVENUE_ACCT = "4101";
 const DEFAULT_EXPENSE_ACCT = "5101";
+const DEFAULT_LOCATION = "المركز الرئيسي";
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function useProductUploadEngine() {
   // ---- API key management (أصل: سطر 408-463) ----
@@ -89,10 +98,21 @@ export default function useProductUploadEngine() {
   const [skipDups, setSkipDups] = useState(true);
   const toggleTaxInclusive = useCallback(() => setTaxInclusive((v) => !v), []);
   const toggleSkipDups = useCallback(() => setSkipDups((v) => !v), []);
+  // [إضافة 2026-09-07] تحديث المنتجات الموجودة بدل تخطيها — إعداد جديد منفصل،
+  // افتراضياً false (السلوك الحالي "تخطي فقط" يبقى كما هو تماماً بلا تفعيله).
+  // مطابقة بالرمز (sku) فقط — قرار صريح من المستخدم، راجع resolveExistingProductAction.
+  const [updateExisting, setUpdateExisting] = useState(false);
+  const toggleUpdateExisting = useCallback(() => setUpdateExisting((v) => !v), []);
+  // [إضافة 2026-09-07] إعدادا الرصيد الافتتاحي — يُضبطان داخل الأداة (وليس من
+  // ملف العميل) كما طلب المستخدم صراحةً: تاريخ واحد للدفعة كاملة، وموقع افتراضي
+  // لأي منتج بلا عمود "الموقع" بملفه.
+  const [openingBalanceDate, setOpeningBalanceDate] = useState(() => todayIso());
+  const [defaultLocation, setDefaultLocation] = useState(DEFAULT_LOCATION);
 
   // ---- Upload run state (أصل: سطر 242-250 و520-773) ----
   const [log, setLog] = useState([]);
-  const [stats, setStats] = useState({ total: 0, uploaded: 0, skipped: 0, errors: 0 });
+  // [إضافة 2026-09-07] عدّاد "updated" جديد — منتجات حُدِّثت (PUT) لا أُنشئت.
+  const [stats, setStats] = useState({ total: 0, uploaded: 0, updated: 0, skipped: 0, errors: 0 });
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [uploading, setUploading] = useState(false);
   const [showProgressCard, setShowProgressCard] = useState(false);
@@ -115,8 +135,8 @@ export default function useProductUploadEngine() {
     setLog([]);
     setShowProgressCard(true);
     setUploading(true);
-    let uploaded = 0, skipped = 0, errors = 0;
-    setStats({ total: excelData.length, uploaded: 0, skipped: 0, errors: 0 });
+    let uploaded = 0, updatedCount = 0, skipped = 0, errors = 0;
+    setStats({ total: excelData.length, uploaded: 0, updated: 0, skipped: 0, errors: 0 });
     setProgress({ current: 0, total: excelData.length });
 
     const unitsCache = {};
@@ -125,11 +145,20 @@ export default function useProductUploadEngine() {
     const categoriesCache = {};
     let selectedTaxId = null;
     const existingProducts = { skus: new Set(), names: new Set() };
+    // [إضافة 2026-09-07] فهرس رمز (sku) -> id لكل منتج موجود فعلاً بقيود —
+    // يُستخدم فقط لو updateExisting مفعَّل، لتحديد أي صف يُحدَّث (PUT) لا يُنشأ.
+    const skuToId = {};
+    // [إضافة 2026-09-07] فهرس صفوف excelData التي أُنشئت فعلاً بهذه الدفعة —
+    // يُستخدم بعد انتهاء الحلقة لبناء ملف الأرصدة الافتتاحية لهذه المنتجات فقط
+    // (لا المتخطاة كمكررة، ولا الفاشلة، **ولا المُحدَّثة** — منتج موجود أصلاً
+    // غالباً له رصيد مسجَّل بالفعل؛ إضافة رصيد افتتاحي آخر له كانت ستُضاعف
+    // كميته بصمت عند رفع الملف لقيود — خطر محاسبي حقيقي تفادته الأداة عمداً).
+    const createdRowIndexes = new Set();
 
     const revCode = revenueAcct.trim() || DEFAULT_REVENUE_ACCT;
     const expCode = expenseAcct.trim() || DEFAULT_EXPENSE_ACCT;
 
-    const updateStats = () => setStats({ total: excelData.length, uploaded, skipped, errors });
+    const updateStats = () => setStats({ total: excelData.length, uploaded, updated: updatedCount, skipped, errors });
     const setProg = (current) => setProgress({ current, total: excelData.length });
 
     try {
@@ -218,12 +247,28 @@ export default function useProductUploadEngine() {
       appendLog(`  Categories ready: ${Object.keys(categoriesCache).length}`, "info");
 
       // 3. Fetch existing products
-      if (skipDups) {
+      // [إصلاح 2026-09-07] خلل حقيقي مكتشَف عبر رد API حقيقي زوّدنا به المستخدم:
+      // رد Qoyod الفعلي لمنتج (GET/PUT /products) لا يحوي حقل "name" إطلاقاً —
+      // فقط name_ar/name_en. `if (p.name)` كانت دائماً false على بيانات حقيقية،
+      // أي أن مطابقة "تخطي بالاسم" لم تعمل فعلياً أبداً منذ إنشاء الأداة (رغم
+      // أن نص الواجهة يقول صراحة "تخطي المنتجات الموجودة مسبقاً (بالاسم أو
+      // الرمز)") — المطابقة بالرمز فقط كانت تعمل. أُصلح الآن ليطابق name_ar
+      // وname_en معاً (نفس نمط accountsByName أعلى بهذا الملف). [إضافة
+      // 2026-09-07] أيضاً: يُجلب المنتجات أيضاً لو updateExisting مفعَّل (لا
+      // skipDups فقط) لبناء فهرس skuToId اللازم للتحديث.
+      if (skipDups || updateExisting) {
         appendLog("Fetching existing products...", "info");
         const products = await fetchAll("/products", key);
         products.forEach((p) => {
-          if (p.sku) existingProducts.skus.add(p.sku.trim());
-          if (p.name) existingProducts.names.add(p.name.trim().toLowerCase());
+          if (p.sku) {
+            const skuTrim = p.sku.trim();
+            existingProducts.skus.add(skuTrim);
+            skuToId[skuTrim] = p.id;
+          }
+          const nameAr = (p.name_ar || "").trim().toLowerCase();
+          const nameEn = (p.name_en || "").trim().toLowerCase();
+          if (nameAr) existingProducts.names.add(nameAr);
+          if (nameEn) existingProducts.names.add(nameEn);
         });
         appendLog(`  Found ${products.length} existing products`, "info");
       }
@@ -236,22 +281,23 @@ export default function useProductUploadEngine() {
         if (stoppedRef.current) { appendLog("STOPPED by user", "error"); break; }
 
         const p = excelData[i];
-        const nameLower = p.name.trim().toLowerCase();
 
-        // Check duplicates
-        if (skipDups) {
-          if (p.sku && existingProducts.skus.has(p.sku)) {
-            appendLog(`[${i + 1}/${excelData.length}] SKIP (SKU exists): ${p.sku} - ${p.name}`, "warn");
-            skipped++;
-            updateStats(); setProg(i + 1);
-            continue;
-          }
-          if (existingProducts.names.has(nameLower)) {
-            appendLog(`[${i + 1}/${excelData.length}] SKIP (name exists): ${p.name}`, "warn");
-            skipped++;
-            updateStats(); setProg(i + 1);
-            continue;
-          }
+        // Check duplicates / existing-product match
+        // [إضافة 2026-09-07] resolveExistingProductAction تقرر: تحديث (بالرمز
+        // فقط، لو updateExisting مفعَّل) أو تخطٍّ (بالرمز أو الاسم، السلوك
+        // الأصلي) أو إنشاء عادي — راجع تعليقها بـengine/parsing.js.
+        const existingAction = resolveExistingProductAction(p, {
+          skuToId, existingSkus: existingProducts.skus, existingNames: existingProducts.names,
+          updateExisting, skipDups,
+        });
+        if (existingAction.action === "skip") {
+          appendLog(
+            `[${i + 1}/${excelData.length}] SKIP (${existingAction.reason === "sku" ? "SKU exists" : "name exists"}): ${p.sku || p.name} - ${p.name}`,
+            "warn"
+          );
+          skipped++;
+          updateStats(); setProg(i + 1);
+          continue;
         }
 
         // Resolve unit
@@ -315,14 +361,28 @@ export default function useProductUploadEngine() {
         }
 
         const payload = buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive });
+        const nameLower = p.name.trim().toLowerCase();
 
         try {
-          const res = await api("POST", "/products", { product: payload }, key);
+          // [إضافة 2026-09-07] تحديث (PUT) لمنتج موجود مطابق بالرمز، أو إنشاء
+          // (POST) عادي — نفس الحمولة تماماً بالحالتين (buildProductPayload).
+          const isUpdate = existingAction.action === "update";
+          const res = isUpdate
+            ? await api("PUT", `/products/${existingAction.id}`, { product: payload }, key)
+            : await api("POST", "/products", { product: payload }, key);
           if (res.product) {
-            appendLog(`[${i + 1}/${excelData.length}] CREATED: ${p.name} (ID: ${res.product.id})`, "success");
-            uploaded++;
+            if (isUpdate) {
+              appendLog(`[${i + 1}/${excelData.length}] UPDATED: ${p.name} (ID: ${existingAction.id})`, "success");
+              updatedCount++;
+              // عمداً: لا createdRowIndexes.add(i) — منتج موجود أصلاً يُستثنى من
+              // ملف الأرصدة الافتتاحية (راجع تعليق createdRowIndexes أعلاه).
+            } else {
+              appendLog(`[${i + 1}/${excelData.length}] CREATED: ${p.name} (ID: ${res.product.id})`, "success");
+              uploaded++;
+              createdRowIndexes.add(i);
+            }
             existingProducts.names.add(nameLower);
-            if (p.sku) existingProducts.skus.add(p.sku);
+            if (p.sku) { existingProducts.skus.add(p.sku); skuToId[p.sku] = res.product.id; }
           } else {
             appendLog(`[${i + 1}/${excelData.length}] FAILED: ${p.name}`, "error");
             errors++;
@@ -339,19 +399,65 @@ export default function useProductUploadEngine() {
         await new Promise((r) => setTimeout(r, 300));
       }
 
+      // [إضافة 2026-09-07] ملف الأرصدة الافتتاحية — فقط للمنتجات التي أُنشئت
+      // فعلاً بهذه الدفعة ولها كمية صالحة (>0) بملف العميل. لا كتابة مباشرة عبر
+      // API لهذا القيد (قرار المستخدم الصريح، راجع تعليق io/openingBalanceExport.js)
+      // — فقط توليد ملف Excel مرجعي يرفعه المستخدم يدوياً من شاشة قيود الرسمية.
+      const createdForBalance = excelData.filter((_, idx) => createdRowIndexes.has(idx));
+      const balanceRows = buildOpeningBalanceRows(createdForBalance, {
+        defaultLocation: defaultLocation.trim() || DEFAULT_LOCATION,
+      });
+      if (balanceRows.length > 0) {
+        appendLog(`\nBuilding opening balance file for ${balanceRows.length} product(s) with quantity...`, "header");
+        try {
+          const { workbook, skippedNoSku } = buildOpeningBalanceWorkbook(balanceRows);
+          if (workbook.SheetNames.length > 0) {
+            const blob = workbookToBlob(workbook);
+            downloadBlob(blob, `ارصدة-افتتاحية-منتجات-${openingBalanceDate}.xlsx`);
+            appendLog(
+              `  تم تنزيل ملف الأرصدة الافتتاحية (${balanceRows.length - skippedNoSku.length} منتج، ${workbook.SheetNames.length} موقع) — ارفعه يدوياً من قيود: المحاسبة > قيود يدوية > أرصدة افتتاحية > المنتجات والتكاليف، وأدخل التاريخ ${openingBalanceDate} يدوياً بنفس الشاشة (القالب الرسمي لا يحمل التاريخ داخله)`,
+              "success"
+            );
+          }
+          // [إضافة 2026-09-07] القالب الرسمي يحدّد المنتج بعمود "الرقم التسلسلي"
+          // (= الرمز/الكود) فقط بلا عمود اسم بديل — منتج بلا رمز بملف العميل
+          // لا يمكن كتابته بهذا الملف إطلاقاً، فيُستثنى ويُبلَّغ به صراحة بدل
+          // تجاهله بصمت.
+          if (skippedNoSku.length > 0) {
+            appendLog(
+              `  WARNING: تم تخطي ${skippedNoSku.length} منتج من ملف الأرصدة الافتتاحية لعدم وجود رمز/كود له (القالب الرسمي يحدّد المنتج بالرمز فقط): ${skippedNoSku.join("، ")}`,
+              "warn"
+            );
+          }
+        } catch (e) {
+          appendLog(`  تعذر توليد ملف الأرصدة الافتتاحية: ${e.message}`, "error");
+        }
+      }
+
       appendLog("\n=== Upload Complete ===", "header");
-      appendLog(`Total: ${excelData.length} | Uploaded: ${uploaded} | Skipped: ${skipped} | Errors: ${errors}`, "header");
+      appendLog(`Total: ${excelData.length} | Uploaded: ${uploaded} | Updated: ${updatedCount} | Skipped: ${skipped} | Errors: ${errors}`, "header");
     } catch (e) {
       appendLog(`FATAL: ${e.message}`, "error");
     }
 
     setUploading(false);
-  }, [apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, appendLog]);
+  }, [apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation, appendLog]);
 
   const previewSummary = useMemo(() => {
     const catSet = new Set(excelData.map((p) => p.category).filter(Boolean));
     const unitSet = new Set(excelData.map((p) => p.unit).filter(Boolean));
-    return { count: excelData.length, categories: catSet.size, units: unitSet.size };
+    // [إضافة 2026-09-07] عدّادات الحقول الاختيارية الجديدة — لعرضها بمعاينة
+    // البيانات (رد فعل مباشر على ملاحظة المستخدم: "الأعمدة الظاهرة لي الآن محدودة").
+    const withNameEn = excelData.filter((p) => p.name_en && p.name_en.trim()).length;
+    const withDescription = excelData.filter((p) => p.description && p.description.trim()).length;
+    const withSellingPrice = excelData.filter((p) => parseSellingPriceNumber(p.selling_price_raw) !== null).length;
+    const withBarcode = excelData.filter((p) => p.barcode && p.barcode.trim()).length;
+    const withQuantity = excelData.filter((p) => parseQuantityNumber(p.quantity_raw) !== null).length;
+    const withLocation = excelData.filter((p) => p.location && p.location.trim()).length;
+    return {
+      count: excelData.length, categories: catSet.size, units: unitSet.size,
+      withNameEn, withDescription, withSellingPrice, withBarcode, withQuantity, withLocation,
+    };
   }, [excelData]);
 
   return {
@@ -365,6 +471,8 @@ export default function useProductUploadEngine() {
     // settings
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct,
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
+    updateExisting, toggleUpdateExisting,
+    openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
     // preview
     previewSummary,
     // upload run
