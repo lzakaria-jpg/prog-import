@@ -48,6 +48,36 @@ describe("readWorkbookRows — بلا انهيار مع ملفات ضخمة (ع�
   });
 });
 
+// [ميزة جديدة + إصلاح خطأ محتمل] المستخدم طلب قبول ملفات .csv بجانب .xlsx/.xls
+// لملفي العملاء/الموردين المرجعيين. تمرير بايتات CSV الخام كما هي لـXLSX.read
+// (type:"array") يعتمد على وجود BOM لاكتشاف UTF-8 — CSV بلا BOM (شائع جداً من
+// أدوات غير Excel) يُقرأ بحروف عربية مشوَّهة (mojibake) بصمت. الإصلاح: فك ترميز
+// UTF-8 صريح (file.text()) لملفات .csv تحديداً قبل تمريرها لـXLSX.read.
+describe("readWorkbookRows — ملفات .csv (فك ترميز UTF-8 صريح، بغض النظر عن وجود BOM)", () => {
+  it("CSV بدون BOM (شائع من أدوات غير Excel): الأسماء العربية تُقرأ صحيحة بلا تشويه", async () => {
+    const csv = "اسم العميل,الرقم المرجعي\nشركة تجريبية,CUS999\nمؤسسة الأمل,CUS998\n";
+    const file = new File([csv], "عملاء.csv", { type: "text/csv" });
+    const rows = await readWorkbookRows(file);
+    expect(rows[0]).toEqual(["اسم العميل", "الرقم المرجعي"]);
+    expect(rows[1]).toEqual(["شركة تجريبية", "CUS999"]);
+    expect(rows[2]).toEqual(["مؤسسة الأمل", "CUS998"]);
+  });
+
+  it("CSV مع BOM (الشائع من حفظ Excel): يبقى يعمل بلا أي تغيير", async () => {
+    const csv = "﻿اسم المورد,الرقم المرجعي\nشركة الاختبار,VND777\n";
+    const file = new File([csv], "موردين.csv", { type: "text/csv" });
+    const rows = await readWorkbookRows(file);
+    expect(rows[0]).toEqual(["اسم المورد", "الرقم المرجعي"]);
+    expect(rows[1]).toEqual(["شركة الاختبار", "VND777"]);
+  });
+
+  it("ملف .xlsx يبقى بمساره الثنائي الأصلي بلا أي تغيير (لا يُعامَل كنص)", async () => {
+    const file = buildXlsxFile([["اسم العميل", "الرقم المرجعي"], ["شركة إكسل", "CUS500"]], "عملاء.xlsx");
+    const rows = await readWorkbookRows(file);
+    expect(rows).toEqual([["اسم العميل", "الرقم المرجعي"], ["شركة إكسل", "CUS500"]]);
+  });
+});
+
 describe("fixWorksheetRange — متوافقة مع نمطي القراءة (dense والمتفرّق)", () => {
   it("نمط dense (Array.isArray(ws[0])): تُحسَب !ref من فهارس الصفوف/الأعمدة مباشرة", () => {
     const ws = { 0: [{ v: "a" }, { v: "b" }], 2: [{ v: "c" }] }; // صف 1 مفقود عمداً (شائع بملفات حقيقية)
@@ -391,6 +421,24 @@ describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/م�
     const entries = [entry([{ code: "120101", debit: 1000, credit: null, comment: "مصنع الأمل" }])];
     const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مصنع الأمل", ref: "2010" }] });
     expect(out[0].rows[0].contact).toBe("2010");
+  });
+
+  // [الخطأ الحقيقي] مثال حقيقي مؤكَّد من ملف قيود حقيقي (تقرير "دفتر القيود"
+  // الأصلي من قيود، Schema C بـexcelCore.js): عمود "التفصيل" لسطر المدينون كان
+  // "شركه شبه الجزيره للمقاولات" (مطابق تماماً لاسم العميل بالملف المرجعي)، لكن
+  // عمود "التعليقات" لنفس السطر كان "عملاء مدينون ( شركة شبة الجزيرة )" — ناقص
+  // كلمة "للمقاولات" فتفشل معه المطابقة الضبابية (عتبة 0.6). row.detail (حين
+  // تضيفه Schema C) يجب أن يُفضَّل على row.comment كمرشّح أول.
+  it("[الخطأ الحقيقي] row.detail (عمود التفصيل بملف قيود الأصلي) يُفضَّل على row.comment الأقل دقة عند وجوده", () => {
+    const entries = [entry([{
+      code: "120101", debit: 375009, credit: null,
+      detail: "شركه شبه الجزيره للمقاولات",
+      comment: "عملاء مدينون ( شركة شبة الجزيرة )",
+    }])];
+    const out = applyAutoContactRules(entries, chart, {
+      customersRef: [{ name: "شركه شبه الجزيره للمقاولات", ref: "CUS001" }],
+    });
+    expect(out[0].rows[0].contact).toBe("CUS001");
   });
 
   it("حساب الدائنون: يُطابَق مع ملف الموردين لا ملف العملاء", () => {

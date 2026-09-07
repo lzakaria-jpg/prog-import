@@ -1025,10 +1025,10 @@ export default function JournalTool() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <UploadCard title={{ ar: "ملف العملاء المرجعي (اختياري)", en: "Customers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم العميل + الرقم المرجعي", en: "Two columns: customer name + reference number" }}
                   fileName={customersRefFileName} ok={!!customersRefList} busy={customersRefBusy}
-                  count={customersRefList ? t({ ar: `${customersRefList.length} عميل`, en: `${customersRefList.length} customers` }) : ""} onFile={handleCustomersRefUpload} />
+                  count={customersRefList ? t({ ar: `${customersRefList.length} عميل`, en: `${customersRefList.length} customers` }) : ""} onFile={handleCustomersRefUpload} accept=".xlsx,.xls,.csv" />
                 <UploadCard title={{ ar: "ملف الموردين المرجعي (اختياري)", en: "Suppliers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم المورد + الرقم المرجعي", en: "Two columns: supplier name + reference number" }}
                   fileName={suppliersRefFileName} ok={!!suppliersRefList} busy={suppliersRefBusy}
-                  count={suppliersRefList ? t({ ar: `${suppliersRefList.length} مورد`, en: `${suppliersRefList.length} suppliers` }) : ""} onFile={handleSuppliersRefUpload} />
+                  count={suppliersRefList ? t({ ar: `${suppliersRefList.length} مورد`, en: `${suppliersRefList.length} suppliers` }) : ""} onFile={handleSuppliersRefUpload} accept=".xlsx,.xls,.csv" />
               </div>
             </div>
           )}
