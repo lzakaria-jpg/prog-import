@@ -112,6 +112,19 @@ describe("detectColumns", () => {
       expect(cols.location).toBe(2);
     });
 
+    it("[إصلاح 2026-09-07] يتعرّف على 'اسم العربي' كعمود اسم (خلل حقيقي: ملف عميل واقعي بـ4822 صف صار صفر منتجات بصمت بسببه)", () => {
+      const cols = detectColumns(["رقم المنتج ", "اسم العربي ", "اسم انجليزي", "الوصف", "الوحدة", "حالة التخزين ", "فئة المنتج", "التكلفة", "سعر البيع", "الباركود"]);
+      expect(cols.name).toBe(1);
+      expect(cols.name_en).toBe(2);
+      expect(cols.description).toBe(3);
+      expect(cols.unit).toBe(4);
+      expect(cols.inventory).toBe(5);
+      expect(cols.category).toBe(6);
+      expect(cols.cost).toBe(7);
+      expect(cols.sellingPrice).toBe(8);
+      expect(cols.barcode).toBe(9);
+    });
+
     it("ملف قديم بلا أي عمود من الأعمدة الجديدة: كلها تبقى -1 (لا تغيير بالسلوك الحالي)", () => {
       const cols = detectColumns(["كود المنتج", "الاسم", "حالة البيع", "حالة التخزين", "الوحدة", "حساب الإيراد", "حساب المصروف"]);
       expect(cols.name_en).toBe(-1);
@@ -152,6 +165,21 @@ describe("buildProductsFromRows", () => {
     expect(data[0]).toMatchObject({
       name: "منتج أ", name_en: "Product A", description: "وصف تجريبي", sku: "SKU1",
       barcode: "BC123", selling_price_raw: "99.5", quantity_raw: "10", location: "فرع جدة",
+    });
+  });
+
+  it("[إصلاح 2026-09-07] ملف عميل حقيقي بعمود 'اسم العربي': الصفوف تُقرأ الآن بدل أن تُتخطى كلها بصمت", () => {
+    const rows = [
+      ["رقم المنتج ", "اسم العربي ", "اسم انجليزي", "الوصف", "الوحدة", "حالة التخزين ", "فئة المنتج", "التكلفة", "سعر البيع", "الباركود"],
+      [1, "كولور آند سوين", "Color & Soin", "صبغة للشعر", "جرام", "نعم", "تجميل وعناية", 38, 56.81, "3525727539499"],
+    ];
+    const { headerFound, data } = buildProductsFromRows(rows);
+    expect(headerFound).toBe(true);
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({
+      name: "كولور آند سوين", name_en: "Color & Soin", description: "صبغة للشعر",
+      unit: "جرام", is_inventory: true, category: "تجميل وعناية", cost: "38",
+      selling_price_raw: "56.81", barcode: "3525727539499",
     });
   });
 
