@@ -7,6 +7,7 @@
  * الأصلي (goStep، أحداث input/change/paste، رفع الملفات) بلا أي تغيير في الترتيب أو الشروط.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../language.jsx';
 
 import { COLUMNS, COL_KEYS, HEADER_COLS, ITEM_COLS } from './engine/constants.js';
 import { isBlank, norm } from './engine/text.js';
@@ -29,6 +30,7 @@ const EMPTY_REF = { loaded: false, raw: null, headers: null, mapping: null };
 const EMPTY_ISSUES = { byRow: {}, list: [] };
 
 export default function useSalesInvoiceImportEngine() {
+  const { t } = useLanguage();
   const [step, setStep] = useState(1);
 
   // rowSeq لا يُصفَّر أبدًا طوال الجلسة (القاعدة #2 بالخطة) — عبر useRef مستمر.
@@ -81,9 +83,12 @@ export default function useSalesInvoiceImportEngine() {
       setTemplate({ loaded: true, ...res });
     } catch (err) {
       setTemplate(EMPTY_TEMPLATE);
-      setUploadError(`تعذّر قراءة ملف القالب: ${err?.message || String(err)} — تأكد أنه ملف قالب قيود الأصلي بصيغة xlsx.`);
+      setUploadError(t({
+        ar: `تعذّر قراءة ملف القالب: ${err?.message || String(err)} — تأكد أنه ملف قالب قيود الأصلي بصيغة xlsx.`,
+        en: `Could not read the template file: ${err?.message || String(err)} — make sure it's the original Qoyod template file in xlsx format.`,
+      }));
     }
-  }, []);
+  }, [t]);
 
   const uploadReferenceFile = useCallback(async (kind, file) => {
     setUploadError('');
@@ -91,7 +96,7 @@ export default function useSalesInvoiceImportEngine() {
     try {
       ({ headers, rows: raw } = await readGenericSpreadsheet(file));
     } catch (err) {
-      setUploadError(`تعذّر قراءة الملف المرجعي: ${err?.message || String(err)}`);
+      setUploadError(t({ ar: `تعذّر قراءة الملف المرجعي: ${err?.message || String(err)}`, en: `Could not read the reference file: ${err?.message || String(err)}` }));
       return;
     }
     const setter = kind === 'products' ? setProductsRef : kind === 'stock' ? setStockRef : setCustomersRef;
@@ -100,7 +105,7 @@ export default function useSalesInvoiceImportEngine() {
     // loaded — فأسماء العملاء/المنتجات كانت تُحوَّل لأرقام مرجعية من الملف *القديم*
     // الذي استبدله المستخدم، وبلا أي خطأ لأن فحص الوجود يتخطّى المرجع غير المحمَّل.
     setter(() => ({ ...EMPTY_REF, raw, headers }));
-  }, []);
+  }, [t]);
 
   // mapping: {mode?, sku, name, sellable, stocked} لـ products، {mode:'long'|'wide', sku, location/qty | locCols} لـ stock،
   // {ref, name, status} لـ customers — نفس بنية mapping في buildIndex الأصلية.
@@ -124,14 +129,17 @@ export default function useSalesInvoiceImportEngine() {
     try {
       ({ headers, rows: raw } = await readGenericSpreadsheet(file));
     } catch (err) {
-      setInvoiceImportStatus(`تعذّر قراءة الملف: ${err?.message || String(err)}`);
+      setInvoiceImportStatus(t({ ar: `تعذّر قراءة الملف: ${err?.message || String(err)}`, en: `Could not read the file: ${err?.message || String(err)}` }));
       return;
     }
-    if (!raw.length) { setInvoiceImportStatus('الملف لا يحتوي على بيانات قابلة للقراءة.'); return; }
+    if (!raw.length) { setInvoiceImportStatus(t({ ar: 'الملف لا يحتوي على بيانات قابلة للقراءة.', en: 'The file has no readable data.' })); return; }
     setInvoiceImportFile({ headers, rows: raw });
-    setInvoiceImportStatus(`تم قراءة ${raw.length} سطر — رجاءً طابق الأعمدة أدناه ثم اضغط "تأكيد المطابقة".`);
+    setInvoiceImportStatus(t({
+      ar: `تم قراءة ${raw.length} سطر — رجاءً طابق الأعمدة أدناه ثم اضغط "تأكيد المطابقة".`,
+      en: `Read ${raw.length} row(s) — please match the columns below, then click "Confirm matching".`,
+    }));
     setInvoiceImportGuesses(guessInvoiceImportMapping(headers, raw, refs));
-  }, [refs]);
+  }, [refs, t]);
 
   const cancelInvoiceImportMapping = useCallback(() => {
     setInvoiceImportFile({ headers: [], rows: [] });
@@ -151,12 +159,15 @@ export default function useSalesInvoiceImportEngine() {
       const next = append ? prev.concat(importedRows) : importedRows;
       return next.length === 0 ? [makeRow()] : next;
     });
-    setInvoiceImportStatus(`تم ✓ — تمت تعبئة ${importedRows.length} سطر من الملف المرفوع.`);
+    setInvoiceImportStatus(t({
+      ar: `تم ✓ — تمت تعبئة ${importedRows.length} سطر من الملف المرفوع.`,
+      en: `Done ✓ — ${importedRows.length} row(s) filled in from the uploaded file.`,
+    }));
     setInvoiceImportFile({ headers: [], rows: [] });
     setInvoiceImportGuesses(null);
     setAmbiguities(newAmbiguities);
     return { importedCount: importedRows.length };
-  }, [invoiceImportFile, refs, makeRow]);
+  }, [invoiceImportFile, refs, makeRow, t]);
 
   // selections: [{rowId, field, value}] — يطابق بنية box.dataset.pending الأصلية عند التطبيق.
   const applyAmbiguityResolutions = useCallback((selections) => {

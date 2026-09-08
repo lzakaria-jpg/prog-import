@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "../../language.jsx";
 import { SafeInput } from "../../lib/SafeInput.jsx";
 
 /**
@@ -6,6 +7,7 @@ import { SafeInput } from "../../lib/SafeInput.jsx";
  * الإيراد/المصروف الافتراضيان، وتبديلا "شامل الضريبة" و"تخطي المكررات".
  */
 export default function SettingsCard({ eng }) {
+  const { t } = useLanguage();
   const {
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct, taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
@@ -14,26 +16,26 @@ export default function SettingsCard({ eng }) {
 
   return (
     <div className="qpu-panel">
-      <div className="qpu-panel-title">الإعدادات</div>
+      <div className="qpu-panel-title">{t({ ar: "الإعدادات", en: "Settings" })}</div>
 
       <div className="qpu-form-row">
         <div className="qpu-form-group">
-          <label>حساب الإيراد (افتراضي: 4101)</label>
+          <label>{t({ ar: "حساب الإيراد (افتراضي: 4101)", en: "Revenue account (default: 4101)" })}</label>
           <SafeInput type="text" value={revenueAcct} onChange={(e) => setRevenueAcct(e.target.value)} placeholder="4101" />
         </div>
         <div className="qpu-form-group">
-          <label>حساب المصروف (افتراضي: 5101)</label>
+          <label>{t({ ar: "حساب المصروف (افتراضي: 5101)", en: "Expense account (default: 5101)" })}</label>
           <SafeInput type="text" value={expenseAcct} onChange={(e) => setExpenseAcct(e.target.value)} placeholder="5101" />
         </div>
       </div>
 
       <div className="qpu-toggle-row">
         <div className={"qpu-toggle" + (taxInclusive ? " active" : "")} onClick={toggleTaxInclusive} />
-        <span className="qpu-toggle-label">الأسعار شاملة الضريبة (ضريبة القيمة المضافة 15% مشمولة)</span>
+        <span className="qpu-toggle-label">{t({ ar: "الأسعار شاملة الضريبة (ضريبة القيمة المضافة 15% مشمولة)", en: "Prices are tax-inclusive (15% VAT included)" })}</span>
       </div>
       <div className="qpu-toggle-row">
         <div className={"qpu-toggle" + (skipDups ? " active" : "")} onClick={toggleSkipDups} />
-        <span className="qpu-toggle-label">تخطي المنتجات الموجودة مسبقاً (بالاسم أو الرمز)</span>
+        <span className="qpu-toggle-label">{t({ ar: "تخطي المنتجات الموجودة مسبقاً (بالاسم أو الرمز)", en: "Skip products that already exist (by name or SKU)" })}</span>
       </div>
       {/* [إضافة 2026-09-07] تحديث بدل تخطي — مؤكَّد عبر PUT /products/{id} حقيقي
           من المستخدم. مطابقة بالرمز (sku) فقط عمداً — منتج بلا رمز بالملف لا
@@ -42,7 +44,7 @@ export default function SettingsCard({ eng }) {
           أو بلا تطابق إطلاقاً) يبقى بنفس السلوك الحالي. */}
       <div className="qpu-toggle-row">
         <div className={"qpu-toggle" + (updateExisting ? " active" : "")} onClick={toggleUpdateExisting} />
-        <span className="qpu-toggle-label">تحديث المنتجات الموجودة (بدل تخطيها) — مطابقة بالرمز فقط، يتطلب عمود رمز/كود بالملف</span>
+        <span className="qpu-toggle-label">{t({ ar: "تحديث المنتجات الموجودة (بدل تخطيها) — مطابقة بالرمز فقط، يتطلب عمود رمز/كود بالملف", en: "Update existing products (instead of skipping) — matched by SKU only, requires a SKU/code column in the file" })}</span>
       </div>
 
       {/* [إضافة 2026-09-07، محدَّث بعد مطابقة القالب الرسمي] إعدادا الرصيد
@@ -54,12 +56,12 @@ export default function SettingsCard({ eng }) {
           الاستيراد. */}
       <div className="qpu-form-row">
         <div className="qpu-form-group">
-          <label>تاريخ الرصيد الافتتاحي (تذكير — يُدخَل يدوياً بشاشة قيود، القالب لا يحمله)</label>
+          <label>{t({ ar: "تاريخ الرصيد الافتتاحي (تذكير — يُدخَل يدوياً بشاشة قيود، القالب لا يحمله)", en: "Opening balance date (reminder only — entered manually in Qoyod, not carried in the template)" })}</label>
           <SafeInput type="date" value={openingBalanceDate} onChange={(e) => setOpeningBalanceDate(e.target.value)} />
         </div>
         <div className="qpu-form-group">
-          <label>الموقع الافتراضي (لو ما وُجد عمود "الموقع" بالملف)</label>
-          <SafeInput type="text" value={defaultLocation} onChange={(e) => setDefaultLocation(e.target.value)} placeholder="المركز الرئيسي" />
+          <label>{t({ ar: 'الموقع الافتراضي (لو ما وُجد عمود "الموقع" بالملف)', en: 'Default location (used if the file has no "Location" column)' })}</label>
+          <SafeInput type="text" value={defaultLocation} onChange={(e) => setDefaultLocation(e.target.value)} placeholder={t({ ar: "المركز الرئيسي", en: "Main branch" })} />
         </div>
       </div>
     </div>

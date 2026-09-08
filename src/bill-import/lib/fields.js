@@ -1,34 +1,37 @@
 /**
  * fields.js — تعريف حقول قالب قيود، ومرادفات أسماء الأعمدة في ملفات العملاء.
- * كل حقل: [المفتاح، التسمية، إلزامي؟، مرادفات اسم العمود]
+ * كل حقل: [المفتاح، التسمية (عربي)، إلزامي؟، مرادفات اسم العمود، التسمية (إنجليزي)]
+ * [تحديث 2026-09-08] عنصر خامس (التسمية الإنجليزية) أُضيف لعرض واجهة ثنائي اللغة
+ * فقط (FieldStrip/MappingGrid) — مرادفات اسم العمود (العنصر الرابع) تبقى كما هي
+ * حرفياً، فهي تطابق أعمدة ملفات عملاء حقيقية بصرف النظر عن لغة واجهة الأداة.
  */
 
 export const FIELDS = [
-  ['ref', 'مرجع الفاتورة / التسلسل', true, ['مرجع', 'رقم الفاتوره', 'رقم فاتوره', 'التسلسل', 'رقم المستند', 'invoice number', 'bill number', 'number of bill', 'number of invoice', 'bill no', 'invoice no', 'inv no', 'bill', 'invoice', 'reference', 'doc no', 'رقم']],
-  ['desc', 'وصف الفاتورة', false, ['وصف الفاتوره', 'بيان الفاتوره', 'ملاحظه الفاتوره']],
-  ['vendorRef', 'الرقم المرجعي للمورد', true, ['رقم المورد', 'كود المورد', 'مرجع المورد', 'الرقم المرجعي للمورد', 'vendor code', 'supplier code', 'vendor reference', 'vendor id', 'supplier id', 'vendor no']],
-  ['vendorName', 'اسم المورد', false, ['اسم المورد', 'المورد', 'الجهه', 'vendor', 'supplier', 'vendor name', 'supplier name']],
-  ['vendorPhone', 'هاتف المورد', false, ['جوال', 'هاتف', 'رقم التواصل', 'phone', 'mobile', 'tel', 'contact number']],
-  ['issueDate', 'تاريخ الإصدار', true, ['تاريخ الاصدار', 'تاريخ الفاتوره', 'التاريخ', 'invoice date', 'bill date', 'issue date', 'date']],
-  ['dueDate', 'تاريخ الاستحقاق', false, ['تاريخ الاستحقاق', 'استحقاق', 'due date', 'payment due']],
-  ['supplyDate', 'تاريخ التوريد', false, ['تاريخ التوريد', 'التسليم', 'supply date', 'delivery date', 'received date']],
-  ['location', 'الموقع', false, ['الموقع', 'موقع', 'فرع', 'مستودع', 'مخزن', 'location', 'branch', 'warehouse', 'store']],
-  ['terms', 'الشروط والأحكام', false, ['شروط', 'terms', 'conditions']],
-  ['notes', 'الملاحظات', false, ['ملاحظات', 'note', 'notes', 'remark', 'comment']],
-  ['docDiscVal', 'قيمة خصم المستند', false, ['خصم المستند', 'خصم الفاتوره', 'document discount', 'invoice discount']],
-  ['docDiscAcc', 'حساب خصم المستند', false, ['حساب الخصم', 'discount account']],
-  ['docDiscTax', 'ضريبة خصم المستند', false, ['ضريبه خصم المستند', 'discount tax']],
-  ['prodRef', 'الرقم التسلسلي / الباركود', true, ['باركود', 'sku', 'barcode', 'كود الصنف', 'كود المنتج', 'رقم الصنف', 'رمز الصنف', 'الرقم التسلسلي', 'item code', 'product code', 'item no', 'part number', 'code']],
-  ['prodName', 'اسم المنتج', false, ['اسم الصنف', 'الصنف', 'المنتج', 'اسم المنتج', 'item', 'product', 'product name', 'item name', 'البيان']],
-  ['prodDesc', 'وصف البند', false, ['وصف البند', 'وصف المنتج', 'ملاحظه البند', 'line description']],
-  ['qty', 'الكمية', true, ['الكميه', 'كميه', 'qty', 'quantity', 'عدد', 'count', 'units']],
-  ['unit', 'وحدة التحويل', false, ['وحده', 'الوحده', 'unit', 'uom', 'وحده القياس', 'وحده التحويل', 'التعبئه', 'packing']],
-  ['price', 'سعر الوحدة', true, ['سعر الوحده', 'سعر', 'السعر', 'unit price', 'price', 'rate', 'cost', 'سعر الشراء', 'purchase price']],
-  ['lineTotal', 'إجمالي البند', false, ['الاجمالي', 'اجمالي', 'المجموع', 'قيمه البند', 'total', 'amount', 'line total', 'subtotal', 'net', 'gross', 'الاجمالي شامل الضريبه', 'total with vat']],
-  ['taxIncl', 'شامل الضريبة؟', false, ['شامل الضريبه', 'السعر شامل الضريبه', 'المبلغ شامل الضريبه', 'شامل ضريبه القيمه المضافه', 'شامل', 'مشمول الضريبه', 'include tax', 'including vat', 'including tax', 'tax included', 'vat included', 'tax inclusive', 'vat inclusive', 'price includes vat', 'incl vat', 'incl tax', 'inclusive']],
-  ['discPct', 'نسبة الخصم', false, ['نسبه الخصم', 'خصم نسبه', 'خصم percent', 'discount rate', 'discount percent', 'disc percent', 'نسبه']],
-  ['discVal', 'قيمة الخصم', false, ['قيمه الخصم', 'مبلغ الخصم', 'discount amount', 'discount value', 'discount', 'خصم']],
-  ['tax', 'الضريبة %', true, ['الضريبه', 'ضريبه', 'نسبه الضريبه', 'القيمه المضافه', 'vat', 'tax', 'tax rate', 'vat rate', 'tax percent', 'ضريبه percent']]
+  ['ref', 'مرجع الفاتورة / التسلسل', true, ['مرجع', 'رقم الفاتوره', 'رقم فاتوره', 'التسلسل', 'رقم المستند', 'invoice number', 'bill number', 'number of bill', 'number of invoice', 'bill no', 'invoice no', 'inv no', 'bill', 'invoice', 'reference', 'doc no', 'رقم'], 'Invoice reference / sequence'],
+  ['desc', 'وصف الفاتورة', false, ['وصف الفاتوره', 'بيان الفاتوره', 'ملاحظه الفاتوره'], 'Invoice description'],
+  ['vendorRef', 'الرقم المرجعي للمورد', true, ['رقم المورد', 'كود المورد', 'مرجع المورد', 'الرقم المرجعي للمورد', 'vendor code', 'supplier code', 'vendor reference', 'vendor id', 'supplier id', 'vendor no'], "Vendor's reference number"],
+  ['vendorName', 'اسم المورد', false, ['اسم المورد', 'المورد', 'الجهه', 'vendor', 'supplier', 'vendor name', 'supplier name'], 'Vendor name'],
+  ['vendorPhone', 'هاتف المورد', false, ['جوال', 'هاتف', 'رقم التواصل', 'phone', 'mobile', 'tel', 'contact number'], "Vendor's phone"],
+  ['issueDate', 'تاريخ الإصدار', true, ['تاريخ الاصدار', 'تاريخ الفاتوره', 'التاريخ', 'invoice date', 'bill date', 'issue date', 'date'], 'Issue date'],
+  ['dueDate', 'تاريخ الاستحقاق', false, ['تاريخ الاستحقاق', 'استحقاق', 'due date', 'payment due'], 'Due date'],
+  ['supplyDate', 'تاريخ التوريد', false, ['تاريخ التوريد', 'التسليم', 'supply date', 'delivery date', 'received date'], 'Supply date'],
+  ['location', 'الموقع', false, ['الموقع', 'موقع', 'فرع', 'مستودع', 'مخزن', 'location', 'branch', 'warehouse', 'store'], 'Location'],
+  ['terms', 'الشروط والأحكام', false, ['شروط', 'terms', 'conditions'], 'Terms & conditions'],
+  ['notes', 'الملاحظات', false, ['ملاحظات', 'note', 'notes', 'remark', 'comment'], 'Notes'],
+  ['docDiscVal', 'قيمة خصم المستند', false, ['خصم المستند', 'خصم الفاتوره', 'document discount', 'invoice discount'], 'Document discount amount'],
+  ['docDiscAcc', 'حساب خصم المستند', false, ['حساب الخصم', 'discount account'], 'Document discount account'],
+  ['docDiscTax', 'ضريبة خصم المستند', false, ['ضريبه خصم المستند', 'discount tax'], 'Document discount tax'],
+  ['prodRef', 'الرقم التسلسلي / الباركود', true, ['باركود', 'sku', 'barcode', 'كود الصنف', 'كود المنتج', 'رقم الصنف', 'رمز الصنف', 'الرقم التسلسلي', 'item code', 'product code', 'item no', 'part number', 'code'], 'SKU / barcode'],
+  ['prodName', 'اسم المنتج', false, ['اسم الصنف', 'الصنف', 'المنتج', 'اسم المنتج', 'item', 'product', 'product name', 'item name', 'البيان'], 'Product name'],
+  ['prodDesc', 'وصف البند', false, ['وصف البند', 'وصف المنتج', 'ملاحظه البند', 'line description'], 'Line item description'],
+  ['qty', 'الكمية', true, ['الكميه', 'كميه', 'qty', 'quantity', 'عدد', 'count', 'units'], 'Quantity'],
+  ['unit', 'وحدة التحويل', false, ['وحده', 'الوحده', 'unit', 'uom', 'وحده القياس', 'وحده التحويل', 'التعبئه', 'packing'], 'Conversion unit'],
+  ['price', 'سعر الوحدة', true, ['سعر الوحده', 'سعر', 'السعر', 'unit price', 'price', 'rate', 'cost', 'سعر الشراء', 'purchase price'], 'Unit price'],
+  ['lineTotal', 'إجمالي البند', false, ['الاجمالي', 'اجمالي', 'المجموع', 'قيمه البند', 'total', 'amount', 'line total', 'subtotal', 'net', 'gross', 'الاجمالي شامل الضريبه', 'total with vat'], 'Line total'],
+  ['taxIncl', 'شامل الضريبة؟', false, ['شامل الضريبه', 'السعر شامل الضريبه', 'المبلغ شامل الضريبه', 'شامل ضريبه القيمه المضافه', 'شامل', 'مشمول الضريبه', 'include tax', 'including vat', 'including tax', 'tax included', 'vat included', 'tax inclusive', 'vat inclusive', 'price includes vat', 'incl vat', 'incl tax', 'inclusive'], 'Tax-inclusive?'],
+  ['discPct', 'نسبة الخصم', false, ['نسبه الخصم', 'خصم نسبه', 'خصم percent', 'discount rate', 'discount percent', 'disc percent', 'نسبه'], 'Discount percentage'],
+  ['discVal', 'قيمة الخصم', false, ['قيمه الخصم', 'مبلغ الخصم', 'discount amount', 'discount value', 'discount', 'خصم'], 'Discount amount'],
+  ['tax', 'الضريبة %', true, ['الضريبه', 'ضريبه', 'نسبه الضريبه', 'القيمه المضافه', 'vat', 'tax', 'tax rate', 'vat rate', 'tax percent', 'ضريبه percent'], 'Tax %']
 ];
 
 /** كلمات تُضعف ترشيح الحقل عند ظهورها في اسم العمود (تمنع الخلط بين متشابهات) */
@@ -50,11 +53,11 @@ export const NAME_REQUIRED = new Set([
   'docDiscVal', 'docDiscAcc', 'docDiscTax', 'unit', 'vendorPhone', 'supplyDate', 'dueDate'
 ]);
 
-/** أقسام شريط الحقول في شاشة الربط */
+/** أقسام شريط الحقول في شاشة الربط — العنوان {ar,en} لعرض ثنائي اللغة */
 export const SECTIONS = [
-  ['تفاصيل الفاتورة', ['ref', 'desc', 'vendorRef', 'vendorName', 'vendorPhone', 'issueDate', 'dueDate', 'supplyDate', 'location', 'terms', 'notes']],
-  ['خصم المستند', ['docDiscVal', 'docDiscAcc', 'docDiscTax']],
-  ['تفاصيل البنود', ['prodRef', 'prodName', 'prodDesc', 'qty', 'unit', 'price', 'lineTotal', 'taxIncl', 'discPct', 'discVal', 'tax']]
+  [{ ar: 'تفاصيل الفاتورة', en: 'Invoice details' }, ['ref', 'desc', 'vendorRef', 'vendorName', 'vendorPhone', 'issueDate', 'dueDate', 'supplyDate', 'location', 'terms', 'notes']],
+  [{ ar: 'خصم المستند', en: 'Document discount' }, ['docDiscVal', 'docDiscAcc', 'docDiscTax']],
+  [{ ar: 'تفاصيل البنود', en: 'Line item details' }, ['prodRef', 'prodName', 'prodDesc', 'qty', 'unit', 'price', 'lineTotal', 'taxIncl', 'discPct', 'discVal', 'tax']]
 ];
 
 /** تسميات أعمدة قالب قيود كما تظهر في الصف الثاني منه */

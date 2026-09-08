@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "../../language.jsx";
 
 /**
  * نافذة تأكيد داخل هوية التطبيق — بديل لـwindow.confirm الأصلية (كانت تُستخدم في
@@ -6,6 +7,7 @@ import React from "react";
  * فواتير المبيعات (ConfirmDialog.jsx) حفاظاً على التصميم البصري الموحّد للموقع.
  */
 export default function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }) {
+  const { t } = useLanguage();
   if (!open) return null;
   return (
     <div className="qpu-modal-overlay" role="dialog" aria-modal="true">
@@ -16,7 +18,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, canc
           {cancelLabel && (
             <button type="button" className="qpu-btn ghost" onClick={onCancel}>{cancelLabel}</button>
           )}
-          <button type="button" className="qpu-btn danger" onClick={onConfirm}>{confirmLabel || "موافق"}</button>
+          <button type="button" className="qpu-btn danger" onClick={onConfirm}>{confirmLabel || t({ ar: "موافق", en: "OK" })}</button>
         </div>
       </div>
     </div>

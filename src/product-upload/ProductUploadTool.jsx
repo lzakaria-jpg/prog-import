@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "../language.jsx";
 import useProductUploadEngine from "./useProductUploadEngine.js";
 import ApiKeyCard from "./components/ApiKeyCard.jsx";
 import FileUploadCard from "./components/FileUploadCard.jsx";
@@ -11,10 +12,11 @@ import "./styles/qoyod-product-upload.css";
 /**
  * أداة رفع المنتجات إلى قيود — المكوّن الرئيسي (الأداة الخامسة).
  *
- * مستقلة تماماً: بلا Context أو i18n أو أي اعتماد خارج حدود هذا المجلد (نفس
- * قاعدة bill-import وsales-invoice-import) — الاندماج بالموقع يتم فقط عبر
- * تسجيل هذا المكوّن كأداة خامسة طبيعية في App.jsx (NAV_ITEMS + شرط can() +
- * Watermark)، بلا أي تغيير على منطقه الداخلي.
+ * [تحديث 2026-09-08] كانت مستقلة تماماً بلا Context أو i18n — الاندماج
+ * بالموقع كان فقط عبر التسجيل كأداة خامسة بـApp.jsx (NAV_ITEMS + شرط can() +
+ * Watermark). الآن مربوطة بنظام اللغة المشترك (useLanguage/t) بعد ملاحظة
+ * المستخدم إن تبديل اللغة للإنجليزية ما كان يشمل هذه الأداة إطلاقاً — حتى
+ * اتجاه dir="rtl" كان ثابتاً هنا بصرف النظر عن لغة التطبيق.
  *
  * فرق جوهري عن الأدوات الأربعة الأخرى: هذه الأداة **تكتب فعلياً** على حساب
  * Qoyod الحقيقي للعميل (فئات/وحدات/منتجات عبر API بمفتاحه) بمجرد ضغط "بدء
@@ -26,14 +28,15 @@ import "./styles/qoyod-product-upload.css";
  *                                يستخدمه App.jsx فعلياً).
  */
 export default function ProductUploadTool({ showHeader = true } = {}) {
+  const { t, dir } = useLanguage();
   const eng = useProductUploadEngine();
 
   return (
-    <div className="qpu-app" dir="rtl">
+    <div className="qpu-app" dir={dir}>
       {showHeader && (
         <header className="qpu-topbar">
-          <h1>📦 أداة رفع المنتجات إلى قيود</h1>
-          <p>ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.</p>
+          <h1>📦 {t({ ar: "أداة رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" })}</h1>
+          <p>{t({ ar: "ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.", en: "Uploads the customer's products directly to their Qoyod account via API key — missing categories and units are created automatically." })}</p>
         </header>
       )}
 

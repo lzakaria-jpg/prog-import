@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { useLanguage } from '../../language.jsx';
 
 // نسخ لتصميم renderMissingLocationUI الأصلي — تنبيه تفاعلي للفواتير بلا موقع، مع تطبيق موقع
 // افتراضي على المحدد أو على الكل دفعة واحدة.
 export default function MissingLocationPanel({ groups, templateLocations, onApply }) {
+  const { t } = useLanguage();
   const [checked, setChecked] = useState(() => new Set(groups.map((m) => m.key)));
   const [location, setLocation] = useState('');
   const [error, setError] = useState('');
@@ -19,7 +21,7 @@ export default function MissingLocationPanel({ groups, templateLocations, onAppl
   });
 
   const apply = (onlySelected) => {
-    if (!location) { setError('الرجاء اختيار موقع أولًا.'); return; }
+    if (!location) { setError(t({ ar: 'الرجاء اختيار موقع أولًا.', en: 'Please choose a location first.' })); return; }
     setError('');
     const keys = onlySelected ? groups.filter((m) => checked.has(m.key)).map((m) => m.key) : groups.map((m) => m.key);
     onApply(keys, location);
@@ -27,26 +29,28 @@ export default function MissingLocationPanel({ groups, templateLocations, onAppl
 
   return (
     <div className="qsv-panel qsv-missing-loc-box">
-      <h3 style={{ marginTop: 0 }}>⚠️ فواتير بدون موقع ({groups.length})</h3>
+      <h3 style={{ marginTop: 0 }}>⚠️ {t({ ar: 'فواتير بدون موقع', en: 'Invoices without a location' })} ({groups.length})</h3>
       <p className="qsv-hint">
-        لا يمكن أن تحتوي الفاتورة الواحدة على أكثر من موقع، ويجب أن يكون لها موقع واحد محدَّد. اختر
-        الفواتير التي تريد تطبيق موقع افتراضي عليها، ثم اختر الموقع واضغط تطبيق.
+        {t({
+          ar: 'لا يمكن أن تحتوي الفاتورة الواحدة على أكثر من موقع، ويجب أن يكون لها موقع واحد محدَّد. اختر الفواتير التي تريد تطبيق موقع افتراضي عليها، ثم اختر الموقع واضغط تطبيق.',
+          en: 'A single invoice cannot have more than one location, and it must have exactly one location set. Choose the invoices you want to apply a default location to, then choose the location and click Apply.',
+        })}
       </p>
       <div className="qsv-missing-loc-list">
         {groups.map((m) => (
           <label key={m.key}>
-            <input type="checkbox" checked={checked.has(m.key)} onChange={() => toggle(m.key)} /> {m.key} ({m.rows.length} سطر)
+            <input type="checkbox" checked={checked.has(m.key)} onChange={() => toggle(m.key)} /> {m.key} ({m.rows.length} {t({ ar: 'سطر', en: 'row(s)' })})
           </label>
         ))}
       </div>
       {error && <div className="qsv-note-box err" style={{ marginBottom: 10 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select style={{ maxWidth: 280 }} value={location} onChange={(e) => setLocation(e.target.value)}>
-          <option value="">— اختر الموقع —</option>
+          <option value="">— {t({ ar: 'اختر الموقع', en: 'Choose the location' })} —</option>
           {templateLocations.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
-        <button type="button" className="qsv-btn" onClick={() => apply(true)}>تطبيق على المحدد</button>
-        <button type="button" className="qsv-btn secondary" onClick={() => apply(false)}>تطبيق على الكل</button>
+        <button type="button" className="qsv-btn" onClick={() => apply(true)}>{t({ ar: 'تطبيق على المحدد', en: 'Apply to selected' })}</button>
+        <button type="button" className="qsv-btn secondary" onClick={() => apply(false)}>{t({ ar: 'تطبيق على الكل', en: 'Apply to all' })}</button>
       </div>
     </div>
   );

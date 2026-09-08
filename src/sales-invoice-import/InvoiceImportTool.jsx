@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../language.jsx';
 import useSalesInvoiceImportEngine from './useSalesInvoiceImportEngine.js';
 import StepNav from './components/StepNav.jsx';
 import RefDatalists from './components/RefDatalists.jsx';
@@ -20,14 +21,15 @@ import './styles/qoyod-sales-import.css';
  *                                   تطبيق له شريطه الخاص (هذا ما يستخدمه App.jsx فعليًا).
  */
 export default function InvoiceImportTool({ showHeader = true } = {}) {
+  const { t, dir } = useLanguage();
   const engine = useSalesInvoiceImportEngine();
 
   return (
-    <div className="qsv-app" dir="rtl">
+    <div className="qsv-app" dir={dir}>
       {showHeader && (
         <header className="qsv-topbar">
-          <h1>🧾 أداة تجهيز والتحقق من ملف استيراد فواتير المبيعات</h1>
-          <p>تعمل بالكامل داخل متصفحك — بياناتك لا تُرسَل لأي خادم خارجي.</p>
+          <h1>🧾 {t({ ar: 'أداة تجهيز والتحقق من ملف استيراد فواتير المبيعات', en: 'Sales Invoice Import File Preparation & Validation Tool' })}</h1>
+          <p>{t({ ar: 'تعمل بالكامل داخل متصفحك — بياناتك لا تُرسَل لأي خادم خارجي.', en: "Runs entirely inside your browser — your data is never sent to any external server." })}</p>
         </header>
       )}
 

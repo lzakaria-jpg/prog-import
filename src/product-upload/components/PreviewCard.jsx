@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "../../language.jsx";
 import { useTableVirtualization } from "../../lib/useTableVirtualization.js";
 import { parseSellingPriceNumber, parseQuantityNumber } from "../engine/parsing.js";
 
@@ -15,6 +16,7 @@ const BASE_COL_COUNT = 9;
  * هذه الأعمدة يبقى بنفس الجدول الأصلي حرفياً (9 أعمدة، بلا أي تغيير).
  */
 export default function PreviewCard({ eng }) {
+  const { t } = useLanguage();
   const { excelData, previewSummary } = eng;
   const v = useTableVirtualization(excelData.length);
 
@@ -33,25 +35,25 @@ export default function PreviewCard({ eng }) {
 
   return (
     <div className="qpu-panel">
-      <div className="qpu-panel-title">معاينة البيانات</div>
+      <div className="qpu-panel-title">{t({ ar: "معاينة البيانات", en: "Data preview" })}</div>
       <div className="qpu-hint" style={{ marginBottom: 10 }}>
-        {previewSummary.count} منتج | {previewSummary.categories} فئة | {previewSummary.units} وحدة
-        {showQuantity && ` | ${previewSummary.withQuantity} منتج فيه كمية افتتاحية`}
+        {previewSummary.count} {t({ ar: "منتج", en: "products" })} | {previewSummary.categories} {t({ ar: "فئة", en: "categories" })} | {previewSummary.units} {t({ ar: "وحدة", en: "units" })}
+        {showQuantity && ` | ${previewSummary.withQuantity} ${t({ ar: "منتج فيه كمية افتتاحية", en: "product(s) with an opening quantity" })}`}
       </div>
       <div className="qpu-table-wrap" ref={v.scrollRef}>
         <table>
           <thead>
             <tr>
-              <th>#</th><th>الرمز</th><th>الاسم</th>
-              {showNameEn && <th>الاسم (إنجليزي)</th>}
-              {showDescription && <th>الوصف</th>}
-              <th>الفئة</th><th>الوحدة</th>
-              <th>مخزون</th><th>التكلفة</th>
-              {showSellingPrice && <th>سعر البيع</th>}
-              {showBarcode && <th>الباركود</th>}
-              {showQuantity && <th>الكمية</th>}
-              {showLocation && <th>الموقع</th>}
-              <th>حساب الإيراد</th><th>حساب المصروف</th>
+              <th>#</th><th>{t({ ar: "الرمز", en: "SKU" })}</th><th>{t({ ar: "الاسم", en: "Name" })}</th>
+              {showNameEn && <th>{t({ ar: "الاسم (إنجليزي)", en: "Name (English)" })}</th>}
+              {showDescription && <th>{t({ ar: "الوصف", en: "Description" })}</th>}
+              <th>{t({ ar: "الفئة", en: "Category" })}</th><th>{t({ ar: "الوحدة", en: "Unit" })}</th>
+              <th>{t({ ar: "مخزون", en: "Inventory" })}</th><th>{t({ ar: "التكلفة", en: "Cost" })}</th>
+              {showSellingPrice && <th>{t({ ar: "سعر البيع", en: "Selling price" })}</th>}
+              {showBarcode && <th>{t({ ar: "الباركود", en: "Barcode" })}</th>}
+              {showQuantity && <th>{t({ ar: "الكمية", en: "Quantity" })}</th>}
+              {showLocation && <th>{t({ ar: "الموقع", en: "Location" })}</th>}
+              <th>{t({ ar: "حساب الإيراد", en: "Revenue account" })}</th><th>{t({ ar: "حساب المصروف", en: "Expense account" })}</th>
             </tr>
           </thead>
           <tbody>
@@ -71,14 +73,14 @@ export default function PreviewCard({ eng }) {
                   {showDescription && <td>{p.description || <span className="qpu-muted">-</span>}</td>}
                   <td>{p.category ? <span className="qpu-badge blue">{p.category}</span> : <span className="qpu-muted">-</span>}</td>
                   <td>{p.unit || "-"}</td>
-                  <td>{p.is_inventory ? <span className="qpu-badge green">نعم</span> : <span className="qpu-badge yellow">لا</span>}</td>
+                  <td>{p.is_inventory ? <span className="qpu-badge green">{t({ ar: "نعم", en: "Yes" })}</span> : <span className="qpu-badge yellow">{t({ ar: "لا", en: "No" })}</span>}</td>
                   <td>{p.cost || "-"}</td>
                   {showSellingPrice && <td>{sellingPriceNum !== null ? sellingPriceNum : <span className="qpu-muted">-</span>}</td>}
                   {showBarcode && <td>{p.barcode || <span className="qpu-muted">-</span>}</td>}
                   {showQuantity && <td>{qtyNum !== null ? qtyNum : <span className="qpu-muted">-</span>}</td>}
                   {showLocation && <td>{p.location || <span className="qpu-muted">-</span>}</td>}
-                  <td>{p.revenue_account_name || <span className="qpu-muted">افتراضي 4101</span>}</td>
-                  <td>{p.expense_account_name || <span className="qpu-muted">افتراضي 5101</span>}</td>
+                  <td>{p.revenue_account_name || <span className="qpu-muted">{t({ ar: "افتراضي 4101", en: "Default 4101" })}</span>}</td>
+                  <td>{p.expense_account_name || <span className="qpu-muted">{t({ ar: "افتراضي 5101", en: "Default 5101" })}</span>}</td>
                 </tr>
               );
             })}

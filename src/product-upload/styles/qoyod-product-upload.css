@@ -7,7 +7,7 @@
   --qpu-bg:#f6f7f9; --qpu-panel:#ffffff; --qpu-border:#e2e5ea; --qpu-text:#1f2430; --qpu-muted:#6b7280;
   --qpu-brand:#0f6db8; --qpu-brand-dark:#0b5590; --qpu-ok:#1c8a4a; --qpu-ok-bg:#e8f7ee;
   --qpu-warn:#a86a00; --qpu-warn-bg:#fff6e0; --qpu-err:#c62828; --qpu-err-bg:#fdecec;
-  direction:rtl; font-family:"Segoe UI",Tahoma,Arial,sans-serif; background:var(--qpu-bg); color:var(--qpu-text);
+  font-family:"Segoe UI",Tahoma,Arial,sans-serif; background:var(--qpu-bg); color:var(--qpu-text);
   line-height:1.6; height:100%; overflow:auto; box-sizing:border-box;
 }
 .qpu-app *{box-sizing:border-box;}
@@ -72,6 +72,7 @@
 .qpu-table-wrap{max-height:400px;overflow:auto;border-radius:8px;border:1px solid var(--qpu-border);}
 .qpu-table-wrap table{width:100%;border-collapse:collapse;font-size:12.5px;}
 .qpu-table-wrap th{background:#f1f3f6;color:var(--qpu-muted);padding:8px 10px;text-align:right;position:sticky;top:0;font-weight:700;white-space:nowrap;}
+[dir="ltr"] .qpu-table-wrap th{text-align:left;}
 .qpu-table-wrap td{padding:6px 10px;border-top:1px solid var(--qpu-border);}
 .qpu-table-wrap tr:hover td{background:#f8fafc;}
 .qpu-badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;}
@@ -93,7 +94,7 @@
 .qpu-progress-fill{height:100%;background:linear-gradient(90deg,#38bdf8,#22d3ee);border-radius:4px;transition:width .3s;}
 
 /* Log */
-.qpu-log-area{background:#0f172a;border:1px solid var(--qpu-border);border-radius:8px;padding:14px;max-height:340px;overflow-y:auto;font-family:"Cascadia Code","Consolas",monospace;font-size:12px;line-height:1.75;direction:ltr;text-align:left;}
+.qpu-log-area{background:#0f172a;border:1px solid var(--qpu-border);border-radius:8px;padding:14px;max-height:340px;overflow-y:auto;font-family:"Cascadia Code","Consolas",monospace;font-size:12px;line-height:1.75;text-align:left;}
 .qpu-log-line{white-space:pre-wrap;word-break:break-all;}
 .qpu-log-info{color:#94a3b8;}
 .qpu-log-success{color:#4ade80;}

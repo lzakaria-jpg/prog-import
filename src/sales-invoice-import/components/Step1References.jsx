@@ -1,19 +1,25 @@
 import React from 'react';
+import { useLanguage } from '../../language.jsx';
 import UploadCard from './UploadCard.jsx';
 import MappingTable from './MappingTable.jsx';
 import WideStockMappingTable from './WideStockMappingTable.jsx';
 import { COLUMNS, MAPPING_DEFS } from '../engine/constants.js';
 import { detectStockFormat } from '../engine/columnShape.js';
 
-// نفس رسالة تنبيه القالب الأصلية (setCardLoaded + template-layout-warning) حرفيًا.
-function templateStatus(template) {
-  if (!template.loaded) return 'لم يُرفع بعد';
+// نفس رسالة تنبيه القالب الأصلية (setCardLoaded + template-layout-warning) حرفيًا — الآن ثنائية
+// اللغة عبر t()؛ أسماء الأعمدة (COLUMNS[].name) تبقى كما يعرّفها المحرك (طبقة عمل مؤجَّلة).
+function templateStatus(template, t) {
+  if (!template.loaded) return t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' });
   const dd = template.dropdowns;
   const missing = template.missingFields || [];
-  return `تم ✓ — ${dd.G.length} موقع، ${dd.V.length} فئة ضريبية، ${dd.H.length} طريقة دفع — تم التعرف على ${COLUMNS.length - missing.length} عمودًا من ${COLUMNS.length} في القالب`;
+  return t({
+    ar: `تم ✓ — ${dd.G.length} موقع، ${dd.V.length} فئة ضريبية، ${dd.H.length} طريقة دفع — تم التعرف على ${COLUMNS.length - missing.length} عمودًا من ${COLUMNS.length} في القالب`,
+    en: `Done ✓ — ${dd.G.length} location(s), ${dd.V.length} tax categor(y/ies), ${dd.H.length} payment method(s) — recognized ${COLUMNS.length - missing.length} of ${COLUMNS.length} columns in the template`,
+  });
 }
 
 function TemplateWarning({ template }) {
+  const { t } = useLanguage();
   if (!template.loaded) return null;
   const missing = template.missingFields || [];
   const missingRequired = missing.filter((k) => COLUMNS.find((c) => c.key === k).required);
@@ -21,8 +27,8 @@ function TemplateWarning({ template }) {
     const names = missingRequired.map((k) => COLUMNS.find((c) => c.key === k).name).join('، ');
     return (
       <div className="qsv-note-box err" style={{ marginTop: 10 }}>
-        ⛔ <b>لم يُتعرَّف على موضع أعمدة إلزامية داخل القالب:</b> {names}.<br />
-        ستخرج هذه الأعمدة فارغة في الملف النهائي. تأكد أنك رفعت قالب قيود الأصلي دون تعديل على صف العناوين.
+        ⛔ <b>{t({ ar: 'لم يُتعرَّف على موضع أعمدة إلزامية داخل القالب:', en: 'Could not locate required columns within the template:' })}</b> {names}.<br />
+        {t({ ar: 'ستخرج هذه الأعمدة فارغة في الملف النهائي. تأكد أنك رفعت قالب قيود الأصلي دون تعديل على صف العناوين.', en: 'These columns will come out empty in the final file. Make sure you uploaded the original Qoyod template without modifying the header row.' })}
       </div>
     );
   }
@@ -30,7 +36,7 @@ function TemplateWarning({ template }) {
     const names = missing.map((k) => COLUMNS.find((c) => c.key === k).name).join('، ');
     return (
       <div className="qsv-note-box warn" style={{ marginTop: 10 }}>
-        ⚠️ أعمدة اختيارية غير موجودة في هذا القالب: {names} — ستُترك فارغة.
+        ⚠️ {t({ ar: 'أعمدة اختيارية غير موجودة في هذا القالب:', en: 'Optional columns not found in this template:' })} {names} — {t({ ar: 'ستُترك فارغة.', en: 'they will be left empty.' })}
       </div>
     );
   }
@@ -38,48 +44,61 @@ function TemplateWarning({ template }) {
 }
 
 export default function Step1References({ engine }) {
+  const { t } = useLanguage();
   const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError } = engine;
 
   const stockIsWide = stockRef.raw && detectStockFormat(stockRef.headers, stockRef.raw, template.dropdowns.G) === 'wide';
 
   return (
     <div className="qsv-panel">
-      <h2>الخطوة 1: رفع الملفات المرجعية</h2>
-      <p className="qsv-hint">ارفع قالب قيود المحمَّل حديثًا (إلزامي)، وباقي الملفات (اختيارية لكن موصى بها بشدة لتحقق أدق).</p>
+      <h2>{t({ ar: 'الخطوة 1: رفع الملفات المرجعية', en: 'Step 1: Upload reference files' })}</h2>
+      <p className="qsv-hint">{t({ ar: 'ارفع قالب قيود المحمَّل حديثًا (إلزامي)، وباقي الملفات (اختيارية لكن موصى بها بشدة لتحقق أدق).', en: "Upload a freshly downloaded Qoyod template (required), and the rest of the files (optional, but strongly recommended for more accurate validation)." })}</p>
 
       {/* [إصلاح] رسالة خطأ رفع ظاهرة — كان فشل قراءة أي ملف يُبتلَع بصمت تمامًا */}
       {uploadError && <div className="qsv-note-box err" style={{ marginBottom: 10 }}>⛔ {uploadError}</div>}
 
       <div className="qsv-grid4">
         <UploadCard
-          id="card-template" required title="قالب قيود (xlsx)"
-          hint="نزّله الآن من صفحة استيراد الفواتير في قيود، ثم ارفعه هنا فورًا (بدون تعديل)."
-          accept=".xlsx" status={templateStatus(template)} loaded={template.loaded}
+          id="card-template" required title={t({ ar: 'قالب قيود (xlsx)', en: 'Qoyod template (xlsx)' })}
+          hint={t({ ar: 'نزّله الآن من صفحة استيراد الفواتير في قيود، ثم ارفعه هنا فورًا (بدون تعديل).', en: "Download it now from Qoyod's invoice import page, then upload it here right away (without modifying it)." })}
+          accept=".xlsx" status={templateStatus(template, t)} loaded={template.loaded}
           onFile={uploadTemplate}
         >
           <TemplateWarning template={template} />
         </UploadCard>
 
         <UploadCard
-          id="card-products" title="تقرير المنتجات" hint="لمعرفة المنتجات الموجودة وحالتها (تُباع / لا تُباع)."
+          id="card-products" title={t({ ar: 'تقرير المنتجات', en: 'Products report' })} hint={t({ ar: 'لمعرفة المنتجات الموجودة وحالتها (تُباع / لا تُباع).', en: 'To know which products exist and their status (sellable / not sellable).' })}
           accept=".xlsx,.csv,.xls"
-          status={productsRef.loaded ? `تم ✓ — ${productsRef.bySku.size} منتج مفهرس${productsRef.nonStockedCount ? ` (منها ${productsRef.nonStockedCount} غير مخزَّن — بلا حد للكمية)` : ''}` : (productsRef.raw ? 'جارٍ التحليل...' : 'لم يُرفع بعد')}
+          status={productsRef.loaded
+            ? t({
+              ar: `تم ✓ — ${productsRef.bySku.size} منتج مفهرس${productsRef.nonStockedCount ? ` (منها ${productsRef.nonStockedCount} غير مخزَّن — بلا حد للكمية)` : ''}`,
+              en: `Done ✓ — ${productsRef.bySku.size} product(s) indexed${productsRef.nonStockedCount ? ` (${productsRef.nonStockedCount} of them non-stocked — no quantity limit)` : ''}`,
+            })
+            : (productsRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={productsRef.loaded}
           onFile={(f) => uploadReferenceFile('products', f)}
         />
 
         <UploadCard
-          id="card-stock" title="تقرير مواقع المنتجات" hint="لمعرفة الكمية المتوفرة من كل منتج في كل موقع."
+          id="card-stock" title={t({ ar: 'تقرير مواقع المنتجات', en: 'Product locations report' })} hint={t({ ar: 'لمعرفة الكمية المتوفرة من كل منتج في كل موقع.', en: 'To know the available quantity of each product at each location.' })}
           accept=".xlsx,.csv,.xls"
-          status={stockRef.loaded ? `تم ✓ — ${stockRef.groupCount} مجموعة (منتج × موقع)${stockRef.locHeaderCount ? ` من ${stockRef.locHeaderCount} عمود موقع` : ''}` : (stockRef.raw ? 'جارٍ التحليل...' : 'لم يُرفع بعد')}
+          status={stockRef.loaded
+            ? t({
+              ar: `تم ✓ — ${stockRef.groupCount} مجموعة (منتج × موقع)${stockRef.locHeaderCount ? ` من ${stockRef.locHeaderCount} عمود موقع` : ''}`,
+              en: `Done ✓ — ${stockRef.groupCount} group(s) (product × location)${stockRef.locHeaderCount ? ` from ${stockRef.locHeaderCount} location column(s)` : ''}`,
+            })
+            : (stockRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={stockRef.loaded}
           onFile={(f) => uploadReferenceFile('stock', f)}
         />
 
         <UploadCard
-          id="card-customers" title="ملف العملاء" hint="لمعرفة الأرقام المرجعية للعملاء وحالتهم."
+          id="card-customers" title={t({ ar: 'ملف العملاء', en: 'Customers file' })} hint={t({ ar: 'لمعرفة الأرقام المرجعية للعملاء وحالتهم.', en: "To know customers' reference numbers and their status." })}
           accept=".xlsx,.csv,.xls"
-          status={customersRef.loaded ? `تم ✓ — ${customersRef.byRef.size} عميل مفهرس` : (customersRef.raw ? 'جارٍ التحليل...' : 'لم يُرفع بعد')}
+          status={customersRef.loaded
+            ? t({ ar: `تم ✓ — ${customersRef.byRef.size} عميل مفهرس`, en: `Done ✓ — ${customersRef.byRef.size} customer(s) indexed` })
+            : (customersRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={customersRef.loaded}
           onFile={(f) => uploadReferenceFile('customers', f)}
         />
@@ -88,7 +107,7 @@ export default function Step1References({ engine }) {
       <div id="mapping-area">
         {productsRef.raw && !productsRef.loaded && (
           <MappingTable
-            kind="products" title="مطابقة أعمدة تقرير المنتجات" defs={MAPPING_DEFS.products}
+            kind="products" title={t({ ar: 'مطابقة أعمدة تقرير المنتجات', en: 'Match the products report columns' })} defs={MAPPING_DEFS.products}
             headers={productsRef.headers} rows={productsRef.raw}
             onConfirm={(m) => confirmReferenceMapping('products', m)}
           />
@@ -101,7 +120,7 @@ export default function Step1References({ engine }) {
             />
           ) : (
             <MappingTable
-              kind="stock" title="مطابقة أعمدة تقرير مواقع المنتجات" defs={MAPPING_DEFS.stock}
+              kind="stock" title={t({ ar: 'مطابقة أعمدة تقرير مواقع المنتجات', en: 'Match the product locations report columns' })} defs={MAPPING_DEFS.stock}
               headers={stockRef.headers} rows={stockRef.raw}
               onConfirm={(m) => confirmReferenceMapping('stock', m)}
             />
@@ -109,7 +128,7 @@ export default function Step1References({ engine }) {
         )}
         {customersRef.raw && !customersRef.loaded && (
           <MappingTable
-            kind="customers" title="مطابقة أعمدة ملف العملاء" defs={MAPPING_DEFS.customers}
+            kind="customers" title={t({ ar: 'مطابقة أعمدة ملف العملاء', en: 'Match the customers file columns' })} defs={MAPPING_DEFS.customers}
             headers={customersRef.headers} rows={customersRef.raw}
             onConfirm={(m) => confirmReferenceMapping('customers', m)}
           />
@@ -120,7 +139,7 @@ export default function Step1References({ engine }) {
         <div />
         <div className="qsv-right">
           <button type="button" className="qsv-btn" disabled={!template.loaded} onClick={() => goToStep(2)}>
-            التالي: إدخال بيانات الفواتير ←
+            {t({ ar: 'التالي: إدخال بيانات الفواتير ←', en: 'Next: enter invoice data →' })}
           </button>
         </div>
       </div>

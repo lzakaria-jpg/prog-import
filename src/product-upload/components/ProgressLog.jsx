@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { useLanguage } from "../../language.jsx";
 
 /**
  * بطاقة التقدّم والسجل — منقولة من قسم "progressCard" الأصلي (سطر 226-237)
@@ -6,6 +7,7 @@ import React, { useEffect, useRef } from "react";
  * الحرفية محفوظة كما هي (منقولة من useProductUploadEngine).
  */
 export default function ProgressLog({ eng }) {
+  const { t } = useLanguage();
   const { showProgressCard, stats, progress, log } = eng;
   const logRef = useRef(null);
 
@@ -19,30 +21,30 @@ export default function ProgressLog({ eng }) {
 
   return (
     <div className="qpu-panel">
-      <div className="qpu-panel-title">التقدّم</div>
+      <div className="qpu-panel-title">{t({ ar: "التقدّم", en: "Progress" })}</div>
 
       <div className="qpu-stats-row">
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#38bdf8" }}>{stats.total}</div>
-          <div className="qpu-stat-label">الإجمالي</div>
+          <div className="qpu-stat-label">{t({ ar: "الإجمالي", en: "Total" })}</div>
         </div>
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#22c55e" }}>{stats.uploaded}</div>
-          <div className="qpu-stat-label">تم الرفع</div>
+          <div className="qpu-stat-label">{t({ ar: "تم الرفع", en: "Uploaded" })}</div>
         </div>
         {/* [إضافة 2026-09-07] عدّاد المنتجات المُحدَّثة (PUT) — يظهر فقط لو
             الإعداد الجديد "تحديث بدل تخطي" مفعَّل أو استُخدم بهذه الدفعة. */}
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#0ea5e9" }}>{stats.updated}</div>
-          <div className="qpu-stat-label">تم التحديث</div>
+          <div className="qpu-stat-label">{t({ ar: "تم التحديث", en: "Updated" })}</div>
         </div>
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#eab308" }}>{stats.skipped}</div>
-          <div className="qpu-stat-label">تم التخطي</div>
+          <div className="qpu-stat-label">{t({ ar: "تم التخطي", en: "Skipped" })}</div>
         </div>
         <div className="qpu-stat-box">
           <div className="qpu-stat-num" style={{ color: "#ef4444" }}>{stats.errors}</div>
-          <div className="qpu-stat-label">الأخطاء</div>
+          <div className="qpu-stat-label">{t({ ar: "الأخطاء", en: "Errors" })}</div>
         </div>
       </div>
 

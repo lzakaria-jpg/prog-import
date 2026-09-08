@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../../language.jsx';
 
 // نسخ لتصميم قائمة الملاحظات في renderValidationUI الأصلي — الضغط على أي ملاحظة ينقل
 // للسطر مباشرة في الجدول (data-rowid، نفس ما كان data-jump يفعله).
@@ -7,8 +8,9 @@ import React from 'react';
 // يكون الصف الهدف موجودًا بالـDOM إطلاقًا لو كان خارج نافذة العرض — الأب (Step3Validate)
 // يمرّر دالة تستدعي InvoiceGrid.scrollToRow عبر ref، وهي تُنقل نافذة العرض للصف أولًا.
 export default function IssuesList({ issues, onJumpToRow }) {
+  const { t } = useLanguage();
   if (issues.list.length === 0) {
-    return <div className="qsv-issues-list"><div className="qsv-issue-item">✅ لا توجد أي ملاحظات — الملف جاهز للانتقال للخطوة التالية.</div></div>;
+    return <div className="qsv-issues-list"><div className="qsv-issue-item">✅ {t({ ar: 'لا توجد أي ملاحظات — الملف جاهز للانتقال للخطوة التالية.', en: 'No notes — the file is ready to move to the next step.' })}</div></div>;
   }
   const jumpTo = (rowId) => { if (onJumpToRow) onJumpToRow(rowId); };
   // [إصلاح أداء] الجدول نفسه مُحوسَب بنافذة عرض (virtualization) لمنع تجميد
@@ -24,12 +26,15 @@ export default function IssuesList({ issues, onJumpToRow }) {
     <div className="qsv-issues-list">
       {hidden > 0 && (
         <div className="qsv-issue-item">
-          ℹ️ يُعرَض أول {MAX_SHOWN} ملاحظة من إجمالي {issues.list.length} — أصلِح المعروض ثم أعد التحقق لتظهر البقية.
+          ℹ️ {t({
+            ar: `يُعرَض أول ${MAX_SHOWN} ملاحظة من إجمالي ${issues.list.length} — أصلِح المعروض ثم أعد التحقق لتظهر البقية.`,
+            en: `Showing the first ${MAX_SHOWN} note(s) out of ${issues.list.length} in total — fix what's shown, then re-validate to reveal the rest.`,
+          })}
         </div>
       )}
       {shown.map((i, idx) => (
         <div key={idx} className={`qsv-issue-item ${i.sev}`} onClick={() => jumpTo(i.rowId)}>
-          <b>{i.sev === 'err' ? '❌ خطأ حاجب' : '⚠️ تحذير'}</b>{i.msg}
+          <b>{i.sev === 'err' ? `❌ ${t({ ar: 'خطأ حاجب', en: 'Blocking error' })}` : `⚠️ ${t({ ar: 'تحذير', en: 'Warning' })}`}</b>{i.msg}
         </div>
       ))}
     </div>

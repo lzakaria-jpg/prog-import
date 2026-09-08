@@ -1,10 +1,12 @@
 import React, { useRef, useState } from "react";
+import { useLanguage } from "../../language.jsx";
 
 /**
  * بطاقة رفع ملف Excel — منقولة من قسم "Excel File" الأصلي (سطر 164-172) بما
  * فيه السحب والإفلات (drag&drop، سطر 357-368 بالأصل).
  */
 export default function FileUploadCard({ eng }) {
+  const { t } = useLanguage();
   const { fileName, handleFile } = eng;
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
@@ -23,7 +25,7 @@ export default function FileUploadCard({ eng }) {
 
   return (
     <div className="qpu-panel">
-      <div className="qpu-panel-title">ملف Excel</div>
+      <div className="qpu-panel-title">{t({ ar: "ملف Excel", en: "Excel file" })}</div>
       <div
         className={"qpu-file-zone" + (dragOver ? " dragover" : "")}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -33,7 +35,7 @@ export default function FileUploadCard({ eng }) {
       >
         <input ref={inputRef} type="file" accept=".xlsx,.xls" onChange={onChange} style={{ display: "none" }} />
         <div className="qpu-file-icon">📊</div>
-        <div className="qpu-file-text">اسحب ملف Excel هنا أو اضغط للاختيار</div>
+        <div className="qpu-file-text">{t({ ar: "اسحب ملف Excel هنا أو اضغط للاختيار", en: "Drag an Excel file here or click to choose" })}</div>
         {fileName && <div className="qpu-file-name">{fileName}</div>}
       </div>
     </div>

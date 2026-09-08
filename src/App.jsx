@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { MergeTool } from "./MergeTool";
 import JournalTool from "./JournalTool";
 import { LanguageProvider, useLanguage } from "./language";
-import { AuthProvider, useAuth, LoginScreen, AdminPanel } from "./auth";
+import { AuthProvider, useAuth, LoginScreen, AdminPanel, ChangePasswordModal } from "./auth";
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
 import { NotificationBell } from "./lib/notifications.jsx";
@@ -11,7 +11,7 @@ import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -177,6 +177,7 @@ function AppShell() {
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
 
@@ -221,6 +222,18 @@ function AppShell() {
           action: () => setShowAISettings(true),
         });
       }
+      // [تحديث 2026-09-07] المالك له آلية منفصلة تماماً لتغيير بيانات دخوله
+      // (تبويب "بيانات المالك" داخل إدارة المستخدمين) — هذا الخيار لغيره فقط،
+      // لكل من له كلمة مرور فردية عبر نظام user_credentials الجديد.
+      if (!isAdmin) {
+        items.push({
+          id: "change-password",
+          label: { ar: "تغيير كلمة المرور", en: "Change Password" },
+          desc: { ar: "عيّن كلمة مرور جديدة لحسابك", en: "Set a new password for your account" },
+          icon: Key,
+          action: () => setShowChangePassword(true),
+        });
+      }
       return { ...cat, items };
     }
     const items = cat.toolIds
@@ -236,13 +249,14 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.9.4";
+  const currentVersion = "1.9.5";
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
       {showAdmin && isUserManager && <AdminPanel />}
       {showAISettings && canUseAI && <AISettings onClose={() => setShowAISettings(false)} />}
+      {showChangePassword && !isAdmin && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
       {/* Sidebar */}
       <aside

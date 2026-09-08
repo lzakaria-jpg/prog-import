@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useLanguage } from '../../language.jsx';
 
-const FIELD_LABEL = { C: 'العميل', N: 'المنتج' };
+const FIELD_LABEL = { C: { ar: 'العميل', en: 'Customer' }, N: { ar: 'المنتج', en: 'Product' } };
 
 // نسخ لتصميم renderAmbiguityResolutionUI الأصلي — قائمة تفاعلية لحسم أسماء عملاء/منتجات مكررة.
 export default function AmbiguityPanel({ ambiguities, onApply }) {
+  const { t } = useLanguage();
   const [choices, setChoices] = useState({});
   // [إصلاح] كانت الاختيارات محفوظة بمفتاح = فهرس العنصر بالمصفوفة، والمكوّن لا
   // يُفرَّغ عند استبدال قائمة الغموض (يعيد null فقط)، فتبقى اختيارات دفعة سابقة
@@ -16,16 +18,16 @@ export default function AmbiguityPanel({ ambiguities, onApply }) {
 
   return (
     <div className="qsv-panel qsv-ambiguity-box">
-      <h3 style={{ marginTop: 0 }}>⚠️ يوجد أسماء مكررة تحتاج تحديدًا يدويًا ({ambiguities.length})</h3>
-      <p className="qsv-hint">وُجد أكثر من تطابق بنفس الاسم — رجاءً اختر الصحيح لكل سطر:</p>
+      <h3 style={{ marginTop: 0 }}>⚠️ {t({ ar: 'يوجد أسماء مكررة تحتاج تحديدًا يدويًا', en: 'There are duplicate names that need manual resolution' })} ({ambiguities.length})</h3>
+      <p className="qsv-hint">{t({ ar: 'وُجد أكثر من تطابق بنفس الاسم — رجاءً اختر الصحيح لكل سطر:', en: 'More than one match was found with the same name — please choose the correct one for each row:' })}</p>
       <table className="qsv-mapping-table">
         <tbody>
           {ambiguities.map((a, i) => (
             <tr key={i}>
-              <td>{FIELD_LABEL[a.field]}: "{a.typedName}"</td>
+              <td>{t(FIELD_LABEL[a.field])}: "{a.typedName}"</td>
               <td>
                 <select value={choices[keyOf(a)] || ''} onChange={(e) => setChoices((c) => ({ ...c, [keyOf(a)]: e.target.value }))}>
-                  <option value="">— اختر —</option>
+                  <option value="">— {t({ ar: 'اختر', en: 'Choose' })} —</option>
                   {a.candidates.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                 </select>
               </td>
@@ -42,7 +44,7 @@ export default function AmbiguityPanel({ ambiguities, onApply }) {
           return { rowId: a.rowId, field: a.field, value: valid };
         }))}
       >
-        ✅ تطبيق الاختيارات
+        ✅ {t({ ar: 'تطبيق الاختيارات', en: 'Apply choices' })}
       </button>
     </div>
   );

@@ -1,3 +1,4 @@
+import { useLanguage } from '../../language.jsx';
 import { SECTIONS, fieldOf } from '../lib/fields.js';
 
 /**
@@ -5,6 +6,7 @@ import { SECTIONS, fieldOf } from '../lib/fields.js';
  * مع خيار «تجاهل هذا العمود» ورابط تجاهل سريع.
  */
 export default function MappingGrid({ headers, aoa, headerRow, map, armed, onArmedAssign, onAssign, onIgnore }) {
+  const { t } = useLanguage();
   const assigned = {};
   Object.keys(map).forEach((k) => { if (map[k] != null) assigned[map[k]] = k; });
 
@@ -22,13 +24,13 @@ export default function MappingGrid({ headers, aoa, headerRow, map, armed, onArm
                     value={key || ''}
                     onChange={(e) => (e.target.value === '' ? onIgnore(i) : onAssign(e.target.value, i))}
                   >
-                    <option value="">— تجاهل هذا العمود —</option>
-                    {SECTIONS.map(([title, keys]) => (
-                      <optgroup key={title} label={title}>
+                    <option value="">— {t({ ar: 'تجاهل هذا العمود', en: 'Ignore this column' })} —</option>
+                    {SECTIONS.map(([title, keys], si) => (
+                      <optgroup key={si} label={t(title)}>
                         {keys.map((k) => {
-                          const [, label, req] = fieldOf(k);
+                          const [, label, req, , labelEn] = fieldOf(k);
                           const elsewhere = map[k] != null && map[k] !== i ? ' ↩' : '';
-                          return <option key={k} value={k}>{label + (req ? ' *' : '') + elsewhere}</option>;
+                          return <option key={k} value={k}>{t({ ar: label, en: labelEn }) + (req ? ' *' : '') + elsewhere}</option>;
                         })}
                       </optgroup>
                     ))}
@@ -36,8 +38,8 @@ export default function MappingGrid({ headers, aoa, headerRow, map, armed, onArm
                   <div className="orig" title={h}>
                     <span>{h}</span>
                     {key && (
-                      <span className="unmap" title="تجاهل هذا العمود"
-                        onClick={(e) => { e.stopPropagation(); onIgnore(i); }}>× تجاهل</span>
+                      <span className="unmap" title={t({ ar: 'تجاهل هذا العمود', en: 'Ignore this column' })}
+                        onClick={(e) => { e.stopPropagation(); onIgnore(i); }}>× {t({ ar: 'تجاهل', en: 'Ignore' })}</span>
                     )}
                   </div>
                 </th>

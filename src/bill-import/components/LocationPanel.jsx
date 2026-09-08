@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useLanguage } from '../../language.jsx';
 import { groupsOf } from '../lib/validation.js';
 
 /** لوحة مواقع الفواتير: الموقع خاصية للفاتورة لا للبند */
 export default function LocationPanel({ eng, defaultLoc, setDefaultLoc }) {
+  const { t } = useLanguage();
   const [picked, setPicked] = useState({});
   const all = [];
   groupsOf(eng.rows).forEach((rows, ref) => {
@@ -23,14 +25,14 @@ export default function LocationPanel({ eng, defaultLoc, setDefaultLoc }) {
   return (
     <details className={`qbi-box${need.length ? ' need' : ''}`} open={need.length > 0}>
       <summary>
-        {`مواقع الفواتير — ${all.length} فاتورة`}
+        {t({ ar: `مواقع الفواتير — ${all.length} فاتورة`, en: `Invoice locations — ${all.length} invoice(s)` })}
         <span className={`badge ${need.length ? 'b-warn' : 'b-ok'}`}>
           {need.length
             ? [
-              all.filter((b) => b.kind === 'missing').length ? `${all.filter((b) => b.kind === 'missing').length} بلا موقع` : '',
-              all.filter((b) => b.kind === 'mixed').length ? `${all.filter((b) => b.kind === 'mixed').length} بأكثر من موقع` : ''
+              all.filter((b) => b.kind === 'missing').length ? t({ ar: `${all.filter((b) => b.kind === 'missing').length} بلا موقع`, en: `${all.filter((b) => b.kind === 'missing').length} with no location` }) : '',
+              all.filter((b) => b.kind === 'mixed').length ? t({ ar: `${all.filter((b) => b.kind === 'mixed').length} بأكثر من موقع`, en: `${all.filter((b) => b.kind === 'mixed').length} with more than one location` }) : ''
             ].filter(Boolean).join(' · ')
-            : 'كلها مضبوطة'}
+            : t({ ar: 'كلها مضبوطة', en: 'All set' })}
         </span>
       </summary>
 
@@ -40,26 +42,26 @@ export default function LocationPanel({ eng, defaultLoc, setDefaultLoc }) {
             <input type="checkbox" checked={isChecked(b)}
               onChange={(e) => setPicked((p) => ({ ...p, [b.ref]: e.target.checked }))} />
             <b>{b.ref}</b>
-            <span className="count">{` ${b.rows.length} بند`}</span>
+            <span className="count">{t({ ar: ` ${b.rows.length} بند`, en: ` ${b.rows.length} item(s)` })}</span>
             <span className={`badge ${b.kind === 'missing' ? 'b-warn' : b.kind === 'mixed' ? 'b-err' : 'b-ok'}`}>
-              {b.kind === 'missing' ? 'بلا موقع' : b.locs.join(' / ')}
+              {b.kind === 'missing' ? t({ ar: 'بلا موقع', en: 'No location' }) : b.locs.join(' / ')}
             </span>
           </label>
         ))}
       </div>
 
       <div className="qbi-actions">
-        <span className="count">الموقع المختار:</span>
+        <span className="count">{t({ ar: 'الموقع المختار:', en: 'Selected location:' })}</span>
         <select value={defaultLoc} onChange={(e) => setDefaultLoc(e.target.value)}>
           {eng.catalog.locations.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
-        <button className="qbi-btn" onClick={() => apply('selected')}>تطبيق على المحدد</button>
-        <button className="qbi-btn ghost" onClick={() => apply('missing')}>تطبيق على كل فاتورة بلا موقع</button>
+        <button className="qbi-btn" onClick={() => apply('selected')}>{t({ ar: 'تطبيق على المحدد', en: 'Apply to selected' })}</button>
+        <button className="qbi-btn ghost" onClick={() => apply('missing')}>{t({ ar: 'تطبيق على كل فاتورة بلا موقع', en: 'Apply to every invoice with no location' })}</button>
         <button className="qbi-btn ghost"
           onClick={() => {
             const on = all.every(isChecked);
             const next = {}; all.forEach((b) => { next[b.ref] = !on; }); setPicked(next);
-          }}>تحديد الكل / إلغاء</button>
+          }}>{t({ ar: 'تحديد الكل / إلغاء', en: 'Select all / clear' })}</button>
       </div>
     </details>
   );

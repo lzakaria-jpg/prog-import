@@ -1,12 +1,15 @@
 import React from 'react';
+import { useLanguage } from '../../language.jsx';
 import { fromDMY } from '../engine/dates.js';
 import { SafeInput } from '../../lib/SafeInput.jsx';
 
 const YES_NO_LOWER = ['نعم', 'لا', 'yes', 'no'];
 
 // نسخ حرفي لمنطق inputCellHtml الأصلي (سطر 1541-1583) — كل شرط ونوع خلية كما هو،
-// فقط استبدال بناء نص HTML بعناصر React مقابلة.
+// فقط استبدال بناء نص HTML بعناصر React مقابلة. خيارا نعم/لا الاحتياطيان (عند غياب
+// قالب محمَّل) يبقيان كما يعرّفهما قالب قيود الرسمي (عربي) — طبقة عمل مؤجَّلة.
 export default function GridCell({ row, col, template, customersRef, productsRef, issueList, onChange }) {
+  const { t } = useLanguage();
   const val = row[col.key] === undefined ? '' : row[col.key];
   const cls = issueList ? (issueList.some((i) => i.sev === 'err') ? 'qsv-cell-err' : 'qsv-cell-warn') : '';
   const title = issueList ? issueList.map((i) => i.msg).join(' | ') : '';
@@ -43,7 +46,7 @@ export default function GridCell({ row, col, template, customersRef, productsRef
     if (col.key === 'S') {
       return (
         <select {...dataAttrs} className={cls} title={title} value={val} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— اختر —</option>
+          <option value="">— {t({ ar: 'اختر', en: 'Choose' })} —</option>
           {options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       );
@@ -52,14 +55,14 @@ export default function GridCell({ row, col, template, customersRef, productsRef
       return (
         <SafeInput
           {...dataAttrs}
-          className={cls} title={title} value={val} placeholder="ارفع القالب لتفعيل القائمة"
+          className={cls} title={title} value={val} placeholder={t({ ar: 'ارفع القالب لتفعيل القائمة', en: 'Upload the template to enable the list' })}
           onChange={(e) => onChange(e.target.value)}
         />
       );
     }
     return (
       <select {...dataAttrs} className={cls} title={title} value={val} onChange={(e) => onChange(e.target.value)}>
-        <option value="">— اختر —</option>
+        <option value="">— {t({ ar: 'اختر', en: 'Choose' })} —</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     );
@@ -69,7 +72,7 @@ export default function GridCell({ row, col, template, customersRef, productsRef
       <SafeInput
         {...dataAttrs}
         list="dl-customers" className={cls} title={title} value={val}
-        placeholder="ابحث بالاسم أو الرقم المرجعي..." onChange={(e) => onChange(e.target.value)}
+        placeholder={t({ ar: 'ابحث بالاسم أو الرقم المرجعي...', en: 'Search by name or reference number...' })} onChange={(e) => onChange(e.target.value)}
       />
     );
   }
@@ -78,7 +81,7 @@ export default function GridCell({ row, col, template, customersRef, productsRef
       <SafeInput
         {...dataAttrs}
         list="dl-products" className={cls} title={title} value={val}
-        placeholder="ابحث بالاسم أو الكود..." onChange={(e) => onChange(e.target.value)}
+        placeholder={t({ ar: 'ابحث بالاسم أو الكود...', en: 'Search by name or code...' })} onChange={(e) => onChange(e.target.value)}
       />
     );
   }

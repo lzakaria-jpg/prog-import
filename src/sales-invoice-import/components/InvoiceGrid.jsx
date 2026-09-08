@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../../language.jsx';
 import GridCell from './GridCell.jsx';
 import { COLUMNS } from '../engine/constants.js';
 
@@ -27,6 +28,7 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
   { tableId, rows, template, customersRef, productsRef, issues, revalidate, onUpdateCell, onDeleteRow, onPasteGrid },
   ref,
 ) {
+  const { t } = useLanguage();
   const scrollRef = useRef(null);
   const measuredRowRef = useRef(null);
   const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
@@ -127,7 +129,7 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
                 {c.name}{c.required && <span className="qsv-req-star"> *</span>}
               </th>
             ))}
-            <th>حذف</th>
+            <th>{t({ ar: 'حذف', en: 'Delete' })}</th>
           </tr>
         </thead>
         <tbody>

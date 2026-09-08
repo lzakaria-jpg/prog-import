@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../../language.jsx';
 
 /**
  * نافذة تأكيد داخل هوية التطبيق — بديل لـ window.confirm/alert الأصليتين، حفاظًا على
@@ -7,6 +8,7 @@ import React from 'react';
  * وتأكيد "إفراغ كل الأسطر"، ورسالة "اختر موقعًا أولًا" في لوحة الفواتير بدون موقع.
  */
 export default function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }) {
+  const { t } = useLanguage();
   if (!open) return null;
   return (
     <div className="qsv-modal-overlay" role="dialog" aria-modal="true">
@@ -17,7 +19,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, canc
           {cancelLabel && (
             <button type="button" className="qsv-btn ghost" onClick={onCancel}>{cancelLabel}</button>
           )}
-          <button type="button" className="qsv-btn" onClick={onConfirm}>{confirmLabel || 'موافق'}</button>
+          <button type="button" className="qsv-btn" onClick={onConfirm}>{confirmLabel || t({ ar: 'موافق', en: 'OK' })}</button>
         </div>
       </div>
     </div>

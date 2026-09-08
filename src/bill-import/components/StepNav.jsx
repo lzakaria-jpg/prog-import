@@ -1,11 +1,14 @@
+import { useLanguage } from '../../language.jsx';
+
 const STEPS = [
-  [1, 'ربط المنشأة'],
-  [2, 'ملف العميل'],
-  [3, 'المطابقة والتعديل'],
-  [4, 'إخراج القالب']
+  [1, { ar: 'ربط المنشأة', en: 'Connect account' }],
+  [2, { ar: 'ملف العميل', en: "Customer's file" }],
+  [3, { ar: 'المطابقة والتعديل', en: 'Match & edit' }],
+  [4, { ar: 'إخراج القالب', en: 'Export template' }]
 ];
 
 export default function StepNav({ step, maxStep, onGo }) {
+  const { t, lang } = useLanguage();
   return (
     <nav className="qbi-steps" role="tablist">
       {STEPS.map(([n, label]) => (
@@ -17,8 +20,8 @@ export default function StepNav({ step, maxStep, onGo }) {
           disabled={n > maxStep}
           onClick={() => onGo(n)}
         >
-          <span className="n">{['١', '٢', '٣', '٤'][n - 1]}</span>
-          <span className="t">{label}</span>
+          <span className="n">{lang === 'ar' ? ['١', '٢', '٣', '٤'][n - 1] : n}</span>
+          <span className="t">{t(label)}</span>
         </button>
       ))}
     </nav>

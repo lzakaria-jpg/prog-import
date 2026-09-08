@@ -7,10 +7,14 @@
   الأصلية، فقط أُعيد تغليفهما بـReact state/refs بدل document.getElementById
   المباشر، ونوافذ alert()/confirm() المتصفح استُبدلت برسائل/نافذة تأكيد داخل
   هوية الموقع (uploadAlert + ConfirmDialog) — تماماً كما فعلت أداة استيراد
-  فواتير المبيعات مع نفس النوافذ الأصلية. النصوص الحرفية للرسائل لم تتغيّر.
+  فواتير المبيعات مع نفس النوافذ الأصلية.
+  [تحديث 2026-09-08] كل رسائل السجل/التنبيه (كانت نصوصاً إنجليزية أو عربية
+  ثابتة بصرف النظر عن لغة التطبيق) أصبحت الآن ثنائية اللغة عبر t({ar,en})
+  من useLanguage — بعد ملاحظة المستخدم إن تبديل اللغة ما كان يشمل هذه الأداة.
  ============================================================================
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLanguage } from "../language.jsx";
 import {
   buildProductsFromRows, buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
@@ -29,6 +33,8 @@ function todayIso() {
 }
 
 export default function useProductUploadEngine() {
+  const { t } = useLanguage();
+
   // ---- API key management (أصل: سطر 408-463) ----
   const [apiKey, setApiKey] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -41,14 +47,14 @@ export default function useProductUploadEngine() {
   const saveKey = useCallback(() => {
     const key = apiKey.trim();
     const name = customerName.trim();
-    if (!key) return "Enter API key";
-    if (!name) return "Enter customer name";
+    if (!key) return t({ ar: "أدخل مفتاح API", en: "Enter API key" });
+    if (!name) return t({ ar: "أدخل اسم العميل", en: "Enter customer name" });
     const keys = { ...getSavedKeys(), [name]: key };
     saveKeysToStorage(keys);
     setSavedKeys(keys);
     setCustomerName("");
     return null;
-  }, [apiKey, customerName]);
+  }, [apiKey, customerName, t]);
 
   const loadKey = useCallback((name) => {
     const keys = getSavedKeys();
@@ -80,16 +86,16 @@ export default function useProductUploadEngine() {
       const rows = await readWorkbookRows(file);
       const parsed = buildProductsFromRows(rows);
       if (!parsed.headerFound) {
-        setUploadAlert("Could not find a header row in the Excel file.");
+        setUploadAlert(t({ ar: "تعذر العثور على صف العناوين في ملف Excel.", en: "Could not find a header row in the Excel file." }));
         setExcelData([]);
         return;
       }
       setExcelData(parsed.data);
       setUploadAlert(null);
     } catch (err) {
-      setUploadAlert("Error reading Excel: " + err.message);
+      setUploadAlert(t({ ar: "خطأ في قراءة ملف Excel: ", en: "Error reading Excel: " }) + err.message);
     }
-  }, []);
+  }, [t]);
 
   // ---- Settings (أصل: revenueAcct/expenseAcct/taxToggle/dupToggle) ----
   const [revenueAcct, setRevenueAcct] = useState(DEFAULT_REVENUE_ACCT);
@@ -128,8 +134,8 @@ export default function useProductUploadEngine() {
 
   const startUpload = useCallback(async () => {
     const key = apiKey.trim();
-    if (!key) { setUploadAlert("Enter API key"); return; }
-    if (!excelData.length) { setUploadAlert("Upload an Excel file first"); return; }
+    if (!key) { setUploadAlert(t({ ar: "أدخل مفتاح API", en: "Enter API key" })); return; }
+    if (!excelData.length) { setUploadAlert(t({ ar: "ارفع ملف Excel أولاً", en: "Upload an Excel file first" })); return; }
 
     stoppedRef.current = false;
     setLog([]);
@@ -162,10 +168,10 @@ export default function useProductUploadEngine() {
     const setProg = (current) => setProgress({ current, total: excelData.length });
 
     try {
-      appendLog("=== Starting Upload ===", "header");
+      appendLog(t({ ar: "=== بدء الرفع ===", en: "=== Starting Upload ===" }), "header");
 
       // 1. Fetch accounts
-      appendLog("Fetching chart of accounts...", "info");
+      appendLog(t({ ar: "جارٍ جلب دليل الحسابات...", en: "Fetching chart of accounts..." }), "info");
       const accounts = await fetchAll("/accounts", key);
       accounts.forEach((a) => {
         const nameAr = (a.name_ar || "").toLowerCase();
@@ -175,17 +181,17 @@ export default function useProductUploadEngine() {
         if (nameEn) accountsByName[nameEn] = a;
         if (code) accountsByCode[code] = a;
       });
-      appendLog(`  Found ${accounts.length} accounts`, "info");
+      appendLog(t({ ar: `  تم العثور على ${accounts.length} حساب`, en: `  Found ${accounts.length} accounts` }), "info");
 
       const defaultRev = accountsByCode[revCode];
       const defaultExp = accountsByCode[expCode];
-      if (defaultRev) appendLog(`  Revenue account ${revCode}: ${defaultRev.name_ar} (ID: ${defaultRev.id})`, "success");
-      else appendLog(`  WARNING: Account ${revCode} not found!`, "error");
-      if (defaultExp) appendLog(`  Expense account ${expCode}: ${defaultExp.name_ar} (ID: ${defaultExp.id})`, "success");
-      else appendLog(`  WARNING: Account ${expCode} not found!`, "error");
+      if (defaultRev) appendLog(t({ ar: `  حساب الإيراد ${revCode}: ${defaultRev.name_ar} (المعرّف: ${defaultRev.id})`, en: `  Revenue account ${revCode}: ${defaultRev.name_ar} (ID: ${defaultRev.id})` }), "success");
+      else appendLog(t({ ar: `  تحذير: الحساب ${revCode} غير موجود!`, en: `  WARNING: Account ${revCode} not found!` }), "error");
+      if (defaultExp) appendLog(t({ ar: `  حساب المصروف ${expCode}: ${defaultExp.name_ar} (المعرّف: ${defaultExp.id})`, en: `  Expense account ${expCode}: ${defaultExp.name_ar} (ID: ${defaultExp.id})` }), "success");
+      else appendLog(t({ ar: `  تحذير: الحساب ${expCode} غير موجود!`, en: `  WARNING: Account ${expCode} not found!` }), "error");
 
       // 2. Fetch taxes (required for product creation), prefer rate 15%
-      appendLog("\nFetching taxes...", "header");
+      appendLog(t({ ar: "\nجارٍ جلب الضرائب...", en: "\nFetching taxes..." }), "header");
       try {
         const taxes = await fetchAll("/taxes", key);
         const chosen = chooseTax(taxes);
@@ -194,28 +200,31 @@ export default function useProductUploadEngine() {
           ? chosen.rate !== undefined ? chosen.rate : chosen.percentage !== undefined ? chosen.percentage : chosen.percent !== undefined ? chosen.percent : ""
           : "";
         appendLog(
-          `  Found ${taxes.length} taxes. Using tax: "${chosen ? chosen.name || chosen.id : "NONE"}"${chosen ? ` (rate ${chosenRate}, ID ${chosen.id})` : ""}`,
+          t({
+            ar: `  تم العثور على ${taxes.length} ضريبة. الضريبة المستخدمة: "${chosen ? chosen.name || chosen.id : "لا يوجد"}"${chosen ? ` (النسبة ${chosenRate}, المعرّف ${chosen.id})` : ""}`,
+            en: `  Found ${taxes.length} taxes. Using tax: "${chosen ? chosen.name || chosen.id : "NONE"}"${chosen ? ` (rate ${chosenRate}, ID ${chosen.id})` : ""}`,
+          }),
           chosen ? "success" : "error"
         );
-        if (!chosen) appendLog("  WARNING: No taxes found - products will NOT be creatable without a tax!", "error");
+        if (!chosen) appendLog(t({ ar: "  تحذير: لا توجد ضرائب - لن يمكن إنشاء المنتجات بدون ضريبة!", en: "  WARNING: No taxes found - products will NOT be creatable without a tax!" }), "error");
       } catch (e) {
-        appendLog(`  Failed to fetch taxes: ${e.message}`, "error");
+        appendLog(t({ ar: `  فشل جلب الضرائب: ${e.message}`, en: `  Failed to fetch taxes: ${e.message}` }), "error");
       }
 
       // 2. Fetch units
-      appendLog("Fetching product units...", "info");
+      appendLog(t({ ar: "جارٍ جلب وحدات المنتجات...", en: "Fetching product units..." }), "info");
       const units = await fetchAll("/product_unit_types", key);
       units.forEach((u) => { unitsCache[(u.unit_name || "").toLowerCase()] = u; });
-      appendLog(`  Found ${units.length} units: ${units.map((u) => u.unit_name).join(", ")}`, "info");
+      appendLog(t({ ar: `  تم العثور على ${units.length} وحدة: ${units.map((u) => u.unit_name).join("، ")}`, en: `  Found ${units.length} units: ${units.map((u) => u.unit_name).join(", ")}` }), "info");
 
       // 2b. Fetch categories and ensure the needed ones exist
-      appendLog("\nProcessing product categories...", "header");
+      appendLog(t({ ar: "\nجارٍ معالجة فئات المنتجات...", en: "\nProcessing product categories..." }), "header");
       const categories = await fetchAll("/categories", key);
       categories.forEach((c) => {
         const k = (c.name || "").trim().toLowerCase();
         if (k) categoriesCache[k] = c;
       });
-      appendLog(`  Found ${categories.length} existing categories`, "info");
+      appendLog(t({ ar: `  تم العثور على ${categories.length} فئة موجودة`, en: `  Found ${categories.length} existing categories` }), "info");
 
       const needed = new Map(); // key -> { name }
       excelData.forEach((p) => {
@@ -230,21 +239,21 @@ export default function useProductUploadEngine() {
           if (stoppedRef.current) break;
           if (categoriesCache[k]) continue;
           try {
-            appendLog(`  Creating category: ${meta.name}`, "info");
+            appendLog(t({ ar: `  جارٍ إنشاء الفئة: ${meta.name}`, en: `  Creating category: ${meta.name}` }), "info");
             const res = await api("POST", "/categories", { category: { name: meta.name } }, key);
             if (res.category) {
               categoriesCache[k] = res.category;
-              appendLog(`  Category created: ${meta.name} (ID: ${res.category.id})`, "success");
+              appendLog(t({ ar: `  تم إنشاء الفئة: ${meta.name} (المعرّف: ${res.category.id})`, en: `  Category created: ${meta.name} (ID: ${res.category.id})` }), "success");
             } else {
-              appendLog(`  FAILED to create category: ${meta.name}`, "error");
+              appendLog(t({ ar: `  فشل إنشاء الفئة: ${meta.name}`, en: `  FAILED to create category: ${meta.name}` }), "error");
             }
           } catch (e) {
-            appendLog(`  Failed to create category '${meta.name}': ${e.message}`, "error");
+            appendLog(t({ ar: `  فشل إنشاء الفئة '${meta.name}': ${e.message}`, en: `  Failed to create category '${meta.name}': ${e.message}` }), "error");
           }
           await new Promise((r) => setTimeout(r, 300));
         }
       }
-      appendLog(`  Categories ready: ${Object.keys(categoriesCache).length}`, "info");
+      appendLog(t({ ar: `  الفئات الجاهزة: ${Object.keys(categoriesCache).length}`, en: `  Categories ready: ${Object.keys(categoriesCache).length}` }), "info");
 
       // 3. Fetch existing products
       // [إصلاح 2026-09-07] خلل حقيقي مكتشَف عبر رد API حقيقي زوّدنا به المستخدم:
@@ -257,7 +266,7 @@ export default function useProductUploadEngine() {
       // 2026-09-07] أيضاً: يُجلب المنتجات أيضاً لو updateExisting مفعَّل (لا
       // skipDups فقط) لبناء فهرس skuToId اللازم للتحديث.
       if (skipDups || updateExisting) {
-        appendLog("Fetching existing products...", "info");
+        appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
         const products = await fetchAll("/products", key);
         products.forEach((p) => {
           if (p.sku) {
@@ -270,15 +279,15 @@ export default function useProductUploadEngine() {
           if (nameAr) existingProducts.names.add(nameAr);
           if (nameEn) existingProducts.names.add(nameEn);
         });
-        appendLog(`  Found ${products.length} existing products`, "info");
+        appendLog(t({ ar: `  تم العثور على ${products.length} منتج موجود`, en: `  Found ${products.length} existing products` }), "info");
       }
 
       // 4. Upload products
-      appendLog(`\nUploading ${excelData.length} products...`, "header");
-      appendLog(`Tax inclusive: ${taxInclusive ? "Yes" : "No"}`, "info");
+      appendLog(t({ ar: `\nجارٍ رفع ${excelData.length} منتج...`, en: `\nUploading ${excelData.length} products...` }), "header");
+      appendLog(t({ ar: `شامل الضريبة: ${taxInclusive ? "نعم" : "لا"}`, en: `Tax inclusive: ${taxInclusive ? "Yes" : "No"}` }), "info");
 
       for (let i = 0; i < excelData.length; i++) {
-        if (stoppedRef.current) { appendLog("STOPPED by user", "error"); break; }
+        if (stoppedRef.current) { appendLog(t({ ar: "تم الإيقاف من قبل المستخدم", en: "STOPPED by user" }), "error"); break; }
 
         const p = excelData[i];
 
@@ -292,7 +301,10 @@ export default function useProductUploadEngine() {
         });
         if (existingAction.action === "skip") {
           appendLog(
-            `[${i + 1}/${excelData.length}] SKIP (${existingAction.reason === "sku" ? "SKU exists" : "name exists"}): ${p.sku || p.name} - ${p.name}`,
+            t({
+              ar: `[${i + 1}/${excelData.length}] تخطي (${existingAction.reason === "sku" ? "الرمز موجود" : "الاسم موجود"}): ${p.sku || p.name} - ${p.name}`,
+              en: `[${i + 1}/${excelData.length}] SKIP (${existingAction.reason === "sku" ? "SKU exists" : "name exists"}): ${p.sku || p.name} - ${p.name}`,
+            }),
             "warn"
           );
           skipped++;
@@ -308,17 +320,17 @@ export default function useProductUploadEngine() {
             unitId = unitsCache[uKey].id;
           } else {
             try {
-              appendLog(`  Creating unit: ${p.unit}`, "info");
+              appendLog(t({ ar: `  جارٍ إنشاء الوحدة: ${p.unit}`, en: `  Creating unit: ${p.unit}` }), "info");
               const res = await api("POST", "/product_unit_types", {
                 product_unit_type: { unit_name: p.unit, unit_representation: p.unit.substring(0, 3) },
               }, key);
               if (res.product_unit_type) {
                 unitsCache[uKey] = res.product_unit_type;
                 unitId = res.product_unit_type.id;
-                appendLog(`  Unit created: ${p.unit} (ID: ${unitId})`, "success");
+                appendLog(t({ ar: `  تم إنشاء الوحدة: ${p.unit} (المعرّف: ${unitId})`, en: `  Unit created: ${p.unit} (ID: ${unitId})` }), "success");
               }
             } catch (e) {
-              appendLog(`  Failed to create unit '${p.unit}': ${e.message}`, "error");
+              appendLog(t({ ar: `  فشل إنشاء الوحدة '${p.unit}': ${e.message}`, en: `  Failed to create unit '${p.unit}': ${e.message}` }), "error");
             }
           }
         }
@@ -332,7 +344,7 @@ export default function useProductUploadEngine() {
           if (resolved.matched) {
             revId = resolved.id;
           } else {
-            appendLog(`  WARNING: revenue account '${p.revenue_account_name}' for '${p.name}' not found — using default ${revCode}`, "warn");
+            appendLog(t({ ar: `  تحذير: حساب الإيراد '${p.revenue_account_name}' لـ '${p.name}' غير موجود — سيُستخدم الافتراضي ${revCode}`, en: `  WARNING: revenue account '${p.revenue_account_name}' for '${p.name}' not found — using default ${revCode}` }), "warn");
             revId = defaultRev ? defaultRev.id : null;
           }
         } else {
@@ -346,7 +358,7 @@ export default function useProductUploadEngine() {
           if (resolved.matched) {
             expId = resolved.id;
           } else {
-            appendLog(`  WARNING: expense account '${p.expense_account_name}' for '${p.name}' not found — using default ${expCode}`, "warn");
+            appendLog(t({ ar: `  تحذير: حساب المصروف '${p.expense_account_name}' لـ '${p.name}' غير موجود — سيُستخدم الافتراضي ${expCode}`, en: `  WARNING: expense account '${p.expense_account_name}' for '${p.name}' not found — using default ${expCode}` }), "warn");
             expId = defaultExp ? defaultExp.id : null;
           }
         } else {
@@ -372,23 +384,23 @@ export default function useProductUploadEngine() {
             : await api("POST", "/products", { product: payload }, key);
           if (res.product) {
             if (isUpdate) {
-              appendLog(`[${i + 1}/${excelData.length}] UPDATED: ${p.name} (ID: ${existingAction.id})`, "success");
+              appendLog(t({ ar: `[${i + 1}/${excelData.length}] تم التحديث: ${p.name} (المعرّف: ${existingAction.id})`, en: `[${i + 1}/${excelData.length}] UPDATED: ${p.name} (ID: ${existingAction.id})` }), "success");
               updatedCount++;
               // عمداً: لا createdRowIndexes.add(i) — منتج موجود أصلاً يُستثنى من
               // ملف الأرصدة الافتتاحية (راجع تعليق createdRowIndexes أعلاه).
             } else {
-              appendLog(`[${i + 1}/${excelData.length}] CREATED: ${p.name} (ID: ${res.product.id})`, "success");
+              appendLog(t({ ar: `[${i + 1}/${excelData.length}] تم الإنشاء: ${p.name} (المعرّف: ${res.product.id})`, en: `[${i + 1}/${excelData.length}] CREATED: ${p.name} (ID: ${res.product.id})` }), "success");
               uploaded++;
               createdRowIndexes.add(i);
             }
             existingProducts.names.add(nameLower);
             if (p.sku) { existingProducts.skus.add(p.sku); skuToId[p.sku] = res.product.id; }
           } else {
-            appendLog(`[${i + 1}/${excelData.length}] FAILED: ${p.name}`, "error");
+            appendLog(t({ ar: `[${i + 1}/${excelData.length}] فشل: ${p.name}`, en: `[${i + 1}/${excelData.length}] FAILED: ${p.name}` }), "error");
             errors++;
           }
         } catch (e) {
-          appendLog(`[${i + 1}/${excelData.length}] ERROR: ${p.name} - ${e.message}`, "error");
+          appendLog(t({ ar: `[${i + 1}/${excelData.length}] خطأ: ${p.name} - ${e.message}`, en: `[${i + 1}/${excelData.length}] ERROR: ${p.name} - ${e.message}` }), "error");
           errors++;
         }
 
@@ -408,14 +420,17 @@ export default function useProductUploadEngine() {
         defaultLocation: defaultLocation.trim() || DEFAULT_LOCATION,
       });
       if (balanceRows.length > 0) {
-        appendLog(`\nBuilding opening balance file for ${balanceRows.length} product(s) with quantity...`, "header");
+        appendLog(t({ ar: `\nجارٍ إنشاء ملف الأرصدة الافتتاحية لـ ${balanceRows.length} منتج بكمية...`, en: `\nBuilding opening balance file for ${balanceRows.length} product(s) with quantity...` }), "header");
         try {
           const { workbook, skippedNoSku } = buildOpeningBalanceWorkbook(balanceRows);
           if (workbook.SheetNames.length > 0) {
             const blob = workbookToBlob(workbook);
-            downloadBlob(blob, `ارصدة-افتتاحية-منتجات-${openingBalanceDate}.xlsx`);
+            downloadBlob(blob, t({ ar: `ارصدة-افتتاحية-منتجات-${openingBalanceDate}.xlsx`, en: `opening-balance-products-${openingBalanceDate}.xlsx` }));
             appendLog(
-              `  تم تنزيل ملف الأرصدة الافتتاحية (${balanceRows.length - skippedNoSku.length} منتج، ${workbook.SheetNames.length} موقع) — ارفعه يدوياً من قيود: المحاسبة > قيود يدوية > أرصدة افتتاحية > المنتجات والتكاليف، وأدخل التاريخ ${openingBalanceDate} يدوياً بنفس الشاشة (القالب الرسمي لا يحمل التاريخ داخله)`,
+              t({
+                ar: `  تم تنزيل ملف الأرصدة الافتتاحية (${balanceRows.length - skippedNoSku.length} منتج، ${workbook.SheetNames.length} موقع) — ارفعه يدوياً من قيود: المحاسبة > قيود يدوية > أرصدة افتتاحية > المنتجات والتكاليف، وأدخل التاريخ ${openingBalanceDate} يدوياً بنفس الشاشة (القالب الرسمي لا يحمل التاريخ داخله)`,
+                en: `  Downloaded the opening balance file (${balanceRows.length - skippedNoSku.length} product(s), ${workbook.SheetNames.length} location(s)) — upload it manually from Qoyod: Accounting > Manual Entries > Opening Balances > Products & Costs, and enter the date ${openingBalanceDate} manually on that same screen (the official template does not carry the date within it)`,
+              }),
               "success"
             );
           }
@@ -425,23 +440,32 @@ export default function useProductUploadEngine() {
           // تجاهله بصمت.
           if (skippedNoSku.length > 0) {
             appendLog(
-              `  WARNING: تم تخطي ${skippedNoSku.length} منتج من ملف الأرصدة الافتتاحية لعدم وجود رمز/كود له (القالب الرسمي يحدّد المنتج بالرمز فقط): ${skippedNoSku.join("، ")}`,
+              t({
+                ar: `  تحذير: تم تخطي ${skippedNoSku.length} منتج من ملف الأرصدة الافتتاحية لعدم وجود رمز/كود له (القالب الرسمي يحدّد المنتج بالرمز فقط): ${skippedNoSku.join("، ")}`,
+                en: `  WARNING: Skipped ${skippedNoSku.length} product(s) from the opening balance file for missing SKU/code (the official template identifies products by SKU only): ${skippedNoSku.join(", ")}`,
+              }),
               "warn"
             );
           }
         } catch (e) {
-          appendLog(`  تعذر توليد ملف الأرصدة الافتتاحية: ${e.message}`, "error");
+          appendLog(t({ ar: `  تعذر توليد ملف الأرصدة الافتتاحية: ${e.message}`, en: `  Could not generate the opening balance file: ${e.message}` }), "error");
         }
       }
 
-      appendLog("\n=== Upload Complete ===", "header");
-      appendLog(`Total: ${excelData.length} | Uploaded: ${uploaded} | Updated: ${updatedCount} | Skipped: ${skipped} | Errors: ${errors}`, "header");
+      appendLog(t({ ar: "\n=== اكتمل الرفع ===", en: "\n=== Upload Complete ===" }), "header");
+      appendLog(
+        t({
+          ar: `الإجمالي: ${excelData.length} | تم الرفع: ${uploaded} | تم التحديث: ${updatedCount} | تم التخطي: ${skipped} | الأخطاء: ${errors}`,
+          en: `Total: ${excelData.length} | Uploaded: ${uploaded} | Updated: ${updatedCount} | Skipped: ${skipped} | Errors: ${errors}`,
+        }),
+        "header"
+      );
     } catch (e) {
-      appendLog(`FATAL: ${e.message}`, "error");
+      appendLog(t({ ar: `فادح: ${e.message}`, en: `FATAL: ${e.message}` }), "error");
     }
 
     setUploading(false);
-  }, [apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation, appendLog]);
+  }, [apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation, appendLog, t]);
 
   const previewSummary = useMemo(() => {
     const catSet = new Set(excelData.map((p) => p.category).filter(Boolean));

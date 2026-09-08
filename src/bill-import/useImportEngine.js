@@ -3,6 +3,7 @@
  * المكونات تعرض فقط؛ لا منطق أعمال داخلها.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../language.jsx';
 import { fetchCatalog, DEFAULT_BASE } from './lib/api.js';
 import { readTemplate } from './lib/template.js';
 import { tplTax, findProdBySku, isBuyable } from './lib/matching.js';
@@ -15,6 +16,7 @@ import { num, truthy, norm } from './lib/text.js';
 const EMPTY_CATALOG = { products: [], vendors: [], taxes: [], units: [], locations: [] };
 
 export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = DEFAULT_BASE, corsProxy = '', onExport, onError } = {}) {
+  const { t } = useLanguage();
   const [step, setStep] = useState(1);
   const [maxStep, setMaxStep] = useState(1);
 
@@ -44,7 +46,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
 
   /* ---------- الخطوة ١ ---------- */
   const connect = useCallback(async () => {
-    if (!apiKey.trim()) return note('api', 'err', 'أدخل مفتاح الواجهة أولاً.');
+    if (!apiKey.trim()) return note('api', 'err', t({ ar: 'أدخل مفتاح الواجهة أولاً.', en: 'Enter the API key first.' }));
     setBusy(true); note('api', '', '');
     try {
       const cat = await fetchCatalog({ base: baseUrl, proxy, apiKey: apiKey.trim() }, tpl);
@@ -52,32 +54,42 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
       const warns = (cat.warnings || []);
       // نعرض ما لم يُجلَب فعلًا بدل رسالة نجاح مطلقة تخفي قوائم مُلفَّقة
       note('api', warns.length ? 'warn' : 'ok',
-        warns.length ? `تم جلب بيانات المنشأة جزئيًا — ${warns.join(' ')}` : 'تم جلب بيانات المنشأة.');
+        warns.length
+          ? t({ ar: `تم جلب بيانات المنشأة جزئيًا — ${warns.join(' ')}`, en: `Fetched the account's data partially — ${warns.join(' ')}` })
+          : t({ ar: 'تم جلب بيانات المنشأة.', en: "Fetched the account's data." }));
       if (cat.products.length && cat.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) {
       note('api', 'err',
-        `تعذّر الاتصال: ${e.message}. المتصفح يمنع الاتصال المباشر بواجهة قيود غالباً (CORS) — استخدم وسيطاً محلياً أو ارفع القوائم يدوياً.`);
+        t({
+          ar: `تعذّر الاتصال: ${e.message}. المتصفح يمنع الاتصال المباشر بواجهة قيود غالباً (CORS) — استخدم وسيطاً محلياً أو ارفع القوائم يدوياً.`,
+          en: `Connection failed: ${e.message}. The browser usually blocks a direct connection to the Qoyod API (CORS) — use a local proxy or upload the lists manually.`,
+        }));
       onError && onError(e);
     } finally { setBusy(false); }
-  }, [apiKey, baseUrl, proxy, tpl, note, onError]);
+  }, [apiKey, baseUrl, proxy, tpl, note, onError, t]);
 
   const loadTemplate = useCallback(async (file) => {
-    note('tpl', 'info', 'جاري قراءة القالب…');
+    note('tpl', 'info', t({ ar: 'جاري قراءة القالب…', en: 'Reading the template…' }));
     try {
-      const t = await readTemplate(file);
-      if (!t.locations.length && !t.taxes.length) throw new Error('لم يُعثر على قوائم منسدلة — تأكد أنه قالب استيراد فواتير المشتريات');
+      const tp = await readTemplate(file);
+      if (!tp.locations.length && !tp.taxes.length) throw new Error(t({ ar: 'لم يُعثر على قوائم منسدلة — تأكد أنه قالب استيراد فواتير المشتريات', en: 'No dropdown lists found — make sure this is the purchase invoice import template' }));
       templateFile.current = file;
-      setTpl(t);
-      setCatalog((c) => ({ ...c, locations: t.locations.slice(), taxes: t.taxes.map(tplTax).filter((x) => x.percent != null) }));
-      const taxCol = t.columns.find((c) => c.key === 'tax');
-      const dup = t.taxes.length - new Set(t.taxes.map((x) => tplTax(x).percent)).size;
-      const missing = ['docDiscVal', 'unit'].filter((k) => !t.columns.some((c) => c.key === k));
+      setTpl(tp);
+      setCatalog((c) => ({ ...c, locations: tp.locations.slice(), taxes: tp.taxes.map(tplTax).filter((x) => x.percent != null) }));
+      const taxCol = tp.columns.find((c) => c.key === 'tax');
+      const dup = tp.taxes.length - new Set(tp.taxes.map((x) => tplTax(x).percent)).size;
+      const missing = ['docDiscVal', 'unit'].filter((k) => !tp.columns.some((c) => c.key === k));
       note('tpl', 'ok',
-        `تم اعتماد قوائم القالب من ورقة «${t.sheetName}» — ${t.columns.length} عموداً، والضريبة في العمود «${taxCol ? taxCol.letter : '؟'}».`
-        + (missing.length ? ` هذه النسخة بلا ${missing.map((k) => (k === 'unit' ? 'عمود وحدة التحويل' : 'أعمدة خصم المستند')).join(' و')}.` : '')
-        + (dup > 0 ? ` تنبيه: ${dup} ضريبة تتكرر نسبتها مع غيرها.` : ''));
+        t({
+          ar: `تم اعتماد قوائم القالب من ورقة «${tp.sheetName}» — ${tp.columns.length} عموداً، والضريبة في العمود «${taxCol ? taxCol.letter : '؟'}».`
+            + (missing.length ? ` هذه النسخة بلا ${missing.map((k) => (k === 'unit' ? 'عمود وحدة التحويل' : 'أعمدة خصم المستند')).join(' و')}.` : '')
+            + (dup > 0 ? ` تنبيه: ${dup} ضريبة تتكرر نسبتها مع غيرها.` : ''),
+          en: `Adopted the template's lists from sheet "${tp.sheetName}" — ${tp.columns.length} column(s), tax in column "${taxCol ? taxCol.letter : '?'}".`
+            + (missing.length ? ` This version is missing ${missing.map((k) => (k === 'unit' ? 'a conversion-unit column' : 'document-discount columns')).join(' and ')}.` : '')
+            + (dup > 0 ? ` Note: ${dup} tax(es) share a rate with another.` : ''),
+        }));
     } catch (e) { fail('tpl', e); }
-  }, [note, fail]);
+  }, [note, fail, t]);
 
   const loadManualLists = useCallback(async ({ productsFile, vendorsFile, taxesText, locationsText }) => {
     try {
@@ -111,18 +123,18 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
           const [a, b] = l.split('=');
           if (!a || !a.trim()) return null;
           return { id: null, name: a.trim(), percent: num(b) ?? num(a) };
-        }).filter((t) => t && t.percent != null);
+        }).filter((x) => x && x.percent != null);
         if (tx.length) next.taxes = tx;
         const lc = (locationsText || '').split('\n').map((s) => s.trim()).filter(Boolean);
         if (lc.length) next.locations = lc;
       }
-      if (!next.taxes.length) return note('manual', 'err', 'ارفع القالب المعتمد، أو عرّف ضريبة واحدة بصيغة «الاسم = النسبة».');
-      if (!next.locations.length) return note('manual', 'err', 'ارفع القالب المعتمد، أو أدخل اسم موقع واحد على الأقل.');
+      if (!next.taxes.length) return note('manual', 'err', t({ ar: 'ارفع القالب المعتمد، أو عرّف ضريبة واحدة بصيغة «الاسم = النسبة».', en: 'Upload the approved template, or define one tax in the form "name = rate".' }));
+      if (!next.locations.length) return note('manual', 'err', t({ ar: 'ارفع القالب المعتمد، أو أدخل اسم موقع واحد على الأقل.', en: 'Upload the approved template, or enter at least one location name.' }));
       setCatalog(next);
-      note('manual', 'ok', 'تم اعتماد القوائم المرفوعة.');
+      note('manual', 'ok', t({ ar: 'تم اعتماد القوائم المرفوعة.', en: 'The uploaded lists were adopted.' }));
       if (next.products.length && next.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) { fail('manual', e); }
-  }, [catalog, tpl, note, fail]);
+  }, [catalog, tpl, note, fail, t]);
 
   /* ---------- الخطوة ٢ ---------- */
   const pickSheet = useCallback((book, name) => {
@@ -138,9 +150,9 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
       const book = await readWorkbook(file);
       setWb(book);
       pickSheet(book, book.SheetNames[0]);
-      note('client', 'ok', `تمت قراءة ${file.name} — ${book.SheetNames.length} ورقة.`);
+      note('client', 'ok', t({ ar: `تمت قراءة ${file.name} — ${book.SheetNames.length} ورقة.`, en: `Read ${file.name} — ${book.SheetNames.length} sheet(s).` }));
     } catch (e) { fail('client', e); }
-  }, [pickSheet, note, fail]);
+  }, [pickSheet, note, fail, t]);
 
   const changeSheet = useCallback((name) => { if (wb) pickSheet(wb, name); }, [wb, pickSheet]);
 
@@ -169,14 +181,14 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
 
   const runMatch = useCallback(() => {
     const body = aoa.slice(headerRow + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
-    if (!body.length) return note('client', 'err', 'لا توجد صفوف بيانات بعد صف العناوين.');
-    if (body.length > 5000) note('client', 'warn', `الملف يحتوي ${body.length} صفاً، والحد الأقصى في قيود ٥٠٠٠ صف.`);
+    if (!body.length) return note('client', 'err', t({ ar: 'لا توجد صفوف بيانات بعد صف العناوين.', en: 'No data rows found after the header row.' }));
+    if (body.length > 5000) note('client', 'warn', t({ ar: `الملف يحتوي ${body.length} صفاً، والحد الأقصى في قيود ٥٠٠٠ صف.`, en: `The file has ${body.length} row(s); Qoyod's maximum is 5,000 rows.` }));
     const built = buildRows(aoa, headerRow, map, catalog);
     validateAll(built, catalog, tpl, { totalBasis, hasTaxColumn: map.tax != null });
     setRows(built);
     setMaxStep((s) => Math.max(s, 3));
     setStep(3);
-  }, [aoa, headerRow, map, catalog, tpl, totalBasis, note]);
+  }, [aoa, headerRow, map, catalog, tpl, totalBasis, note, t]);
 
   /* ---------- الخطوة ٣ ---------- */
   const revalidate = useCallback((mutate) => {
@@ -245,10 +257,11 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
     const { blob, usedTemplate, error } = await exportInvoices(gs, { tpl, templateFile: templateFile.current });
     saveBlob(blob, filename);
     note('export', usedTemplate ? 'ok' : 'warn',
-      usedTemplate ? 'تمت الكتابة داخل القالب المرفوع دون تغيير في تنسيقه أو قوائمه.'
-        : `صُدِّر ملف مبني بنفس بنية الأعمدة${error ? ` (${error})` : ''}.`);
+      usedTemplate
+        ? t({ ar: 'تمت الكتابة داخل القالب المرفوع دون تغيير في تنسيقه أو قوائمه.', en: 'Written into the uploaded template without changing its formatting or lists.' })
+        : t({ ar: `صُدِّر ملف مبني بنفس بنية الأعمدة${error ? ` (${error})` : ''}.`, en: `Exported a file built with the same column structure${error ? ` (${error})` : ''}.` }));
     onExport && onExport({ kind, filename, blob, invoices: gs.map((g) => g.ref), usedTemplate });
-  }, [groups, rows, tpl, note, onExport]);
+  }, [groups, rows, tpl, note, onExport, t]);
 
   return {
     // حالة
