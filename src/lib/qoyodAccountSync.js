@@ -161,3 +161,51 @@ export function checkAccountDuplicate(row, duplicateIndex) {
   if (ar && duplicateIndex.names.has(ar)) return "name";
   return null;
 }
+
+// ===== [إضافة 2026-09-09] جلب "ملف 1" مباشرة عبر API بدل رفعه يدويًا =====
+// خطوة ثانية من نفس الميزة: بدل ما يرفع المستخدم تصدير شجرة الحسابات الحالية
+// يدويًا (ملف 1)، نجلبها مباشرة من GET /accounts ونحوّلها لنفس شكل "records"
+// الذي تنتجه buildRecords() بـMergeTool.jsx، لتُمرَّر مباشرة لـcompareTrees().
+
+/**
+ * يستنتج رمز الأب بالاقتطاع من اليمين (نفس أسلوب findParentByCodeTruncation/
+ * guessAncestorCode بـMergeTool.jsx) — لازم لأن GET /accounts الفعلي بقيود لا
+ * يرسل أي parent_id/level إطلاقًا، فقط بنية ترقيم الرمز نفسها تدل على الهرمية.
+ */
+function guessParentByCodeTruncation(code, codesSet) {
+  let current = String(code || "").trim();
+  while (current.length > 1) {
+    current = current.slice(0, -1);
+    if (codesSet.has(current)) return current;
+  }
+  return "";
+}
+
+/**
+ * يحوّل مصفوفة حسابات Qoyod الفعلية (رد GET /accounts المسطّح) إلى نفس شكل
+ * "records" الذي تنتجه buildRecords() من ملف إكسل مرفوع يدويًا - بحيث تُمرَّر
+ * مباشرة لـcompareTrees() كبديل لرفع "ملف 1". لا نحاول ترجمة حقل type الفعلي
+ * (enum إنجليزي مثل "CurrentAsset") لتصنيف عربي - نتركه فارغًا ونعتمد نفس
+ * منطق الاستنتاج من الاسم الموجود أصلاً بالأداة لأي ملف بلا عمود نوع صريح.
+ */
+export function qoyodAccountsToFile1Records(accounts) {
+  const list = (accounts || []).filter((a) => a && a.code !== undefined && a.code !== null && String(a.code).trim() !== "");
+  const codesSet = new Set(list.map((a) => String(a.code).trim()));
+  return list.map((a) => {
+    const code = String(a.code).trim();
+    return {
+      code,
+      nameAr: String(a.name_ar ?? "").trim(),
+      nameEn: String(a.name_en ?? "").trim(),
+      level: "",
+      parent: guessParentByCodeTruncation(code, codesSet),
+      type: "",
+      desc: String(a.description ?? "").trim(),
+      debit: "",
+      credit: "",
+      payCollect: a.recieve_payments === true || a.recieve_payments === "true" ? "Yes" : "No",
+      extra: {},
+      _rowIndex: -1,
+    };
+  });
+}

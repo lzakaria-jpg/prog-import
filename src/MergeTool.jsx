@@ -12,6 +12,8 @@ import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityT
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
+import { qoyodAccountsToFile1Records } from "./lib/qoyodAccountSync.js";
+import { fetchAll } from "./product-upload/io/network.js";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -1671,6 +1673,44 @@ export function MergeTool() {
   const [sendResult, setSendResult] = useState(null);
   const sendStopRef = useRef({ current: false });
 
+  // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
+  // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
+  // فشل الجلب يترك رفع الملف اليدوي متاحًا كما هو بلا أي تأثير. =====
+  const [file1Source, setFile1Source] = useState("upload"); // "upload" | "api"
+  const [file1ApiRecords, setFile1ApiRecords] = useState(null);
+  const [file1ApiFetching, setFile1ApiFetching] = useState(false);
+  const [file1ApiError, setFile1ApiError] = useState("");
+
+  const fetchFile1FromApi = async (keyOverride) => {
+    const key = (keyOverride ?? apiKey).trim();
+    if (!key) return;
+    setFile1ApiFetching(true);
+    setFile1ApiError("");
+    try {
+      const accounts = await fetchAll("/accounts", key);
+      const records = qoyodAccountsToFile1Records(accounts);
+      if (records.length === 0) {
+        setFile1ApiError(t({ ar: "ما فيه أي حساب بمنشأة العميل، أو المفتاح غير صحيح", en: "No accounts found in the client's company, or the key is invalid" }));
+        return;
+      }
+      setFile1ApiRecords(records);
+      setFile1Source("api");
+      // نمسح أي رفع يدوي سابق لملف 1 حتى ما يتعارض مع النسخة المجلوبة عبر API
+      setFile1(null); setFile1Rows(null); setMapping1(null); setShowMap1(false);
+      if (fileInput1Ref.current) fileInput1Ref.current.value = "";
+      setResults(null);
+      setToast({ type: "success", text: t({ ar: `تم جلب ${records.length} حساب من منشأة العميل عبر API`, en: `Fetched ${records.length} accounts from the client's company via API` }) });
+      if (currentUser) trackMergeImport(currentUser, { via: "api-fetch-file1", count: records.length });
+    } catch (e) {
+      setFile1ApiError(e.message || String(e));
+      if (currentUser) trackMergeError(currentUser, { via: "api-fetch-file1", error: e.message });
+    } finally {
+      setFile1ApiFetching(false);
+    }
+  };
+
+  const switchToManualFile1 = () => { setFile1Source("upload"); setFile1ApiRecords(null); setFile1ApiError(""); };
+
   const saveApiKey = () => {
     const key = apiKey.trim();
     const name = customerName.trim();
@@ -1682,8 +1722,13 @@ export function MergeTool() {
     saveKeysToStorage(next);
     setSavedKeysState(next);
     setToast({ type: "success", text: t({ ar: "تم حفظ المفتاح", en: "Key saved" }) });
+    fetchFile1FromApi(key);
   };
-  const loadApiKey = (name) => { setApiKey(savedKeys[name] || ""); setCustomerName(name); };
+  const loadApiKey = (name) => {
+    const key = savedKeys[name] || "";
+    setApiKey(key); setCustomerName(name);
+    if (key) fetchFile1FromApi(key);
+  };
   const removeApiKey = (name) => {
     const next = { ...savedKeys };
     delete next[name];
@@ -1762,11 +1807,13 @@ export function MergeTool() {
   const headerRow2 = file2Rows ? file2Rows[findHeaderRowIndex(file2Rows)] : null;
 
   const runCompare = () => {
-    if (!file1Rows || !file2Rows || !mapping1 || !mapping2) return;
+    const usingApiFile1 = file1Source === "api" && file1ApiRecords && file1ApiRecords.length > 0;
+    if (!usingApiFile1 && (!file1Rows || !mapping1)) return;
+    if (!file2Rows || !mapping2) return;
     setBusy(true); setError("");
     setTimeout(() => {
       try {
-        const rec1 = buildRecords(file1Rows, mapping1);
+        const rec1 = usingApiFile1 ? file1ApiRecords : buildRecords(file1Rows, mapping1);
         const rec2 = buildRecords(file2Rows, mapping2);
         if (rec1.length === 0) throw new Error("ما قدرت أستخرج أي حساب من ملف 1");
         if (rec2.length === 0) throw new Error("ما قدرت أستخرج أي حساب من ملف 2");
@@ -2037,6 +2084,7 @@ export function MergeTool() {
     setFile1(null); setFile2(null); setFile1Rows(null); setFile2Rows(null); setMapping1(null); setMapping2(null);
     setShowMap1(false); setShowMap2(false); setUseFile2Codes(false); setResults(null); setBusy(false); setError("");
     setCopied(false); setExportText(""); setActiveFilter("all"); setSearchInput(""); setSearchQuery(""); setShowPreCompareConfirm(false); setToast(null);
+    setFile1Source("upload"); setFile1ApiRecords(null); setFile1ApiFetching(false); setFile1ApiError("");
     treeMetaRef.current = { level2CodeMap: {}, level1CodeMap: {}, tree1Index: [], siblingCodesByParent: {}, existingCodes: [], file2ByCode: new Map() };
     if (fileInput1Ref.current) fileInput1Ref.current.value = "";
     if (fileInput2Ref.current) fileInput2Ref.current.value = "";
@@ -2208,7 +2256,7 @@ export function MergeTool() {
           </button>
           {showApiPanel && (
             <div className="mt-4">
-              <p className="mb-3 text-xs leading-relaxed text-[#64748B]">{t({ ar: "أدخل مفتاح API الخاص بمنشأة العميل في قيود لتتمكن، بعد التحليل، من إرسال الحسابات الجديدة مباشرة إلى منشأته عبر API بدل (أو بجانب) تنزيل ملف الرفع اليدوي.", en: "Enter the client's Qoyod company API key to send the new accounts directly to their company via API after analysis, instead of (or alongside) downloading the manual upload file." })}</p>
+              <p className="mb-3 text-xs leading-relaxed text-[#64748B]">{t({ ar: "أدخل مفتاح API الخاص بمنشأة العميل واحفظه — يتم تلقائيًا جلب شجرة حساباته الحالية من قيود (بدل رفع ملف 1 يدويًا)، وبعد التحليل يصير بإمكانك أيضًا إرسال الحسابات الجديدة مباشرة عبر API.", en: "Enter the client's Qoyod company API key and save it — their current chart of accounts is fetched automatically (instead of uploading File 1 manually), and after analysis you can also send the new accounts directly via API." })}</p>
               <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[220px] flex-1">
                   <label className="mb-1 block text-xs font-semibold text-[#64748B]">{t({ ar: "مفتاح API", en: "API key" })}</label>
@@ -2219,8 +2267,11 @@ export function MergeTool() {
                   <label className="mb-1 block text-xs font-semibold text-[#64748B]">{t({ ar: "اسم العميل (للحفظ)", en: "Customer name (to save)" })}</label>
                   <SafeInput type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t({ ar: "اسم العميل", en: "Customer name" })} className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm" />
                 </div>
-                <button onClick={saveApiKey} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800">{t({ ar: "حفظ", en: "Save" })}</button>
+                <button onClick={saveApiKey} disabled={file1ApiFetching} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">{file1ApiFetching && <Loader2 size={13} className="animate-spin" />} {t({ ar: "حفظ", en: "Save" })}</button>
               </div>
+              {file1ApiFetching && (
+                <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#64748B]"><Loader2 size={13} className="animate-spin" /> {t({ ar: "جارٍ جلب شجرة حسابات العميل من قيود...", en: "Fetching the client's chart of accounts from Qoyod..." })}</div>
+              )}
               {Object.keys(savedKeys).length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {Object.keys(savedKeys).map((name) => (
@@ -2236,9 +2287,24 @@ export function MergeTool() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <UploadCard title={t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })} hint={t({ ar: "التصدير الحالي لشجرة حسابات العميل من نظام قيود", en: "The client's current chart of accounts exported from Qoyod" })} file={file1} onPick={() => fileInput1Ref.current?.click()} inputRef={fileInput1Ref} onChange={(f) => handleFile(f, 1)}>
-            {headerRow1 && mapping1 && (<><MappingSummary mapping={mapping1} headerRow={headerRow1} onToggle={() => setShowMap1((s) => !s)} />{showMap1 && <ColumnMapEditor headerRow={headerRow1} mapping={mapping1} setMapping={setMapping1} label={t({ ar: "تأكيد/تعديل الأعمدة - ملف 1", en: "Confirm/edit columns — File 1" })} />}</>)}
-          </UploadCard>
+          {file1Source === "api" && file1ApiRecords ? (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-sm">
+              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-[#0F172A]"><CheckCircle2 size={16} className="text-emerald-600" /> {t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })}</div>
+              <div className="mb-3 text-xs text-[#94A3B8]">{t({ ar: "مجلوبة مباشرة عبر API من منشأة العميل", en: "Fetched directly via API from the client's company" })}</div>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F8FAFC] px-3 py-2.5 text-sm">
+                <span className="font-semibold text-emerald-700">{t({ ar: `تم جلب ${file1ApiRecords.length} حساب بنجاح`, en: `${file1ApiRecords.length} accounts fetched successfully` })}</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => fetchFile1FromApi()} disabled={file1ApiFetching} className="flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC] disabled:opacity-50">{file1ApiFetching ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {t({ ar: "تحديث", en: "Refresh" })}</button>
+                  <button onClick={switchToManualFile1} className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs font-semibold text-[#64748B] hover:bg-[#F8FAFC]">{t({ ar: "رفع ملف بدلاً من ذلك", en: "Upload a file instead" })}</button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <UploadCard title={t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })} hint={t({ ar: "التصدير الحالي لشجرة حسابات العميل من نظام قيود، أو مفتاح API بالأعلى", en: "The client's current chart of accounts exported from Qoyod, or an API key above" })} file={file1} onPick={() => fileInput1Ref.current?.click()} inputRef={fileInput1Ref} onChange={(f) => handleFile(f, 1)}>
+              {file1ApiError && (<div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-500">{lang === "en" ? localizeMergeError(file1ApiError) : file1ApiError}</div>)}
+              {headerRow1 && mapping1 && (<><MappingSummary mapping={mapping1} headerRow={headerRow1} onToggle={() => setShowMap1((s) => !s)} />{showMap1 && <ColumnMapEditor headerRow={headerRow1} mapping={mapping1} setMapping={setMapping1} label={t({ ar: "تأكيد/تعديل الأعمدة - ملف 1", en: "Confirm/edit columns — File 1" })} />}</>)}
+            </UploadCard>
+          )}
           <UploadCard title={t({ ar: "ملف 2 — شجرة العميل الجديدة", en: "File 2 — Client's new chart of accounts" })} hint={t({ ar: "أسماء + أرقام، أو ميزان مراجعة، أو أسماء بدون ترقيم", en: "Names + numbers, a trial balance, or names without numbering" })} file={file2} onPick={() => fileInput2Ref.current?.click()} inputRef={fileInput2Ref} onChange={(f) => handleFile(f, 2)}>
             {headerRow2 && mapping2 && (<><MappingSummary mapping={mapping2} headerRow={headerRow2} onToggle={() => setShowMap2((s) => !s)} />{showMap2 && <ColumnMapEditor headerRow={headerRow2} mapping={mapping2} setMapping={setMapping2} label={t({ ar: "تأكيد/تعديل الأعمدة - ملف 2", en: "Confirm/edit columns — File 2" })} />}</>)}
           </UploadCard>
@@ -2249,7 +2315,7 @@ export function MergeTool() {
             <input type="checkbox" checked={useFile2Codes} onChange={(e) => setUseFile2Codes(e.target.checked)} className="h-4 w-4 rounded border-[#E2E8F0] accent-blue-700" />
             {t({ ar: "اعتماد أرقام الحسابات من ملف 2 (بدل ملف 1)", en: "Use account codes from File 2 (instead of File 1)" })}
           </label>
-          <button onClick={() => setShowPreCompareConfirm(true)} disabled={!file1Rows || !file2Rows || busy} className="flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
+          <button onClick={() => setShowPreCompareConfirm(true)} disabled={!(file1Rows || (file1Source === "api" && file1ApiRecords)) || !file2Rows || busy} className="flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />} {t({ ar: "قارن الشجرتين", en: "Compare the two trees" })}
           </button>
         </div>

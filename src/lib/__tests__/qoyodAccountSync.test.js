@@ -4,10 +4,11 @@ import {
   buildQoyodAccountPayload,
   buildQoyodDuplicateIndex,
   checkAccountDuplicate,
+  qoyodAccountsToFile1Records,
   QOYOD_TYPE_BY_LEVEL2,
   ALL_QOYOD_ACCOUNT_TYPES,
 } from "../qoyodAccountSync.js";
-import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2 } from "../../MergeTool.jsx";
+import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2, compareTrees } from "../../MergeTool.jsx";
 
 describe("mapAccountTypeToQoyod — تحويل تصنيف الأداة (59 نوع) لقيم Qoyod الـ16", () => {
   it("كل قيمة بجدول الافتراضي حسب مستوى2 من ضمن الـ16 المسموحة فعليًا بـQoyod", () => {
@@ -124,5 +125,51 @@ describe("فحص التكرار قبل الإرسال (buildQoyodDuplicateIndex 
 
   it("يرجّع null لصف غير مكرر إطلاقًا", () => {
     expect(checkAccountDuplicate({ code: "999999", nameEn: "Brand New", nameAr: "حساب جديد" }, index)).toBeNull();
+  });
+});
+
+describe("qoyodAccountsToFile1Records — تحويل رد GET /accounts الفعلي لشكل ملف 1 (بديل الرفع اليدوي)", () => {
+  const rawAccounts = [
+    { id: 1, code: "1", name_ar: "الأصول", name_en: "Assets", description: "", recieve_payments: "false" },
+    { id: 2, code: "11", name_ar: "الأصول المتداولة", name_en: "Current Assets", description: "", recieve_payments: "false" },
+    { id: 3, code: "1101", name_ar: "النقدية ومافي حكمها", name_en: "Cash and cash equivalents", description: "", recieve_payments: "false" },
+    { id: 4, code: "110101", name_ar: "بنك الراجحي", name_en: "Al Rajhi Bank", description: "حساب جاري", recieve_payments: true },
+    { id: 5, code: "", name_ar: "حساب بلا رمز يُستبعد", name_en: "no code" },
+  ];
+
+  it("يستبعد أي حساب بلا رمز", () => {
+    expect(qoyodAccountsToFile1Records(rawAccounts).length).toBe(4);
+  });
+
+  it("يستنتج الأب بالاقتطاع من اليمين لكل حساب حسب أقرب رمز أب موجود فعليًا - لأن Qoyod لا يرسل parent_id إطلاقًا", () => {
+    const byCode = Object.fromEntries(qoyodAccountsToFile1Records(rawAccounts).map((r) => [r.code, r]));
+    expect(byCode["1"].parent).toBe("");
+    expect(byCode["11"].parent).toBe("1");
+    expect(byCode["1101"].parent).toBe("11");
+    expect(byCode["110101"].parent).toBe("1101");
+  });
+
+  it("يحوّل recieve_payments (منطقي true أو نصي 'true') إلى Yes/No بنفس شكل صفوف الأداة", () => {
+    const byCode = Object.fromEntries(qoyodAccountsToFile1Records(rawAccounts).map((r) => [r.code, r]));
+    expect(byCode["110101"].payCollect).toBe("Yes");
+    expect(byCode["1"].payCollect).toBe("No");
+  });
+
+  it("ينقل الاسمين والوصف كما هي، ويترك type فارغًا (يُستنتج من الاسم لاحقًا تمامًا كملف بلا عمود نوع صريح)", () => {
+    const bank = qoyodAccountsToFile1Records(rawAccounts).find((r) => r.code === "110101");
+    expect(bank.nameAr).toBe("بنك الراجحي");
+    expect(bank.nameEn).toBe("Al Rajhi Bank");
+    expect(bank.desc).toBe("حساب جاري");
+    expect(bank.type).toBe("");
+  });
+
+  it("تكامل حقيقي: تمريرها لـcompareTrees يحسب مستوى كل حساب صحيحًا رغم غياب level/parent صريح من Qoyod", () => {
+    const file1Records = qoyodAccountsToFile1Records(rawAccounts);
+    const { tree1Index } = compareTrees(file1Records, [], false);
+    const byCode = Object.fromEntries(tree1Index.map((r) => [r.code, r]));
+    expect(byCode["1"].level).toBe(1);
+    expect(byCode["11"].level).toBe(2);
+    expect(byCode["1101"].level).toBe(3);
+    expect(byCode["110101"].level).toBe(4);
   });
 });
