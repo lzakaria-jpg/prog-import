@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   mapAccountTypeToQoyod,
+  mapRowToQoyodType,
   buildQoyodAccountPayload,
   buildQoyodDuplicateIndex,
   checkAccountDuplicate,
   qoyodAccountsToFile1Records,
   QOYOD_TYPE_BY_LEVEL2,
+  QOYOD_TYPE_BY_LEVEL1_ROOT,
   ALL_QOYOD_ACCOUNT_TYPES,
 } from "../qoyodAccountSync.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2, compareTrees } from "../../MergeTool.jsx";
@@ -104,6 +106,69 @@ describe("buildQoyodAccountPayload — بناء حمولة POST /accounts", () =
     const result = buildQoyodAccountPayload({ ...validRow, type: "غير موجود", level2Category: "غير موجود" });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("تعذّر تحديد نوع الحساب");
+  });
+
+  // [تصحيح 2026-09-09] بلاغ اختبار حي: حساب مستوى2 جديد ("12 - أصول غير
+  // متداولة") فشل إرساله دومًا بـ"تعذّر تحديد نوع الحساب" حتى بعد اختيار
+  // المستخدم لنوعه - لأن حساب مستوى2 يحمل فئته بحقل type نفسه لا
+  // level2Category، وbuildQoyodAccountPayload كان يتجاهل ذلك دومًا.
+  it("صف مستوى2 جديد (فئته بحقل type نفسه) يُبنى بنجاح بعد التصحيح — كان يفشل دومًا قبله بصرف النظر عن اختيار المستخدم", () => {
+    const level2Row = {
+      code: "12",
+      nameEn: "Non-current assets",
+      nameAr: "أصول غير متداولة",
+      level: 2,
+      level2Category: "", // فارغ عمدًا - بالضبط كما يصله فعليًا من الشجرة الحقيقية
+      type: "الأصول غير المتداولة", // حساب مستوى2 يحمل فئته هنا
+      desc: "",
+      payCollect: "No",
+    };
+    const result = buildQoyodAccountPayload(level2Row);
+    expect(result.ok).toBe(true);
+    expect(result.payload.account.type).toBe("FixedAsset");
+  });
+
+  it("يعمل نفس التصحيح لصف مستوى2 بـlevel كنص \"2\" (لا رقم) - نفس مصدر البيانات الفعلي بالجدول", () => {
+    const result = buildQoyodAccountPayload({
+      code: "21", nameEn: "Current liabilities", nameAr: "الالتزامات المتداولة",
+      level: "2", level2Category: "", type: "الالتزامات المتداولة", payCollect: "No",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.payload.account.type).toBe("CurrentLiability");
+  });
+
+  it("صف مستوى1 جديد (إيرادات/مصاريف فقط - الوحيدان المسموح إنشاؤهما) يُبنى بنجاح", () => {
+    const revenueRoot = buildQoyodAccountPayload({ code: "4", nameEn: "Revenue", nameAr: "الايرادات", level: 1, type: "الايرادات", payCollect: "No" });
+    expect(revenueRoot.ok).toBe(true);
+    expect(revenueRoot.payload.account.type).toBe("Revenue");
+
+    const expenseRoot = buildQoyodAccountPayload({ code: "5", nameEn: "Expenses", nameAr: "المصاريف", level: 1, type: "المصاريف", payCollect: "No" });
+    expect(expenseRoot.ok).toBe(true);
+    expect(expenseRoot.payload.account.type).toBe("Expense");
+  });
+});
+
+describe("mapRowToQoyodType — استنتاج نوع Qoyod حسب مستوى الصف الفعلي (المصدر الوحيد الصحيح بعد التصحيح)", () => {
+  it("مستوى3 فأعمق: يقرأ type كنوع مستوى3 وlevel2Category كفئته، تمامًا كما كان مسبقًا (بلا تغيير سلوك)", () => {
+    expect(mapRowToQoyodType({ level: 3, type: "حساب البنك", level2Category: "الأصول المتداولة" })).toBe("Bank");
+    expect(mapRowToQoyodType({ level: 4, type: "المدينون", level2Category: "الأصول المتداولة" })).toBe("CurrentAsset");
+  });
+
+  it("مستوى2: يقرأ الفئة من type نفسه بصرف النظر عن level2Category (حتى لو فارغة أو خاطئة)", () => {
+    expect(mapRowToQoyodType({ level: 2, type: "المبيعات", level2Category: "" })).toBe("Sale");
+    expect(mapRowToQoyodType({ level: 2, type: "المبيعات", level2Category: "قيمة عشوائية لا معنى لها" })).toBe("Sale");
+  });
+
+  it("مستوى1: يقبل فقط الايرادات/المصاريف (الوحيدان المسموح إنشاؤهما فعليًا)، ويرجّع null لأي شيء آخر", () => {
+    expect(mapRowToQoyodType({ level: 1, type: "الايرادات" })).toBe(QOYOD_TYPE_BY_LEVEL1_ROOT["الايرادات"]);
+    expect(mapRowToQoyodType({ level: 1, type: "المصاريف" })).toBe(QOYOD_TYPE_BY_LEVEL1_ROOT["المصاريف"]);
+    expect(mapRowToQoyodType({ level: 1, type: "الاصول" })).toBeNull();
+  });
+
+  it("يرجّع null بأمان لصف بلا level إطلاقًا مهما كان type/level2Category — لا يرمي استثناء", () => {
+    expect(mapRowToQoyodType({ type: "", level2Category: "" })).toBeNull();
+    expect(mapRowToQoyodType({})).toBeNull();
+    expect(mapRowToQoyodType(null)).toBeNull();
   });
 });
 

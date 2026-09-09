@@ -90,6 +90,34 @@ export function mapAccountTypeToQoyod(level3Type, level2Category) {
   return null;
 }
 
+// [تصحيح 2026-09-09] حسابات جذر مستوى1 المسموح بإنشائها (الإيرادات/المصاريف
+// فقط - راجع LEVEL1_TYPES_ALLOWING_NEW بـMergeTool.jsx) لا فئة مستوى2 أصلاً
+// لها - افتراض معقول لعدم وجود تصنيف Qoyod عام لكل الإيرادات/كل المصاريف.
+export const QOYOD_TYPE_BY_LEVEL1_ROOT = {
+  "الايرادات": "Revenue",
+  "المصاريف": "Expense",
+};
+
+/**
+ * [تصحيح 2026-09-09] بلاغ اختبار حي: حساب مستوى2 جديد (مثال: "12 - أصول غير
+ * متداولة") فشل إرساله دومًا بـ"تعذّر تحديد نوع الحساب" حتى بعد اختيار
+ * المستخدم لنوعه من القائمة - السبب: حساب مستوى2 يحمل فئته بحقل "type" نفسه
+ * لا "level2Category" (قاعدة ثابتة معتمدة بكل منطق الشجرة الداخلي بـ
+ * MergeTool.jsx - راجع تعليق "حساب مستوى 2 يحمل فئته في حقل type نفسه" هناك)،
+ * لكن buildQoyodAccountPayload كان يمرر row.type دومًا كـ"نوع مستوى3" بصرف
+ * النظر عن مستوى الصف الفعلي، فتظل level2Category فارغة لأي صف مستوى2 مهما
+ * اختار المستخدم - فشل مضمون 100% بلا علاقة باختياره. هذه الدالة تصحح ذلك:
+ * تقرأ مستوى الصف فعليًا وتحدد أي حقل يحمل الفئة الحقيقية قبل الاستنتاج.
+ * دالة نقية، مُصدَّرة، قابلة للاختبار المباشر - ويجب استخدامها (لا
+ * mapAccountTypeToQoyod مباشرة) لأي صف قادم من MergeTool.jsx.
+ */
+export function mapRowToQoyodType(row) {
+  const level = Number(row?.level);
+  if (level === 1) return QOYOD_TYPE_BY_LEVEL1_ROOT[row?.type] || null;
+  if (level === 2) return mapAccountTypeToQoyod("", row?.type || "");
+  return mapAccountTypeToQoyod(row?.type, row?.level2Category);
+}
+
 /**
  * يبني حمولة POST /accounts من صف الأداة الداخلي (شكل results/activeNewRows
  * بـMergeTool.jsx: code, nameAr, nameEn, level2Category, type, desc,
@@ -104,7 +132,7 @@ export function buildQoyodAccountPayload(row) {
   if (!nameEn) return { ok: false, error: "الاسم الإنجليزي فارغ (مطلوب من Qoyod)" };
   if (!nameAr) return { ok: false, error: "الاسم العربي فارغ (مطلوب من Qoyod)" };
 
-  const qoyodType = mapAccountTypeToQoyod(row?.type, row?.level2Category);
+  const qoyodType = mapRowToQoyodType(row);
   if (!qoyodType) {
     return { ok: false, error: `تعذّر تحديد نوع الحساب المطابق بقيود لـ"${row?.type || row?.level2Category || "—"}"` };
   }

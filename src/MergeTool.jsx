@@ -12,7 +12,7 @@ import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityT
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
-import { qoyodAccountsToFile1Records } from "./lib/qoyodAccountSync.js";
+import { qoyodAccountsToFile1Records, mapRowToQoyodType } from "./lib/qoyodAccountSync.js";
 import { fetchAll } from "./product-upload/io/network.js";
 
 // Translate the known dynamic Arabic error/toast messages to English.
@@ -1672,6 +1672,14 @@ export function MergeTool() {
   const [sendEntries, setSendEntries] = useState([]);
   const [sendResult, setSendResult] = useState(null);
   const sendStopRef = useRef({ current: false });
+  // [إضافة 2026-09-09] "توقف مع خيار" عند فشل حقيقي (غير تكرار، غير إيقاف
+  // يدوي): sendRowsToSendRef تحفظ اللقطة الكاملة لهذه الدفعة (لا تتغير بين
+  // المقاطع/الاستئناف)، sendProcessedCountRef يتراكم عدد الصفوف التي فعلاً
+  // حاولنا إرسالها حتى الآن عبر كل مقاطع نفس الدفعة (المحاولة الأولى + أي
+  // استئناف)، وsendPausedForDecision تتحكم بعرض زري "تخطّي واستمر"/"أوقف وعدّل".
+  const sendRowsToSendRef = useRef([]);
+  const sendProcessedCountRef = useRef(0);
+  const [sendPausedForDecision, setSendPausedForDecision] = useState(false);
 
   // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
   // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
@@ -1747,48 +1755,99 @@ export function MergeTool() {
     setShowSendConfirm(true);
   };
 
-  const startSendToQoyod = async () => {
-    setShowSendConfirm(false);
+  // [إضافة 2026-09-09] تعليم كل صف من هذه الدفعة بمصيره الفعلي (apiStatus) حتى
+  // تبقى الحسابات التي لم تُرسل بنجاح (تخطّي/فشل/لم تصلها الدورة) بالشجرة كما
+  // هي، قابلة للتعديل وإعادة الإرسال - و"أُرسلت بنجاح" فقط تُستبعد لاحقًا.
+  // entries تصدر بنفس ترتيب/عدد rowsBatch المُعالَجة فعليًا، فالمطابقة بالفهرس دقيقة.
+  const applyApiStatusFromEntries = (rowsBatch, entries) => {
+    if (!entries || entries.length === 0) return;
+    const byId = new Map();
+    entries.forEach((entry, i) => {
+      const srcRow = rowsBatch[i];
+      if (!srcRow) return;
+      byId.set(srcRow.id, entry.status === "success"
+        ? { apiStatus: "sent", apiSentId: entry.id, apiStatusReason: "" }
+        : { apiStatus: entry.status, apiStatusReason: entry.reason || "" });
+    });
+    setResults((prev) => prev.map((r) => (byId.has(r.id) ? { ...r, ...byId.get(r.id) } : r)));
+  };
+
+  // يدمج نتيجة مقطع جديد (استئناف بعد "تخطّي واستمر") مع الإجمالي المتراكم
+  // لنفس الدفعة المنطقية الواحدة - الأعداد تتجمّع، وentries تُضاف للقائمة نفسها
+  // (sendEntries تراكمية أصلاً عبر onEntry)، وstoppedEarly/fatalError يعكسان
+  // حالة آخر مقطع فعلي (هل ما زالت الدفعة متوقفة أو اكتملت الآن).
+  const mergeSendResult = (prev, addition) => ({
+    total: (prev?.total || 0) + addition.total,
+    sent: (prev?.sent || 0) + addition.sent,
+    skipped: (prev?.skipped || 0) + addition.skipped,
+    failed: (prev?.failed || 0) + addition.failed,
+    stoppedEarly: addition.stoppedEarly,
+    fatalError: addition.fatalError,
+    entries: [...(prev?.entries || []), ...addition.entries],
+  });
+
+  // ينفّذ مقطع إرسال واحد (الدفعة الأولى، أو الجزء المتبقي بعد "تخطّي واستمر")
+  // ويقرر بعده هل نعرض خياري "تخطّي واستمر"/"أوقف وعدّل" - فقط عند فشل حقيقي
+  // (غير تكرار - ذاك أصلاً لا يوقف الحلقة - وغير إيقاف يدوي من المستخدم).
+  const runSendSegment = async (rowsSegment) => {
     setSending(true);
-    setSendEntries([]);
-    setSendResult(null);
     sendStopRef.current.current = false;
-    // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - نفس
-    // الترتيب يُستخدم لاحقًا لمطابقة entries النتيجة بصفوفها الأصلية (بالفهرس)
-    // وتحديث apiStatus لكل صف حسب مصيره الفعلي، بدل التخمين بالكود/الاسم.
-    const rowsToSend = sendableNewRows;
-    setSendProgress({ current: 0, total: rowsToSend.length });
-    setShowSendResults(true);
-    const result = await pushAccountsToQoyod(rowsToSend, apiKey.trim(), {
+    setSendProgress({ current: 0, total: rowsSegment.length });
+    const result = await pushAccountsToQoyod(rowsSegment, apiKey.trim(), {
       stoppedRef: sendStopRef.current,
       onEntry: (entry) => setSendEntries((prev) => [...prev, entry]),
       onProgress: (current, total) => setSendProgress({ current, total }),
     });
     setSending(false);
-    setSendResult(result);
+    applyApiStatusFromEntries(rowsSegment, result.entries);
+    sendProcessedCountRef.current += result.entries.length;
 
-    // [إضافة 2026-09-09] تعليم كل صف بمصيره الفعلي (apiStatus) حتى تبقى الحسابات
-    // التي لم تُرسل بنجاح (تخطّي/فشل/لم تصلها الدورة بسبب توقف مبكر) بالشجرة
-    // كما هي، قابلة للتعديل وإعادة الإرسال - و"أُرسلت بنجاح" فقط تُستبعد من
-    // إعادة الإرسال لاحقًا. entries تصدر بنفس ترتيب/عدد rowsToSend المُعالَجة
-    // فعليًا (تتوقف بالتوقف المبكر بلا تجاوز)، فالمطابقة بالفهرس دقيقة تمامًا.
-    if (result.entries.length > 0) {
-      const byId = new Map();
-      result.entries.forEach((entry, i) => {
-        const srcRow = rowsToSend[i];
-        if (!srcRow) return;
-        byId.set(srcRow.id, entry.status === "success"
-          ? { apiStatus: "sent", apiSentId: entry.id, apiStatusReason: "" }
-          : { apiStatus: entry.status, apiStatusReason: entry.reason || "" });
-      });
-      setResults((prev) => prev.map((r) => (byId.has(r.id) ? { ...r, ...byId.get(r.id) } : r)));
-    }
+    const wasManualStop = sendStopRef.current.current === true;
+    const lastEntry = result.entries[result.entries.length - 1];
+    const isGenuineFailure = result.stoppedEarly && !result.fatalError && !wasManualStop && lastEntry?.status === "error";
+    setSendPausedForDecision(isGenuineFailure);
+    setSendResult((prev) => mergeSendResult(prev, result));
 
     if (currentUser) {
       if (result.fatalError) trackMergeError(currentUser, { via: "api", error: result.fatalError });
       else trackMergeExport(currentUser, { via: "api", sent: result.sent, skipped: result.skipped, failed: result.failed, stoppedEarly: result.stoppedEarly });
     }
   };
+
+  const startSendToQoyod = async () => {
+    setShowSendConfirm(false);
+    setSendEntries([]);
+    setSendResult(null);
+    setSendPausedForDecision(false);
+    sendProcessedCountRef.current = 0;
+    // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - تبقى
+    // كما هي طوال هذه الدفعة المنطقية (حتى بعد أي "تخطّي واستمر")، فالفهرسة
+    // بـsendProcessedCountRef تبقى صحيحة عبر كل المقاطع.
+    sendRowsToSendRef.current = sendableNewRows;
+    setShowSendResults(true);
+    await runSendSegment(sendRowsToSendRef.current);
+  };
+
+  // [إضافة 2026-09-09] "تجاهل هذا الحساب واستمر بإرسال الباقي" - طلب المستخدم
+  // الصريح: عند توقف الإرسال بسبب فشل حقيقي (لا تكرار، لا إيقاف يدوي)، يعطى
+  // خيار إكمال العملية متخطّيًا الحساب المتعثر (يبقى محفوظًا كـ"فشل" بالجدول
+  // وقابل للتعديل لاحقًا) بدل الاضطرار لإعادة الضغط يدويًا على زر الإرسال.
+  const continueSendAfterSkip = async () => {
+    const remaining = sendRowsToSendRef.current.slice(sendProcessedCountRef.current);
+    setSendPausedForDecision(false);
+    if (remaining.length === 0) return;
+    await runSendSegment(remaining);
+  };
+
+  // [إضافة 2026-09-09] "إيقاف الآن وتعديل الحسابات" - الخيار الثاني الصريح من
+  // المستخدم: يقفل نافذة النتائج فورًا حتى يعدّل الحساب المتعثر بالجدول مباشرة،
+  // ثم يعيد الإرسال لاحقًا (زر "إرسال المتبقي عبر API" يشمله تلقائيًا لأنه
+  // محفوظ apiStatus:"error" لا "sent").
+  const stopAndEditNow = () => {
+    setSendPausedForDecision(false);
+    setShowSendResults(false);
+  };
+
   const stopSending = () => { sendStopRef.current.current = true; };
 
   const ROWS_PER_PAGE = 100;
@@ -1877,6 +1936,12 @@ export function MergeTool() {
   // فشلت سابقًا (error) - كلها تبقى قابلة لإعادة المحاولة بعد تعديلها.
   const sendableNewRows = useMemo(() => activeNewRows.filter((r) => r.apiStatus !== "sent"), [activeNewRows]);
   const alreadySentCount = useMemo(() => activeNewRows.filter((r) => r.apiStatus === "sent").length, [activeNewRows]);
+  // [إضافة 2026-09-09] تنبيه استباقي قبل بدء الإرسال: أي حساب قابل للإرسال
+  // ليس له نوع Qoyod صالح (بصرف النظر عن السبب - نوع لم يُختر، أو فئة مستوى2
+  // ناقصة) سيفشل إرساله حتمًا. نستخدم نفس mapRowToQoyodType التي يستخدمها
+  // buildQoyodAccountPayload فعليًا، فالتنبيه يطابق تمامًا ما سيحدث عند الإرسال
+  // (لا إيجابيات/سلبيات كاذبة) - بدل ترك المستخدم يكتشف الفشل بعد بدء الرفع.
+  const rowsMissingQoyodType = useMemo(() => sendableNewRows.filter((r) => !mapRowToQoyodType(r)), [sendableNewRows]);
   const autoParentRows = useMemo(() => activeNewRows.filter((r) => r.autoParent), [activeNewRows]);
   const errorCount = useMemo(() => activeNewRows.filter((r) => r.errors.length > 0).length, [activeNewRows]);
   const warningCount = useMemo(() => activeNewRows.filter((r) => r.warnings.length > 0 && r.errors.length === 0).length, [activeNewRows]);
@@ -2194,12 +2259,17 @@ export function MergeTool() {
                 <AlertTriangle size={18} className="text-amber-500" />
                 <h3 className="text-base font-bold">{t({ ar: "تأكيد الإرسال المباشر لمنشأة العميل", en: "Confirm direct send to the client's company" })}</h3>
               </div>
-              <p className="mb-4 text-sm leading-relaxed text-[#64748B]">
+              <p className="mb-3 text-sm leading-relaxed text-[#64748B]">
                 {t({
-                  ar: `سيتم إرسال ${sendableNewRows.length} حساب مباشرة إلى منشأة العميل الحقيقية في قيود عبر API${alreadySentCount > 0 ? ` (باستثناء ${alreadySentCount} حساب أُرسل بنجاح مسبقًا)` : ""}. سيتم تلقائيًا تخطي أي حساب مكرر (بالرمز أو الاسم مسبقًا بمنشأة العميل) دون إيقاف الباقي، وفي حال فشل حقيقي بإرسال أي حساب (غير التكرار) تتوقف العملية عند ذلك الحساب - وتبقى كل الحسابات التي لم تُرسل بنجاح ظاهرة بالجدول قابلة للتعديل وإعادة الإرسال لاحقًا. هذا الإجراء كتابة فعلية على منشأة العميل ولا يمكن التراجع عنه من داخل الأداة.`,
-                  en: `${sendableNewRows.length} accounts will be sent directly to the client's real Qoyod company via API${alreadySentCount > 0 ? ` (excluding ${alreadySentCount} already sent successfully)` : ""}. Any account already duplicated by code or name in the client's company is skipped automatically without stopping the rest, and if a real failure occurs on any account (other than duplication) the process stops at that account - every account that wasn't sent successfully stays visible in the table, editable and ready to resend later. This is a real write to the client's company and cannot be undone from within this tool.`,
+                  ar: `سيتم إرسال ${sendableNewRows.length} حساب مباشرة إلى منشأة العميل الحقيقية في قيود عبر API${alreadySentCount > 0 ? ` (باستثناء ${alreadySentCount} حساب أُرسل بنجاح مسبقًا)` : ""}. سيتم تلقائيًا تخطي أي حساب مكرر (بالرمز أو الاسم مسبقًا بمنشأة العميل) دون إيقاف الباقي، وفي حال فشل حقيقي بإرسال أي حساب (غير التكرار) تتوقف العملية عند ذلك الحساب وتُعطى خيار إكمال الباقي متخطّيًا الحساب المتعثر أو الإيقاف للتعديل. الحسابات التي لم تُرسل بنجاح تبقى بالجدول قابلة للتعديل وإعادة الإرسال لاحقًا. هذا الإجراء كتابة فعلية على منشأة العميل ولا يمكن التراجع عنه من داخل الأداة.`,
+                  en: `${sendableNewRows.length} accounts will be sent directly to the client's real Qoyod company via API${alreadySentCount > 0 ? ` (excluding ${alreadySentCount} already sent successfully)` : ""}. Any account already duplicated by code or name in the client's company is skipped automatically without stopping the rest, and if a real failure occurs on any account (other than duplication) the process stops at that account and you'll be offered a choice to continue past it or stop to edit it. Accounts not sent successfully stay in the table, editable and ready to resend later. This is a real write to the client's company and cannot be undone from within this tool.`,
                 })}
               </p>
+              {rowsMissingQoyodType.length > 0 && (
+                <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs leading-relaxed text-amber-700">
+                  {t({ ar: `⚠ فيه ${rowsMissingQoyodType.length} حساب ضمن القابل للإرسال بلا نوع محدد صالح - سيفشل إرسال هذا الحساب تحديدًا (${rowsMissingQoyodType.slice(0, 6).map((r) => r.code || "—").join("، ")}${rowsMissingQoyodType.length > 6 ? " ..." : ""}).`, en: `⚠ ${rowsMissingQoyodType.length} of the sendable accounts have no valid type - that specific account will fail to send (${rowsMissingQoyodType.slice(0, 6).map((r) => r.code || "—").join(", ")}${rowsMissingQoyodType.length > 6 ? " ..." : ""}).` })}
+                </div>
+              )}
               <div className="flex flex-col gap-2">
                 <button onClick={startSendToQoyod} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">{t({ ar: "تأكيد الإرسال الآن", en: "Confirm send now" })}</button>
                 <button onClick={() => setShowSendConfirm(false)} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-[#64748B] hover:bg-[#F8FAFC]">{t({ ar: "إلغاء", en: "Cancel" })}</button>
@@ -2237,8 +2307,19 @@ export function MergeTool() {
                   <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2"><div className="text-lg font-bold text-red-500">{sendResult.failed}</div>{t({ ar: "فشل", en: "Failed" })}</div>
                 </div>
               )}
-              {!sending && sendResult?.stoppedEarly && !sendResult?.fatalError && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات بسبب فشل حقيقي أو إيقاف يدوي (التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بالجدول أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts due to a real failure or a manual stop (duplication alone never stops it). Accounts not sent successfully are still in the table below - edit them and press send again to send only what remains." })}</div>
+              {/* [إضافة 2026-09-09] توقف بسبب فشل حقيقي (لا تكرار، لا إيقاف يدوي) -
+                  خياران صريحان بدل إيقاف صامت، بالضبط كطلب المستخدم. */}
+              {!sending && sendPausedForDecision && (
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <div className="mb-2 text-xs leading-relaxed text-amber-700">{t({ ar: "توقفت العملية بسبب فشل حقيقي بإرسال أحد الحسابات (تفاصيله بالجدول أدناه بحالة \"خطأ\"). اختر كيف تكمل:", en: "The process stopped due to a real failure sending one account (details in the table below, marked \"Error\"). Choose how to continue:" })}</div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button onClick={continueSendAfterSkip} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"><ArrowRight size={13} /> {t({ ar: "تخطّي هذا الحساب والاستمرار بالباقي", en: "Skip this account and continue" })}</button>
+                    <button onClick={stopAndEditNow} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/40 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف الآن والتعديل على الحسابات", en: "Stop now and edit the accounts" })}</button>
+                  </div>
+                </div>
+              )}
+              {!sending && !sendPausedForDecision && sendResult?.stoppedEarly && !sendResult?.fatalError && (
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات (فشل حقيقي أو إيقاف يدوي - التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بالجدول أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts (a real failure or a manual stop - duplication alone never stops it). Accounts not sent successfully are still in the table below - edit them and press send again to send only what remains." })}</div>
               )}
 
               {sendEntries.length > 0 && (
@@ -2426,6 +2507,17 @@ export function MergeTool() {
               <DeletedAccountsTable rows={deletedRows} onRestore={setRowDeleted} onExportDeleted={exportDeletedExcel} />
             ) : (
               <>
+                {/* [إضافة 2026-09-09] تنبيه استباقي: حسابات بلا نوع Qoyod صالح ستفشل
+                    حتمًا عند الإرسال عبر API - نُظهره هنا قبل الضغط على الزر، لا بعد
+                    فشل الرفع. يطابق تمامًا شرط الفشل الفعلي (mapRowToQoyodType). */}
+                {rowsMissingQoyodType.length > 0 && (
+                  <div className="mt-5 flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700"><AlertTriangle size={15} /> {t({ ar: `فيه ${rowsMissingQoyodType.length} حساب بلا نوع محدد صالح للإرسال عبر API`, en: `${rowsMissingQoyodType.length} accounts have no valid API-sendable type` })}</div>
+                    <div className="text-xs leading-relaxed text-amber-700">{t({ ar: "اختر نوع الحساب لكل حساب أدناه من عمود \"نوع الحساب\" بالجدول قبل الإرسال عبر API، وإلا سيفشل إرسال هذا الحساب تحديدًا (ويبقى قابلاً للتعديل وإعادة الإرسال لاحقًا كما هو الحال دومًا).", en: "Pick an account type in the \"Account type\" column for each row below before sending via API, otherwise that specific account will fail to send (it stays editable and resendable afterward as usual)." })}</div>
+                    <div className="font-mono text-xs text-amber-700">{rowsMissingQoyodType.slice(0, 15).map((r) => r.code || "—").join("، ")}{rowsMissingQoyodType.length > 15 ? " ..." : ""}</div>
+                  </div>
+                )}
+
                 <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-3">
                   <button onClick={exportQuickExcel} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Download size={14} /> {t({ ar: "تنزيل نسخة أولية Excel", en: "Download draft Excel" })}</button>
                   <button onClick={copyJsonForFinalExport} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Copy size={14} /> {copied ? t({ ar: "تم النسخ ✓", en: "Copied ✓" }) : t({ ar: "نسخ للتصدير النهائي", en: "Copy for final export" })}</button>
