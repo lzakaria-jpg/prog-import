@@ -4,12 +4,14 @@ import * as d3 from "d3";
 import {
   Upload, Download, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
   FileSpreadsheet, Sparkles, Copy, Settings2, ArrowRight, Info, Loader2,
-  Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers,
+  Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers, Send, KeyRound, StopCircle,
 } from "lucide-react";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityTracker";
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
+import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
+import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -1651,6 +1653,73 @@ export function MergeTool() {
   const [copied, setCopied] = useState(false);
   const [exportText, setExportText] = useState("");
   const [toast, setToast] = useState(null);
+
+  // ===== إرسال شجرة الحسابات مباشرة إلى منشأة العميل عبر Qoyod API (اختياري) =====
+  // [إضافة 2026-09-09] بديل اختياري لتنزيل ملف الرفع اليدوي - لا يستبدله، يظهر
+  // بجانبه. يستخدم نفس تخزين المفاتيح المحلي المستخدَم فعليًا بأداة رفع المنتجات
+  // (getSavedKeys/saveKeysToStorage) بحيث تكون المفاتيح المحفوظة مشتركة بين الأدوات.
+  const [showApiPanel, setShowApiPanel] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [savedKeys, setSavedKeysState] = useState(() => getSavedKeys());
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+  const [showSendResults, setShowSendResults] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendProgress, setSendProgress] = useState({ current: 0, total: 0 });
+  const [sendEntries, setSendEntries] = useState([]);
+  const [sendResult, setSendResult] = useState(null);
+  const sendStopRef = useRef({ current: false });
+
+  const saveApiKey = () => {
+    const key = apiKey.trim();
+    const name = customerName.trim();
+    if (!key || !name) {
+      setToast({ type: "error", text: t({ ar: "أدخل مفتاح API واسم العميل أولاً", en: "Enter the API key and customer name first" }) });
+      return;
+    }
+    const next = { ...savedKeys, [name]: key };
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+    setToast({ type: "success", text: t({ ar: "تم حفظ المفتاح", en: "Key saved" }) });
+  };
+  const loadApiKey = (name) => { setApiKey(savedKeys[name] || ""); setCustomerName(name); };
+  const removeApiKey = (name) => {
+    const next = { ...savedKeys };
+    delete next[name];
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+  };
+
+  const openSendConfirm = () => {
+    if (!apiKey.trim()) { setToast({ type: "error", text: t({ ar: "أدخل مفتاح API أولاً (بقسم الاتصال بمنشأة العميل بالأعلى)", en: "Enter the API key first (in the client connection section above)" }) }); return; }
+    if (activeNewRows.length === 0) { setToast({ type: "error", text: t({ ar: "لا توجد حسابات جديدة للإرسال", en: "No new accounts to send" }) }); return; }
+    setShowSendConfirm(true);
+  };
+
+  const startSendToQoyod = async () => {
+    setShowSendConfirm(false);
+    setSending(true);
+    setSendEntries([]);
+    setSendResult(null);
+    sendStopRef.current.current = false;
+    setSendProgress({ current: 0, total: activeNewRows.length });
+    setShowSendResults(true);
+    const rowsToSend = activeNewRows;
+    const result = await pushAccountsToQoyod(rowsToSend, apiKey.trim(), {
+      stoppedRef: sendStopRef.current,
+      onEntry: (entry) => setSendEntries((prev) => [...prev, entry]),
+      onProgress: (current, total) => setSendProgress({ current, total }),
+    });
+    setSending(false);
+    setSendResult(result);
+    if (currentUser) {
+      if (result.fatalError) trackMergeError(currentUser, { via: "api", error: result.fatalError });
+      else trackMergeExport(currentUser, { via: "api", sent: result.sent, skipped: result.skipped, failed: result.failed, stoppedEarly: result.stoppedEarly });
+    }
+  };
+  const stopSending = () => { sendStopRef.current.current = true; };
+
   const ROWS_PER_PAGE = 100;
   const [visibleCount, setVisibleCount] = useState(ROWS_PER_PAGE);
   const [activeFilter, setActiveFilter] = useState("all");
@@ -2022,6 +2091,92 @@ export function MergeTool() {
           </div>
         )}
 
+        {showSendConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => setShowSendConfirm(false)}>
+            <div dir="rtl" className="w-full max-w-md rounded-2xl bg-[#FFFFFF] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-2 flex items-center gap-2 text-[#0F172A]">
+                <AlertTriangle size={18} className="text-amber-500" />
+                <h3 className="text-base font-bold">{t({ ar: "تأكيد الإرسال المباشر لمنشأة العميل", en: "Confirm direct send to the client's company" })}</h3>
+              </div>
+              <p className="mb-4 text-sm leading-relaxed text-[#64748B]">
+                {t({
+                  ar: `سيتم إرسال ${activeNewRows.length} حساب مباشرة إلى منشأة العميل الحقيقية في قيود عبر API. سيتم تلقائيًا تخطي أي حساب مكرر (بالرمز أو الاسم مسبقًا بمنشأة العميل)، وفي حال فشل إرسال أي حساب تتوقف العملية بالكامل فورًا دون إكمال الباقي. هذا الإجراء كتابة فعلية على منشأة العميل ولا يمكن التراجع عنه من داخل الأداة.`,
+                  en: `${activeNewRows.length} accounts will be sent directly to the client's real Qoyod company via API. Any account already duplicated by code or name in the client's company is skipped automatically, and if any account fails to send the whole process stops immediately without continuing. This is a real write to the client's company and cannot be undone from within this tool.`,
+                })}
+              </p>
+              <div className="flex flex-col gap-2">
+                <button onClick={startSendToQoyod} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">{t({ ar: "تأكيد الإرسال الآن", en: "Confirm send now" })}</button>
+                <button onClick={() => setShowSendConfirm(false)} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-[#64748B] hover:bg-[#F8FAFC]">{t({ ar: "إلغاء", en: "Cancel" })}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSendResults && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => { if (!sending) setShowSendResults(false); }}>
+            <div dir="rtl" className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-[#FFFFFF] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[#0F172A]">
+                  {sending ? <Loader2 size={18} className="animate-spin text-blue-600" /> : sendResult?.fatalError ? <XCircle size={18} className="text-red-500" /> : sendResult?.stoppedEarly ? <AlertTriangle size={18} className="text-amber-500" /> : <CheckCircle2 size={18} className="text-emerald-500" />}
+                  <h3 className="text-base font-bold">{t({ ar: "الإرسال المباشر عبر API", en: "Direct send via API" })}</h3>
+                </div>
+                {!sending && (<button onClick={() => setShowSendResults(false)} className="text-[#94A3B8] hover:text-[#64748B]"><X size={18} /></button>)}
+              </div>
+
+              {sending && (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs">
+                  <span className="font-semibold text-[#0F172A]">{t({ ar: `جارٍ الإرسال: ${sendProgress.current} من ${sendProgress.total}`, en: `Sending: ${sendProgress.current} of ${sendProgress.total}` })}</span>
+                  <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-400 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
+                </div>
+              )}
+
+              {!sending && sendResult?.fatalError && (
+                <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{lang === "en" ? localizeMergeError(sendResult.fatalError) : sendResult.fatalError}</div>
+              )}
+
+              {!sending && sendResult && !sendResult.fatalError && (
+                <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2"><div className="text-lg font-bold text-emerald-600">{sendResult.sent}</div>{t({ ar: "أُرسل بنجاح", en: "Sent" })}</div>
+                  <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-2"><div className="text-lg font-bold text-[#64748B]">{sendResult.skipped}</div>{t({ ar: "تم تخطيه (مكرر)", en: "Skipped" })}</div>
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2"><div className="text-lg font-bold text-red-500">{sendResult.failed}</div>{t({ ar: "فشل", en: "Failed" })}</div>
+                </div>
+              )}
+              {!sending && sendResult?.stoppedEarly && !sendResult?.fatalError && (
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات بسبب فشل أو إيقاف يدوي.", en: "The process stopped before completing all accounts due to a failure or a manual stop." })}</div>
+              )}
+
+              {sendEntries.length > 0 && (
+                <div className="flex-1 overflow-y-auto rounded-lg border border-[#E2E8F0]">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-[#F8FAFC] text-[#64748B]">
+                      <tr>
+                        <th className="p-2 text-right">{t({ ar: "الرمز", en: "Code" })}</th>
+                        <th className="p-2 text-right">{t({ ar: "الاسم", en: "Name" })}</th>
+                        <th className="p-2 text-right">{t({ ar: "الحالة", en: "Status" })}</th>
+                        <th className="p-2 text-right">{t({ ar: "ملاحظة", en: "Note" })}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sendEntries.map((e, i) => (
+                        <tr key={i} className="border-t border-[#E2E8F0]">
+                          <td className="p-2 font-mono">{e.code}</td>
+                          <td className="p-2">{lang === "en" ? (e.nameEn || e.nameAr) : (e.nameAr || e.nameEn)}</td>
+                          <td className="p-2">
+                            {e.status === "success" && <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 size={12} /> {t({ ar: "نجح", en: "Success" })}</span>}
+                            {e.status === "skip" && <span className="inline-flex items-center gap-1 text-[#64748B]"><AlertTriangle size={12} /> {t({ ar: "تخطٍّ", en: "Skipped" })}</span>}
+                            {e.status === "error" && <span className="inline-flex items-center gap-1 text-red-500"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>}
+                          </td>
+                          <td className="p-2 text-[#64748B]">{e.reason || (e.id ? `#${e.id}` : "")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {toast && (
           <div className={`fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,560px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-semibold shadow-lg ${toast.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : toast.type === "info" ? "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B]" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
             <span>{lang === "en" ? localizeMergeError(toast.text) : toast.text}</span>
@@ -2046,7 +2201,41 @@ export function MergeTool() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-5 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-4 shadow-sm">
+          <button onClick={() => setShowApiPanel((s) => !s)} className="flex w-full items-center justify-between gap-2 text-sm font-bold text-[#0F172A]">
+            <span className="flex items-center gap-2"><KeyRound size={16} /> {t({ ar: "الاتصال بمنشأة العميل عبر Qoyod API (اختياري)", en: "Connect to the client's Qoyod company via API (optional)" })}</span>
+            <span className="text-xs font-normal text-[#64748B]">{showApiPanel ? t({ ar: "إخفاء ▲", en: "Hide ▲" }) : t({ ar: "إظهار ▼", en: "Show ▼" })}</span>
+          </button>
+          {showApiPanel && (
+            <div className="mt-4">
+              <p className="mb-3 text-xs leading-relaxed text-[#64748B]">{t({ ar: "أدخل مفتاح API الخاص بمنشأة العميل في قيود لتتمكن، بعد التحليل، من إرسال الحسابات الجديدة مباشرة إلى منشأته عبر API بدل (أو بجانب) تنزيل ملف الرفع اليدوي.", en: "Enter the client's Qoyod company API key to send the new accounts directly to their company via API after analysis, instead of (or alongside) downloading the manual upload file." })}</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[220px] flex-1">
+                  <label className="mb-1 block text-xs font-semibold text-[#64748B]">{t({ ar: "مفتاح API", en: "API key" })}</label>
+                  <SafeInput type={apiKeyVisible ? "text" : "password"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API-KEY-XXXX-XXXX" className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm" />
+                </div>
+                <button onClick={() => setApiKeyVisible((v) => !v)} className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]">{apiKeyVisible ? t({ ar: "إخفاء", en: "Hide" }) : t({ ar: "عرض", en: "Show" })}</button>
+                <div className="min-w-[160px]">
+                  <label className="mb-1 block text-xs font-semibold text-[#64748B]">{t({ ar: "اسم العميل (للحفظ)", en: "Customer name (to save)" })}</label>
+                  <SafeInput type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t({ ar: "اسم العميل", en: "Customer name" })} className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm" />
+                </div>
+                <button onClick={saveApiKey} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800">{t({ ar: "حفظ", en: "Save" })}</button>
+              </div>
+              {Object.keys(savedKeys).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.keys(savedKeys).map((name) => (
+                    <div key={name} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${savedKeys[name] === apiKey.trim() ? "border-blue-700 bg-blue-700/10 text-blue-700" : "border-[#E2E8F0] text-[#64748B]"}`}>
+                      <span className="cursor-pointer" onClick={() => loadApiKey(name)}>{name}</span>
+                      <span className="cursor-pointer text-red-400 hover:text-red-600" onClick={() => removeApiKey(name)}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           <UploadCard title={t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })} hint={t({ ar: "التصدير الحالي لشجرة حسابات العميل من نظام قيود", en: "The client's current chart of accounts exported from Qoyod" })} file={file1} onPick={() => fileInput1Ref.current?.click()} inputRef={fileInput1Ref} onChange={(f) => handleFile(f, 1)}>
             {headerRow1 && mapping1 && (<><MappingSummary mapping={mapping1} headerRow={headerRow1} onToggle={() => setShowMap1((s) => !s)} />{showMap1 && <ColumnMapEditor headerRow={headerRow1} mapping={mapping1} setMapping={setMapping1} label={t({ ar: "تأكيد/تعديل الأعمدة - ملف 1", en: "Confirm/edit columns — File 1" })} />}</>)}
           </UploadCard>
@@ -2126,6 +2315,9 @@ export function MergeTool() {
                 <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-3">
                   <button onClick={exportQuickExcel} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Download size={14} /> {t({ ar: "تنزيل نسخة أولية Excel", en: "Download draft Excel" })}</button>
                   <button onClick={copyJsonForFinalExport} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Copy size={14} /> {copied ? t({ ar: "تم النسخ ✓", en: "Copied ✓" }) : t({ ar: "نسخ للتصدير النهائي", en: "Copy for final export" })}</button>
+                  <button onClick={openSendConfirm} disabled={sending} className="flex items-center gap-2 rounded-lg border border-emerald-600/40 bg-emerald-600/10 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-50">
+                    {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} {t({ ar: "إرسال عبر API إلى منشأة العميل", en: "Send via API to client company" })}
+                  </button>
                 </div>
 
                 {exportText && (

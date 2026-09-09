@@ -6,6 +6,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import JSZip from 'jszip';
@@ -14,7 +15,12 @@ import InvoiceImportTool from '../InvoiceImportTool.jsx';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const SAMPLES_DIR = '/home/claude/new-sales-tool';
+// [إصلاح 2026-09-09] كان المسار مثبّتًا حرفيًا على مسار داخل بيئة كلود السحابية
+// (/home/claude/new-sales-tool) - يعمل فقط داخل جلسة كلود اللي أنشأت الاختبار
+// أصلاً، ويفشل بـENOENT على أي جهاز ثاني (بما فيها جهاز المستخدم نفسه). الحل:
+// نسخ ملفات العيّنة الأربعة إلى مجلد fixtures/ داخل المستودع نفسه، ومسار نسبي
+// لمجلد هذا الملف (__dirname المكافئ بوحدات ESM) بدل المسار المطلق القديم.
+const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 function readSampleFile(name, type) {
   const buf = fs.readFileSync(path.join(SAMPLES_DIR, name));

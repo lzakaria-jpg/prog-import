@@ -249,7 +249,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.9.5";
+  const currentVersion = "1.9.6";
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (

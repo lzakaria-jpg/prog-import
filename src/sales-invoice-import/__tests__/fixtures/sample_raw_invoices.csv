@@ -1,0 +1,5 @@
+Date,invoice Number,Customer,Location,Channel name,Ptoducts,Quantity,unit price,Discount,VAT,Other taxes,Total tax,Total (Tax inclusive)
+"December 30, 2025 05:16 PM",S20251230-45,ابو قصي,المركز الرئيسي,,بيتزا صغير,6,9,0.00,15%,0.00,8.10,62.10
+"December 30, 2025 05:16 PM",S20251230-45,,,,بيتزا كبير,2,7,0.00,15%,0.00,2.10,16.10
+"December 30, 2025 01:56 PM",S20251230-44,محمد,المركز الرئيسي,,خدمة توصيل,3,15,5.00,15%,0.00,6.00,46.00
+"December 29, 2025 09:10 AM",S20251229-12,مؤسسة النور,فرع محلي-2,,بيتزا كبير,1,7,0.00,15%,0.00,1.05,8.05
