@@ -126,6 +126,25 @@ describe("فحص التكرار قبل الإرسال (buildQoyodDuplicateIndex 
   it("يرجّع null لصف غير مكرر إطلاقًا", () => {
     expect(checkAccountDuplicate({ code: "999999", nameEn: "Brand New", nameAr: "حساب جديد" }, index)).toBeNull();
   });
+
+  // [تصحيح 2026-09-09] فحص التكرار فشل ميدانيًا مع حساب "المدينون" (1102) رغم
+  // وجوده فعليًا بمنشأة العميل - هذه المجموعة تغطي فروق الترميز/التنسيق التي
+  // كان يُفترض أن normKey تتعامل معها فتلتقط التكرار رغم الاختلاف الشكلي.
+  it("يكتشف تكرار الرمز حتى لو كُتب بأرقام عربية-هندية بأحد الطرفين", () => {
+    const idx = buildQoyodDuplicateIndex([{ id: 52, code: "1102", name_en: "Accounts receivable", name_ar: "المدينون" }]);
+    expect(checkAccountDuplicate({ code: "١١٠٢", nameEn: "x", nameAr: "ص" }, idx)).toBe("code");
+  });
+
+  it("يكتشف تكرار الرمز حتى لو احتوى على مسافة غير قابلة للكسر (NBSP) أو أحرف zero-width", () => {
+    const idx = buildQoyodDuplicateIndex([{ id: 52, code: "1102", name_en: "Accounts receivable", name_ar: "المدينون" }]);
+    expect(checkAccountDuplicate({ code: "1102​", nameEn: "x", nameAr: "ص" }, idx)).toBe("code");
+    expect(checkAccountDuplicate({ code: " 1102", nameEn: "x", nameAr: "ص" }, idx)).toBe("code");
+  });
+
+  it("يكتشف تكرار الرمز حتى لو أضاف إكسل لاحقة '.0' الزائدة لكود رقمي بحت", () => {
+    const idx = buildQoyodDuplicateIndex([{ id: 52, code: "1102", name_en: "Accounts receivable", name_ar: "المدينون" }]);
+    expect(checkAccountDuplicate({ code: "1102.0", nameEn: "x", nameAr: "ص" }, idx)).toBe("code");
+  });
 });
 
 describe("qoyodAccountsToFile1Records — تحويل رد GET /accounts الفعلي لشكل ملف 1 (بديل الرفع اليدوي)", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { pushAccountsToQoyod } from "../qoyodAccountPush.js";
+import { pushAccountsToQoyod, isDuplicateApiError } from "../qoyodAccountPush.js";
 
 vi.mock("../../product-upload/io/network.js", () => ({
   api: vi.fn(),
@@ -56,11 +56,11 @@ describe("pushAccountsToQoyod", () => {
     expect(result.entries[1].status).toBe("success");
   });
 
-  it("يتوقف بالكامل فورًا عند أول فشل POST (قرار المستخدم الصريح) — ما يكمل لباقي الصفوف", async () => {
+  it("يتوقف بالكامل فورًا عند أول فشل POST حقيقي (غير تكرار) — قرار المستخدم الصريح — ما يكمل لباقي الصفوف", async () => {
     fetchAll.mockResolvedValue([]);
     api
       .mockResolvedValueOnce({ account: { id: 1 } })
-      .mockRejectedValueOnce(new Error("API 422: name already taken"));
+      .mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"type":["is not included in the list"]}}'));
 
     const rows = [row("4101", "A", "أ"), row("4102", "B", "ب"), row("4103", "C", "ج")];
     const result = await pushAccountsToQoyod(rows, "fake-key");
@@ -68,10 +68,48 @@ describe("pushAccountsToQoyod", () => {
     expect(api).toHaveBeenCalledTimes(2); // الصف الثالث ما وصل له الإرسال إطلاقًا
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(1);
+    expect(result.skipped).toBe(0);
     expect(result.stoppedEarly).toBe(true);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[1].status).toBe("error");
     expect(result.entries[1].reason).toContain("422");
+  });
+
+  // [تصحيح 2026-09-09] بلاغ اختبار حي: حساب "المدينون" (1102) كان موجودًا
+  // فعليًا بمنشأة العميل لكن الفحص المسبق لم يلتقطه، فوصل POST فعلي ورفضه
+  // Qoyod بـ422 "already taken" — وأوقف هذا كل العملية رغم أن الباقي فريد.
+  // التصحيح: هذا تكرار حقيقي، يُعامَل كتخطٍّ ويُكمَل الباقي، لا كفشل يوقف كل شي.
+  it("رفض 422 من Qoyod بسبب تكرار فعلي (already taken) يُعامَل كتخطٍّ، لا كفشل — ويُكمَل لباقي الصفوف", async () => {
+    fetchAll.mockResolvedValue([]); // الفحص المسبق لم يلتقط التكرار (محاكاة فجوة الفهرسة الفعلية)
+    api
+      .mockResolvedValueOnce({ account: { id: 1 } })
+      .mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"code":["code is already taken by id 52"]}}'))
+      .mockResolvedValueOnce({ account: { id: 3 } });
+
+    const rows = [row("1101", "Cash", "نقدية"), row("1102", "Accounts receivable", "المدينون"), row("1103", "Bank", "بنك")];
+    const result = await pushAccountsToQoyod(rows, "fake-key");
+
+    expect(api).toHaveBeenCalledTimes(3); // الصف الثالث وصله الإرسال فعلاً (لم تتوقف العملية)
+    expect(result.sent).toBe(2);
+    expect(result.skipped).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.stoppedEarly).toBe(false);
+    expect(result.entries).toHaveLength(3);
+    expect(result.entries[1].status).toBe("skip");
+    expect(result.entries[1].reason).toContain("موجود مسبقًا");
+    expect(result.entries[2].status).toBe("success");
+  });
+
+  it("رفض 422 بسبب تكرار الاسم (name_en/name_ar already taken) يُعامَل أيضًا كتخطٍّ", async () => {
+    fetchAll.mockResolvedValue([]);
+    api.mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"name_ar":["name_ar is already taken"]}}'));
+
+    const result = await pushAccountsToQoyod([row("9999", "Whatever", "أيًا كان")], "fake-key");
+
+    expect(result.skipped).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.stoppedEarly).toBe(false);
+    expect(result.entries[0].status).toBe("skip");
   });
 
   it("يتوقف بالكامل فورًا لو صف واحد بلا نوع قابل للتحويل (فشل بناء الحمولة نفسه، بلا أي طلب POST له)", async () => {
@@ -109,5 +147,31 @@ describe("pushAccountsToQoyod", () => {
     const result = await pushAccountsToQoyod([row("1", "A", "أ")], "fake-key");
     expect(result.fatalError).toContain("network down");
     expect(api).not.toHaveBeenCalled();
+  });
+});
+
+describe("isDuplicateApiError — اكتشاف رفض Qoyod بسبب تكرار فعلي (دفاع ثانٍ بعد الفحص المسبق)", () => {
+  it("يكتشف شكل 422 الحقيقي المؤكد ميدانيًا لتكرار الرمز", () => {
+    expect(isDuplicateApiError('API 422: {"error":"Invalid resource","messages":{"code":["code is already taken by id 52"]}}')).toBe(true);
+  });
+
+  it("يكتشف تكرار الاسم الإنجليزي أو العربي بنفس الشكل", () => {
+    expect(isDuplicateApiError('API 422: {"messages":{"name_en":["name_en is already taken"]}}')).toBe(true);
+    expect(isDuplicateApiError('API 422: {"messages":{"name_ar":["name_ar is already taken"]}}')).toBe(true);
+  });
+
+  it("لا يعتبره تكرارًا لو 422 لسبب آخر تمامًا (لا يحتوي already taken)", () => {
+    expect(isDuplicateApiError('API 422: {"messages":{"type":["is not included in the list"]}}')).toBe(false);
+  });
+
+  it("لا يعتبره تكرارًا لو حالة الخطأ غير 422 (401/500...) حتى لو ذكرت شيئًا شبيهًا بالصدفة", () => {
+    expect(isDuplicateApiError('API 500: already taken down for maintenance')).toBe(false);
+    expect(isDuplicateApiError('API 401: Unauthorized')).toBe(false);
+  });
+
+  it("يتعامل بأمان مع رسائل فارغة/غير متوقعة بلا رمي استثناء", () => {
+    expect(isDuplicateApiError("")).toBe(false);
+    expect(isDuplicateApiError(undefined)).toBe(false);
+    expect(isDuplicateApiError(null)).toBe(false);
   });
 });

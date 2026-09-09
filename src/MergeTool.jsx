@@ -1738,7 +1738,12 @@ export function MergeTool() {
 
   const openSendConfirm = () => {
     if (!apiKey.trim()) { setToast({ type: "error", text: t({ ar: "أدخل مفتاح API أولاً (بقسم الاتصال بمنشأة العميل بالأعلى)", en: "Enter the API key first (in the client connection section above)" }) }); return; }
-    if (activeNewRows.length === 0) { setToast({ type: "error", text: t({ ar: "لا توجد حسابات جديدة للإرسال", en: "No new accounts to send" }) }); return; }
+    if (sendableNewRows.length === 0) {
+      setToast({ type: "error", text: alreadySentCount > 0
+        ? t({ ar: "كل الحسابات الجديدة أُرسلت بنجاح مسبقًا عبر API", en: "All new accounts were already sent successfully via API" })
+        : t({ ar: "لا توجد حسابات جديدة للإرسال", en: "No new accounts to send" }) });
+      return;
+    }
     setShowSendConfirm(true);
   };
 
@@ -1748,9 +1753,12 @@ export function MergeTool() {
     setSendEntries([]);
     setSendResult(null);
     sendStopRef.current.current = false;
-    setSendProgress({ current: 0, total: activeNewRows.length });
+    // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - نفس
+    // الترتيب يُستخدم لاحقًا لمطابقة entries النتيجة بصفوفها الأصلية (بالفهرس)
+    // وتحديث apiStatus لكل صف حسب مصيره الفعلي، بدل التخمين بالكود/الاسم.
+    const rowsToSend = sendableNewRows;
+    setSendProgress({ current: 0, total: rowsToSend.length });
     setShowSendResults(true);
-    const rowsToSend = activeNewRows;
     const result = await pushAccountsToQoyod(rowsToSend, apiKey.trim(), {
       stoppedRef: sendStopRef.current,
       onEntry: (entry) => setSendEntries((prev) => [...prev, entry]),
@@ -1758,6 +1766,24 @@ export function MergeTool() {
     });
     setSending(false);
     setSendResult(result);
+
+    // [إضافة 2026-09-09] تعليم كل صف بمصيره الفعلي (apiStatus) حتى تبقى الحسابات
+    // التي لم تُرسل بنجاح (تخطّي/فشل/لم تصلها الدورة بسبب توقف مبكر) بالشجرة
+    // كما هي، قابلة للتعديل وإعادة الإرسال - و"أُرسلت بنجاح" فقط تُستبعد من
+    // إعادة الإرسال لاحقًا. entries تصدر بنفس ترتيب/عدد rowsToSend المُعالَجة
+    // فعليًا (تتوقف بالتوقف المبكر بلا تجاوز)، فالمطابقة بالفهرس دقيقة تمامًا.
+    if (result.entries.length > 0) {
+      const byId = new Map();
+      result.entries.forEach((entry, i) => {
+        const srcRow = rowsToSend[i];
+        if (!srcRow) return;
+        byId.set(srcRow.id, entry.status === "success"
+          ? { apiStatus: "sent", apiSentId: entry.id, apiStatusReason: "" }
+          : { apiStatus: entry.status, apiStatusReason: entry.reason || "" });
+      });
+      setResults((prev) => prev.map((r) => (byId.has(r.id) ? { ...r, ...byId.get(r.id) } : r)));
+    }
+
     if (currentUser) {
       if (result.fatalError) trackMergeError(currentUser, { via: "api", error: result.fatalError });
       else trackMergeExport(currentUser, { via: "api", sent: result.sent, skipped: result.skipped, failed: result.failed, stoppedEarly: result.stoppedEarly });
@@ -1837,9 +1863,20 @@ export function MergeTool() {
   };
 
   const newRows = useMemo(() => (results || []).filter((r) => r.status === "new"), [results]);
+  // [إضافة 2026-09-09] بعد إرسال عبر API، الحسابات التي "أُرسلت بنجاح فعلاً"
+  // (apiStatus === "sent") تُستبعد من قابلة الإرسال مرة ثانية - أي إرسال آخر
+  // لها عبثي (الحساب موجود فعلاً بمنشأة العميل). أي حساب آخر (لم يُرسل بعد،
+  // تخطّاه الفحص كمكرر، أو فشل) يبقى ضمن activeNewRows نفسها بلا أي تغيير -
+  // يبقى معروضًا ومتاحًا للتعديل بالجدول/الشجرة تمامًا كالسابق، ويصير بإمكان
+  // المستخدم إعادة إرساله بضغطة الزر مرة أخرى (طلب المستخدم الصريح 2026-09-09).
   const existingRows = useMemo(() => (results || []).filter((r) => r.status === "existing"), [results]);
   const activeNewRows = useMemo(() => newRows.filter((r) => !r.deleted), [newRows]);
   const deletedRows = useMemo(() => newRows.filter((r) => r.deleted), [newRows]);
+  // الصفوف "القابلة للإرسال الآن" عبر API - كل activeNewRows ما عدا ما أُرسل
+  // بنجاح فعلاً سابقًا. تشمل: لم تُرسل بعد، تخطّاها فحص التكرار (skip)، أو
+  // فشلت سابقًا (error) - كلها تبقى قابلة لإعادة المحاولة بعد تعديلها.
+  const sendableNewRows = useMemo(() => activeNewRows.filter((r) => r.apiStatus !== "sent"), [activeNewRows]);
+  const alreadySentCount = useMemo(() => activeNewRows.filter((r) => r.apiStatus === "sent").length, [activeNewRows]);
   const autoParentRows = useMemo(() => activeNewRows.filter((r) => r.autoParent), [activeNewRows]);
   const errorCount = useMemo(() => activeNewRows.filter((r) => r.errors.length > 0).length, [activeNewRows]);
   const warningCount = useMemo(() => activeNewRows.filter((r) => r.warnings.length > 0 && r.errors.length === 0).length, [activeNewRows]);
@@ -2007,9 +2044,20 @@ export function MergeTool() {
         nextPatch.level2Category = TYPE_TO_LEVEL2[nextPatch.type];
       }
 
+      // [إضافة 2026-09-09] تعديل حقل يؤثر فعليًا على حمولة الإرسال بعد محاولة
+      // إرسال سابقة "تخطّي"/"فشل" يُعيد الصف لحالة "لم يُحاول بعد" بصريًا -
+      // حتى ما تبقى شارة API قديمة مضلِّلة على بيانات غيّرها المستخدم فعلاً.
+      // صف "أُرسل بنجاح" لا يُلمَس هنا إطلاقًا (يبقى مستبعدًا من الإرسال دومًا،
+      // لأنه فعليًا موجود بمنشأة العميل بصرف النظر عن أي تعديل محلي لاحق).
+      const touchesPayload = ["code", "nameAr", "nameEn", "type", "level2Category", "payCollect", "desc"].some((k) => k in nextPatch);
+
       const mapped = prev.map((r) => {
         if (r.id !== id) return r;
         const updated = { ...r, ...nextPatch };
+        if (touchesPayload && (r.apiStatus === "skip" || r.apiStatus === "error")) {
+          updated.apiStatus = undefined;
+          updated.apiStatusReason = "";
+        }
         const errors = [], warnings = [];
         if (!updated.code) errors.push("الرمز فارغ");
         if (!updated.level) warnings.push("المستوى غير محدد");
@@ -2148,8 +2196,8 @@ export function MergeTool() {
               </div>
               <p className="mb-4 text-sm leading-relaxed text-[#64748B]">
                 {t({
-                  ar: `سيتم إرسال ${activeNewRows.length} حساب مباشرة إلى منشأة العميل الحقيقية في قيود عبر API. سيتم تلقائيًا تخطي أي حساب مكرر (بالرمز أو الاسم مسبقًا بمنشأة العميل)، وفي حال فشل إرسال أي حساب تتوقف العملية بالكامل فورًا دون إكمال الباقي. هذا الإجراء كتابة فعلية على منشأة العميل ولا يمكن التراجع عنه من داخل الأداة.`,
-                  en: `${activeNewRows.length} accounts will be sent directly to the client's real Qoyod company via API. Any account already duplicated by code or name in the client's company is skipped automatically, and if any account fails to send the whole process stops immediately without continuing. This is a real write to the client's company and cannot be undone from within this tool.`,
+                  ar: `سيتم إرسال ${sendableNewRows.length} حساب مباشرة إلى منشأة العميل الحقيقية في قيود عبر API${alreadySentCount > 0 ? ` (باستثناء ${alreadySentCount} حساب أُرسل بنجاح مسبقًا)` : ""}. سيتم تلقائيًا تخطي أي حساب مكرر (بالرمز أو الاسم مسبقًا بمنشأة العميل) دون إيقاف الباقي، وفي حال فشل حقيقي بإرسال أي حساب (غير التكرار) تتوقف العملية عند ذلك الحساب - وتبقى كل الحسابات التي لم تُرسل بنجاح ظاهرة بالجدول قابلة للتعديل وإعادة الإرسال لاحقًا. هذا الإجراء كتابة فعلية على منشأة العميل ولا يمكن التراجع عنه من داخل الأداة.`,
+                  en: `${sendableNewRows.length} accounts will be sent directly to the client's real Qoyod company via API${alreadySentCount > 0 ? ` (excluding ${alreadySentCount} already sent successfully)` : ""}. Any account already duplicated by code or name in the client's company is skipped automatically without stopping the rest, and if a real failure occurs on any account (other than duplication) the process stops at that account - every account that wasn't sent successfully stays visible in the table, editable and ready to resend later. This is a real write to the client's company and cannot be undone from within this tool.`,
                 })}
               </p>
               <div className="flex flex-col gap-2">
@@ -2190,7 +2238,7 @@ export function MergeTool() {
                 </div>
               )}
               {!sending && sendResult?.stoppedEarly && !sendResult?.fatalError && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات بسبب فشل أو إيقاف يدوي.", en: "The process stopped before completing all accounts due to a failure or a manual stop." })}</div>
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات بسبب فشل حقيقي أو إيقاف يدوي (التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بالجدول أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts due to a real failure or a manual stop (duplication alone never stops it). Accounts not sent successfully are still in the table below - edit them and press send again to send only what remains." })}</div>
               )}
 
               {sendEntries.length > 0 && (
@@ -2382,7 +2430,10 @@ export function MergeTool() {
                   <button onClick={exportQuickExcel} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Download size={14} /> {t({ ar: "تنزيل نسخة أولية Excel", en: "Download draft Excel" })}</button>
                   <button onClick={copyJsonForFinalExport} className="flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC]"><Copy size={14} /> {copied ? t({ ar: "تم النسخ ✓", en: "Copied ✓" }) : t({ ar: "نسخ للتصدير النهائي", en: "Copy for final export" })}</button>
                   <button onClick={openSendConfirm} disabled={sending} className="flex items-center gap-2 rounded-lg border border-emerald-600/40 bg-emerald-600/10 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-50">
-                    {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} {t({ ar: "إرسال عبر API إلى منشأة العميل", en: "Send via API to client company" })}
+                    {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    {alreadySentCount > 0
+                      ? t({ ar: `إرسال المتبقي عبر API (${sendableNewRows.length})`, en: `Send remaining via API (${sendableNewRows.length})` })
+                      : t({ ar: "إرسال عبر API إلى منشأة العميل", en: "Send via API to client company" })}
                   </button>
                 </div>
 
@@ -2505,6 +2556,7 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
       <td className="px-3 py-2">
         <StatusBadge row={r} />
         {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-300"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
+        <ApiSendBadge row={r} />
       </td>
       <td className="px-3 py-2"><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
       {/* الاسم الانجليزي غير معروض عمدًا - يبقى محفوظًا في بيانات الصف ويُصدَّر كما هو،
@@ -2560,6 +2612,36 @@ function StatusBadge({ row, compact, reviewed }) {
   if (row.errors.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-300"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>;
   if (row.warnings.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"><AlertTriangle size={12} /> {t({ ar: "تنبيه", en: "Warning" })}</span>;
   return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300"><CheckCircle2 size={12} /> {t({ ar: "سليم", en: "OK" })}</span>;
+}
+
+// [إضافة 2026-09-09] يعرض نتيجة آخر محاولة إرسال عبر API لهذا الحساب تحديدًا
+// (بعد دفعة إرسال، الحسابات التي لم تُرسل بنجاح - تخطّي/فشل/لم تُحاول بعد -
+// تبقى بالجدول كما هي، هذا الشارة توضّح للمستخدم أيها يحتاج مراجعة/تعديل
+// قبل إعادة الإرسال، وأيها موجود مسبقًا بمنشأة العميل فعلاً فلا داعي لإعادته).
+function ApiSendBadge({ row: r }) {
+  const { t } = useLanguage();
+  if (r.apiStatus === "sent") {
+    return (
+      <div title={r.apiSentId ? `#${r.apiSentId}` : ""} className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+        <Send size={10} /> {t({ ar: "أُرسل عبر API ✓", en: "Sent via API ✓" })}
+      </div>
+    );
+  }
+  if (r.apiStatus === "skip") {
+    return (
+      <div title={r.apiStatusReason || ""} className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-400/20 px-2 py-0.5 text-[10px] font-semibold text-[#64748B]">
+        <AlertTriangle size={10} /> {t({ ar: "تخطّاه API (موجود مسبقًا)", en: "Skipped by API (already exists)" })}
+      </div>
+    );
+  }
+  if (r.apiStatus === "error") {
+    return (
+      <div title={r.apiStatusReason || ""} className="mt-1 inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-500">
+        <XCircle size={10} /> {t({ ar: "فشل إرساله عبر API", en: "Failed to send via API" })}
+      </div>
+    );
+  }
+  return null;
 }
 
 function NotesCell({ row }) {
