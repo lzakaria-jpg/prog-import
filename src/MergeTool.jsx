@@ -1690,6 +1690,11 @@ export function MergeTool() {
   // apiStatus (منطق updateRow الموجود أصلاً) فيفقد علامة "error" - هذا المرجع
   // هو ما يحفظ "كان فاشلاً" حتى بعد أن يُصفَّر apiStatus بسبب التعديل.
   const failedRowIdsRef = useRef(new Set());
+  // [إضافة 2026-09-10] تبويب عرض نتائج الإرسال: "all"|"success"|"skip"|"error" -
+  // يطابق قيم e.status بالضبط حتى يُستخدم مباشرة كفلتر بلا تحويل. "error" يعرض
+  // فقط الحسابات الفاشلة (قابلة للتعديل الكامل) - طلب المستخدم الصريح بالتنقل
+  // الحر بينها بدل غرقها وسط كل النتائج.
+  const [resultsTab, setResultsTab] = useState("all");
 
   // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
   // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
@@ -1852,6 +1857,7 @@ export function MergeTool() {
     setSendEntries([]);
     setSendResult(null);
     setSendPausedForDecision(false);
+    setResultsTab("all");
     sendProcessedCountRef.current = 0;
     skipAllErrorsRef.current = false;
     // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - تبقى
@@ -1892,6 +1898,7 @@ export function MergeTool() {
     setSendEntries([]);
     setSendResult(null);
     setSendPausedForDecision(false);
+    setResultsTab("all");
     sendProcessedCountRef.current = 0;
     skipAllErrorsRef.current = false;
     sendRowsToSendRef.current = resendableFailedRows;
@@ -2356,8 +2363,12 @@ export function MergeTool() {
 
         {showSendResults && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => { if (!sending) setShowSendResults(false); }}>
-            <div dir="rtl" className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-[#FFFFFF] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="mb-3 flex items-center justify-between gap-2">
+            {/* [تعديل 2026-09-10] موسَّعة (كانت max-w-2xl ~672px بالكاد تكفي عمودين من
+                جدول 9 أعمدة) + منطقة تمرير عمودية واحدة موحّدة لكل المحتوى تحت الرأس
+                بدل تعدد مناطق تمرير متداخلة كانت تحبس أجزاء من المحتوى خارج نطاق
+                الرؤية بلا طريقة للوصول لها - طلب المستخدم الصريح بالتنقل الحر بالصفحة. */}
+            <div dir="rtl" className="flex h-[92vh] w-[min(96vw,1400px)] flex-col rounded-2xl bg-[#FFFFFF] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-[#0F172A]">
                   {sending ? <Loader2 size={18} className="animate-spin text-blue-600" /> : sendResult?.fatalError ? <XCircle size={18} className="text-red-500" /> : sendResult?.stoppedEarly ? <AlertTriangle size={18} className="text-amber-500" /> : <CheckCircle2 size={18} className="text-emerald-500" />}
                   <h3 className="text-base font-bold">{t({ ar: "الإرسال المباشر عبر API", en: "Direct send via API" })}</h3>
@@ -2366,97 +2377,118 @@ export function MergeTool() {
               </div>
 
               {sending && (
-                <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs">
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs">
                   <span className="font-semibold text-[#0F172A]">{t({ ar: `جارٍ الإرسال: ${sendProgress.current} من ${sendProgress.total}`, en: `Sending: ${sendProgress.current} of ${sendProgress.total}` })}</span>
                   <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-600 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
                 </div>
               )}
 
               {!sending && sendResult?.fatalError && (
-                <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">{lang === "en" ? localizeMergeError(sendResult.fatalError) : sendResult.fatalError}</div>
+                <div className="mb-3 shrink-0 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">{lang === "en" ? localizeMergeError(sendResult.fatalError) : sendResult.fatalError}</div>
               )}
 
-              {!sending && sendResult && !sendResult.fatalError && (
-                <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2"><div className="text-lg font-bold text-emerald-600">{sendResult.sent}</div>{t({ ar: "أُرسل بنجاح", en: "Sent" })}</div>
-                  <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-2"><div className="text-lg font-bold text-[#64748B]">{sendResult.skipped}</div>{t({ ar: "تم تخطيه (مكرر)", en: "Skipped" })}</div>
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2"><div className="text-lg font-bold text-red-500">{sendResult.failed}</div>{t({ ar: "فشل", en: "Failed" })}</div>
-                </div>
-              )}
-              {/* [إضافة 2026-09-09] توقف بسبب فشل حقيقي (لا تكرار، لا إيقاف يدوي) -
-                  خياران صريحان بدل إيقاف صامت، بالضبط كطلب المستخدم. */}
-              {!sending && sendPausedForDecision && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                  <div className="mb-2 text-xs leading-relaxed text-amber-700">{t({ ar: "توقفت العملية بسبب فشل حقيقي بإرسال أحد الحسابات (تفاصيله بالجدول أدناه بحالة \"خطأ\"). اختر كيف تكمل:", en: "The process stopped due to a real failure sending one account (details in the table below, marked \"Error\"). Choose how to continue:" })}</div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button onClick={continueSendAfterSkip} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"><ArrowRight size={13} /> {t({ ar: "تخطّي هذا الحساب والاستمرار بالباقي", en: "Skip this account and continue" })}</button>
-                    <button onClick={continueSendSkipAllErrors} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-700/40 bg-blue-700/10 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-700/20"><ArrowRight size={13} /> {t({ ar: "تخطّي الكل والإكمال (رفع الصحيحة فقط)", en: "Skip all and continue (valid accounts only)" })}</button>
-                    <button onClick={stopAndEditNow} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/40 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف الآن والتعديل على الحسابات", en: "Stop now and edit the accounts" })}</button>
+              {/* منطقة تمرير عمودية واحدة لكل ما تحت الرأس - التبويبات، التنبيهات،
+                  والجداول - حتى يقدر يتنقل بحرية بلا محتوى محبوس خارج الرؤية. */}
+              <div className="flex-1 overflow-y-auto pl-1">
+                {/* [إضافة 2026-09-10] تبويبات فعلية (تعيد استخدام SummaryCard بنفس نمط
+                    فلاتر الجدول الرئيسي) - "خطأ" يعرض فقط الحسابات الفاشلة التي لم
+                    تُرسل، قابلة للتعديل الكامل، بدون أي غرق وسط باقي النتائج. */}
+                {!sending && sendResult && !sendResult.fatalError && (
+                  <div className="mb-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                    <SummaryCard label={t({ ar: "الكل", en: "All" })} value={sendResult.total} tone="teal" active={resultsTab === "all"} onClick={() => setResultsTab("all")} />
+                    <SummaryCard label={t({ ar: "أُرسل بنجاح", en: "Sent" })} value={sendResult.sent} tone="green" active={resultsTab === "success"} onClick={() => setResultsTab("success")} />
+                    <SummaryCard label={t({ ar: "تم تخطيه (مكرر)", en: "Skipped" })} value={sendResult.skipped} tone="slate" active={resultsTab === "skip"} onClick={() => setResultsTab("skip")} />
+                    <SummaryCard label={t({ ar: "فشل", en: "Failed" })} value={sendResult.failed} tone="red" active={resultsTab === "error"} onClick={() => setResultsTab("error")} />
                   </div>
-                </div>
-              )}
-              {!sending && !sendPausedForDecision && sendResult?.stoppedEarly && !sendResult?.fatalError && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات (فشل حقيقي أو إيقاف يدوي - التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بالجدول أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts (a real failure or a manual stop - duplication alone never stops it). Accounts not sent successfully are still in the table below - edit them and press send again to send only what remains." })}</div>
-              )}
+                )}
 
-              {/* [إضافة 2026-09-10] نفس نافذة النتائج تصير قابلة للتعديل مباشرة على
-                  الحسابات التي فشلت - بالاسم/الرمز/النوع/الحساب الرئيسي أو أي تفصيل،
-                  ثم "إرسال المعدَّل فقط" يرسل فقط ما عُدِّل هنا، متخطّيًا مباشرة كل
-                  حساب نجح فعلاً أو فشل ولم يُعدَّل - طلب المستخدم بالضبط. */}
-              {!sending && failedRowsLive.length > 0 && (
-                <div className="mb-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-bold text-[#0F172A]">{t({ ar: "الحسابات التي فشلت - عدّلها هنا ثم أعد الإرسال", en: "Failed accounts — edit them here, then resend" })}</div>
-                    <button onClick={resendEditedFailures} disabled={resendableFailedRows.length === 0} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
-                      <Send size={13} /> {t({ ar: `إرسال المعدَّل فقط (${resendableFailedRows.length})`, en: `Resend edited only (${resendableFailedRows.length})` })}
-                    </button>
+                {/* [إضافة 2026-09-09] توقف بسبب فشل حقيقي (لا تكرار، لا إيقاف يدوي) -
+                    خياران صريحان بدل إيقاف صامت، بالضبط كطلب المستخدم. */}
+                {!sending && sendPausedForDecision && (
+                  <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                    <div className="mb-2 text-xs leading-relaxed text-amber-700">{t({ ar: "توقفت العملية بسبب فشل حقيقي بإرسال أحد الحسابات (تفاصيله بتبويب \"فشل\" أدناه). اختر كيف تكمل:", en: "The process stopped due to a real failure sending one account (details in the \"Failed\" tab below). Choose how to continue:" })}</div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button onClick={continueSendAfterSkip} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"><ArrowRight size={13} /> {t({ ar: "تخطّي هذا الحساب والاستمرار بالباقي", en: "Skip this account and continue" })}</button>
+                      <button onClick={continueSendSkipAllErrors} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-700/40 bg-blue-700/10 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-700/20"><ArrowRight size={13} /> {t({ ar: "تخطّي الكل والإكمال (رفع الصحيحة فقط)", en: "Skip all and continue (valid accounts only)" })}</button>
+                      <button onClick={stopAndEditNow} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/40 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف الآن والتعديل على الحسابات", en: "Stop now and edit the accounts" })}</button>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
-                    <table className="w-full text-right text-xs" style={{ minWidth: 860 }}>
-                      <thead className="bg-[#F8FAFC] text-[#64748B]">
-                        <tr>
-                           <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
-                           <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
-                           <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {failedRowsLive.map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="mt-1.5 text-[10px] text-[#94A3B8]">{t({ ar: "فقط الحسابات المعدَّلة هنا (منذ فشلها) تُرسل عند الضغط على الزر أعلاه - أي حساب فشل ولم تعدّله يبقى متخطًّى.", en: "Only accounts edited here (since they failed) are sent when you press the button above — any failed account you didn't edit stays skipped." })}</p>
-                </div>
-              )}
+                )}
+                {!sending && !sendPausedForDecision && sendResult?.stoppedEarly && !sendResult?.fatalError && (
+                  <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات (فشل حقيقي أو إيقاف يدوي - التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بتبويب \"فشل\" أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts (a real failure or a manual stop - duplication alone never stops it). Accounts not sent successfully are still in the \"Failed\" tab below - edit them and press send again to send only what remains." })}</div>
+                )}
 
-              {sendEntries.length > 0 && (
-                <div className="flex-1 overflow-y-auto rounded-lg border border-[#E2E8F0]">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[#F8FAFC] text-[#64748B]">
-                      <tr>
-                        <th className="p-2 text-right">{t({ ar: "الرمز", en: "Code" })}</th>
-                        <th className="p-2 text-right">{t({ ar: "الاسم", en: "Name" })}</th>
-                        <th className="p-2 text-right">{t({ ar: "الحالة", en: "Status" })}</th>
-                        <th className="p-2 text-right">{t({ ar: "ملاحظة", en: "Note" })}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sendEntries.map((e, i) => (
-                        <tr key={i} className="border-t border-[#E2E8F0]">
-                          <td className="p-2 font-mono">{e.code}</td>
-                          <td className="p-2">{lang === "en" ? (e.nameEn || e.nameAr) : (e.nameAr || e.nameEn)}</td>
-                          <td className="p-2">
-                            {e.status === "success" && <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 size={12} /> {t({ ar: "نجح", en: "Success" })}</span>}
-                            {e.status === "skip" && <span className="inline-flex items-center gap-1 text-[#64748B]"><AlertTriangle size={12} /> {t({ ar: "تخطٍّ", en: "Skipped" })}</span>}
-                            {e.status === "error" && <span className="inline-flex items-center gap-1 text-red-500"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>}
-                          </td>
-                          <td className="p-2 text-[#64748B]">{e.reason || (e.id ? `#${e.id}` : "")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                {/* [إضافة 2026-09-10] نفس نافذة النتائج تصير قابلة للتعديل مباشرة على
+                    الحسابات التي فشلت - بالاسم/الرمز/النوع/الحساب الرئيسي أو أي تفصيل،
+                    ثم "إرسال المعدَّل فقط" يرسل فقط ما عُدِّل هنا، متخطّيًا مباشرة كل
+                    حساب نجح فعلاً أو فشل ولم يُعدَّل - طلب المستخدم بالضبط. تظهر بتبويب
+                    "الكل" و"فشل" فقط - باقي التبويبات جدول عرض بسيط غير قابل للتعديل
+                    (نجح/تخطّي لا يحتاجان تعديلًا أصلاً). */}
+                {!sending && (resultsTab === "all" || resultsTab === "error") && failedRowsLive.length > 0 && (
+                  <div className="mb-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-[#0F172A]">{t({ ar: `الحسابات التي فشلت (${failedRowsLive.length}) - عدّلها هنا ثم أعد الإرسال`, en: `Failed accounts (${failedRowsLive.length}) — edit them here, then resend` })}</div>
+                      <button onClick={resendEditedFailures} disabled={resendableFailedRows.length === 0} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
+                        <Send size={13} /> {t({ ar: `إرسال المعدَّل فقط (${resendableFailedRows.length})`, en: `Resend edited only (${resendableFailedRows.length})` })}
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
+                      <table className="w-full text-right text-xs" style={{ minWidth: 860 }}>
+                        <thead className="bg-[#F8FAFC] text-[#64748B]">
+                          <tr>
+                             <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
+                             <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
+                             <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {failedRowsLive.map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-[#94A3B8]">{t({ ar: "فقط الحسابات المعدَّلة هنا (منذ فشلها) تُرسل عند الضغط على الزر أعلاه - أي حساب فشل ولم تعدّله يبقى متخطًّى. زر \"حذف\" آخر عمود يستبعد الحساب من قائمة الرفع نهائيًا.", en: "Only accounts edited here (since they failed) are sent when you press the button above — any failed account you didn't edit stays skipped. The \"Delete\" button in the last column excludes the account from the upload list entirely." })}</p>
+                  </div>
+                )}
+                {!sending && resultsTab === "error" && failedRowsLive.length === 0 && (
+                  <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4 text-center text-xs text-[#64748B]">{t({ ar: "ما فيه حسابات فاشلة حاليًا 🎉", en: "No failed accounts right now 🎉" })}</div>
+                )}
+
+                {/* جدول سجل بسيط (غير قابل للتعديل) - "الكل" يعرضه كاملاً، و"نجح"/"تخطّي"
+                    يفلتره لحالته فقط؛ تبويب "فشل" يستغني عنه لصالح الجدول القابل
+                    للتعديل أعلاه (نفس البيانات، بتفاصيل أوفى). */}
+                {resultsTab !== "error" && (() => {
+                  const logEntries = resultsTab === "all" ? sendEntries : sendEntries.filter((e) => e.status === resultsTab);
+                  if (logEntries.length === 0) return null;
+                  return (
+                    <div className="overflow-x-auto rounded-lg border border-[#E2E8F0]">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-[#F8FAFC] text-[#64748B]">
+                          <tr>
+                            <th className="p-2 text-right">{t({ ar: "الرمز", en: "Code" })}</th>
+                            <th className="p-2 text-right">{t({ ar: "الاسم", en: "Name" })}</th>
+                            <th className="p-2 text-right">{t({ ar: "الحالة", en: "Status" })}</th>
+                            <th className="p-2 text-right">{t({ ar: "ملاحظة", en: "Note" })}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {logEntries.map((e, i) => (
+                            <tr key={i} className="border-t border-[#E2E8F0]">
+                              <td className="p-2 font-mono">{e.code}</td>
+                              <td className="p-2">{lang === "en" ? (e.nameEn || e.nameAr) : (e.nameAr || e.nameEn)}</td>
+                              <td className="p-2">
+                                {e.status === "success" && <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 size={12} /> {t({ ar: "نجح", en: "Success" })}</span>}
+                                {e.status === "skip" && <span className="inline-flex items-center gap-1 text-[#64748B]"><AlertTriangle size={12} /> {t({ ar: "تخطٍّ", en: "Skipped" })}</span>}
+                                {e.status === "error" && <span className="inline-flex items-center gap-1 text-red-500"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>}
+                              </td>
+                              <td className="p-2 text-[#64748B]">{e.reason || (e.id ? `#${e.id}` : "")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           </div>
         )}
