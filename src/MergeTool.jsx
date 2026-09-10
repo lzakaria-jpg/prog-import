@@ -1680,6 +1680,16 @@ export function MergeTool() {
   const sendRowsToSendRef = useRef([]);
   const sendProcessedCountRef = useRef(0);
   const [sendPausedForDecision, setSendPausedForDecision] = useState(false);
+  // [إضافة 2026-09-10] "تخطّي الكل والإكمال" - خيار ثالث بجانب "تخطّي هذا
+  // الحساب فقط"/"إيقاف الآن": لو فُعِّل، كل فشل حقيقي تالٍ بنفس الدفعة يُتخطى
+  // تلقائيًا (الحساب يبقى محفوظًا apiStatus:"error" قابلاً للتعديل لاحقًا) بلا
+  // توقف لانتظار قرار المستخدم مرة أخرى - حتى نهاية الدفعة كاملة.
+  const skipAllErrorsRef = useRef(false);
+  // [إضافة 2026-09-10] لتمكين "إعادة إرسال الحسابات الفاشلة المعدَّلة فقط":
+  // يحفظ معرّفات كل صف فشل إرساله ولو مرة واحدة بهذه الجلسة. تعديل الصف يصفّر
+  // apiStatus (منطق updateRow الموجود أصلاً) فيفقد علامة "error" - هذا المرجع
+  // هو ما يحفظ "كان فاشلاً" حتى بعد أن يُصفَّر apiStatus بسبب التعديل.
+  const failedRowIdsRef = useRef(new Set());
 
   // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
   // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
@@ -1793,9 +1803,19 @@ export function MergeTool() {
     setSending(true);
     sendStopRef.current.current = false;
     setSendProgress({ current: 0, total: rowsSegment.length });
+    // [إضافة 2026-09-10] entryIndex يطابق كل entry بالصف المصدر لها بنفس الترتيب
+    // (pushAccountsToQoyod يُصدر entry واحدًا بالضبط لكل صف قبل الانتقال للتالي)
+    // لحفظ rowId مع كل entry - يُستخدم لاحقًا لعرض الصفوف الفاشلة قابلة للتعديل
+    // داخل نافذة النتائج نفسها، ولتحديث failedRowIdsRef.
+    let entryIndex = 0;
     const result = await pushAccountsToQoyod(rowsSegment, apiKey.trim(), {
       stoppedRef: sendStopRef.current,
-      onEntry: (entry) => setSendEntries((prev) => [...prev, entry]),
+      onEntry: (entry) => {
+        const srcRow = rowsSegment[entryIndex];
+        entryIndex += 1;
+        if (entry.status === "error" && srcRow) failedRowIdsRef.current.add(srcRow.id);
+        setSendEntries((prev) => [...prev, { ...entry, rowId: srcRow ? srcRow.id : undefined }]);
+      },
       onProgress: (current, total) => setSendProgress({ current, total }),
     });
     setSending(false);
@@ -1805,13 +1825,26 @@ export function MergeTool() {
     const wasManualStop = sendStopRef.current.current === true;
     const lastEntry = result.entries[result.entries.length - 1];
     const isGenuineFailure = result.stoppedEarly && !result.fatalError && !wasManualStop && lastEntry?.status === "error";
-    setSendPausedForDecision(isGenuineFailure);
     setSendResult((prev) => mergeSendResult(prev, result));
 
     if (currentUser) {
       if (result.fatalError) trackMergeError(currentUser, { via: "api", error: result.fatalError });
       else trackMergeExport(currentUser, { via: "api", sent: result.sent, skipped: result.skipped, failed: result.failed, stoppedEarly: result.stoppedEarly });
     }
+
+    // [إضافة 2026-09-10] "تخطّي الكل والإكمال" مفعّل: أي فشل حقيقي هنا يُتخطى
+    // تلقائيًا (الصف يبقى محفوظًا apiStatus:"error" قابلاً للتعديل لاحقًا)
+    // وتُكمَل العملية للمتبقي بلا توقف لانتظار قرار جديد من المستخدم.
+    if (isGenuineFailure && skipAllErrorsRef.current) {
+      setSendPausedForDecision(false);
+      const remaining = sendRowsToSendRef.current.slice(sendProcessedCountRef.current);
+      if (remaining.length > 0) {
+        await runSendSegment(remaining);
+      }
+      return;
+    }
+
+    setSendPausedForDecision(isGenuineFailure);
   };
 
   const startSendToQoyod = async () => {
@@ -1820,6 +1853,7 @@ export function MergeTool() {
     setSendResult(null);
     setSendPausedForDecision(false);
     sendProcessedCountRef.current = 0;
+    skipAllErrorsRef.current = false;
     // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - تبقى
     // كما هي طوال هذه الدفعة المنطقية (حتى بعد أي "تخطّي واستمر")، فالفهرسة
     // بـsendProcessedCountRef تبقى صحيحة عبر كل المقاطع.
@@ -1837,6 +1871,32 @@ export function MergeTool() {
     setSendPausedForDecision(false);
     if (remaining.length === 0) return;
     await runSendSegment(remaining);
+  };
+
+  // [إضافة 2026-09-10] "تخطّي الكل والإكمال" - خيار ثالث صريح من المستخدم: يفعّل
+  // skipAllErrorsRef فتُتخطى كل الإخفاقات الحقيقية التالية تلقائيًا حتى نهاية
+  // الدفعة، فتُرفع الحسابات الصحيحة فقط بلا أي توقف إضافي لانتظار قرار المستخدم.
+  const continueSendSkipAllErrors = async () => {
+    skipAllErrorsRef.current = true;
+    const remaining = sendRowsToSendRef.current.slice(sendProcessedCountRef.current);
+    setSendPausedForDecision(false);
+    if (remaining.length === 0) return;
+    await runSendSegment(remaining);
+  };
+
+  // [إضافة 2026-09-10] "إرسال المعدَّل فقط" من نافذة نتائج الإرسال: دفعة منطقية
+  // جديدة مستقلة، تشمل فقط resendableFailedRows (فشلت سابقًا وعُدِّلت منذ ذلك) -
+  // تتخطى مباشرة كل حساب نجح بالفعل أو فشل ولم يُعدَّل، كما طلب المستخدم بالضبط.
+  const resendEditedFailures = async () => {
+    if (resendableFailedRows.length === 0) return;
+    setSendEntries([]);
+    setSendResult(null);
+    setSendPausedForDecision(false);
+    sendProcessedCountRef.current = 0;
+    skipAllErrorsRef.current = false;
+    sendRowsToSendRef.current = resendableFailedRows;
+    setShowSendResults(true);
+    await runSendSegment(sendRowsToSendRef.current);
   };
 
   // [إضافة 2026-09-09] "إيقاف الآن وتعديل الحسابات" - الخيار الثاني الصريح من
@@ -1936,6 +1996,22 @@ export function MergeTool() {
   // فشلت سابقًا (error) - كلها تبقى قابلة لإعادة المحاولة بعد تعديلها.
   const sendableNewRows = useMemo(() => activeNewRows.filter((r) => r.apiStatus !== "sent"), [activeNewRows]);
   const alreadySentCount = useMemo(() => activeNewRows.filter((r) => r.apiStatus === "sent").length, [activeNewRows]);
+  // [إضافة 2026-09-10] "الحسابات التي فشلت سابقًا وتم تعديلها منذ ذلك" - فقط
+  // هذه تُرسَل عند "إرسال المعدَّل فقط" من نافذة نتائج الإرسال: كان فشلها
+  // مسجَّلاً بـfailedRowIdsRef، لكن التعديل صفّر apiStatus لها (لم يعد "error"
+  // ولا "sent" بعد) - أي حساب نجح فعلاً أو فشل ولم يُعدَّل بعد يُستبعَد هنا.
+  const resendableFailedRows = useMemo(
+    () => (results || []).filter((r) => r.status === "new" && !r.deleted && failedRowIdsRef.current.has(r.id) && r.apiStatus !== "sent" && r.apiStatus !== "error"),
+    [results]
+  );
+  // [إضافة 2026-09-10] الحسابات التي فشلت بدفعة الإرسال الحالية المعروضة
+  // بنافذة النتائج - تُقرأ حيّة من results (لا لقطة ثابتة) حتى تنعكس أي
+  // تعديلات فورًا داخل نفس النافذة قبل الضغط على "إرسال المعدَّل فقط".
+  const failedRowsLive = useMemo(() => {
+    const failedIds = new Set(sendEntries.filter((e) => e.status === "error" && e.rowId != null).map((e) => e.rowId));
+    if (failedIds.size === 0) return [];
+    return (results || []).filter((r) => failedIds.has(r.id) && !r.deleted);
+  }, [sendEntries, results]);
   // [إضافة 2026-09-09] تنبيه استباقي قبل بدء الإرسال: أي حساب قابل للإرسال
   // ليس له نوع Qoyod صالح (بصرف النظر عن السبب - نوع لم يُختر، أو فئة مستوى2
   // ناقصة) سيفشل إرساله حتمًا. نستخدم نفس mapRowToQoyodType التي يستخدمها
@@ -2214,7 +2290,7 @@ export function MergeTool() {
               <p className="text-sm text-[#64748B]">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
             </div>
           </div>
-           <button onClick={resetAll} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-2 text-xs font-semibold text-[#64748B] shadow-sm transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
+           <button onClick={resetAll} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-2 text-xs font-semibold text-[#64748B] shadow-sm transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
         </div>
 
         {pendingDelete && (
@@ -2238,9 +2314,9 @@ export function MergeTool() {
                 </button>
                 <button
                   onClick={() => { const p = pendingDelete; setPendingDelete(null); setRowDeleted(p.id, true, "cascade"); }}
-                  className="w-full rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-right text-sm font-semibold text-red-300 hover:bg-red-500/25">
+                  className="w-full rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-right text-sm font-semibold text-red-700 hover:bg-red-500/25">
                   {t({ ar: "استبعد الأب وكل أبنائه", en: "Exclude parent and all its children" })} ({pendingDelete.count})
-                  <span className="mt-0.5 block text-[11px] font-normal text-red-400">{t({ ar: "يخرجون كلهم من ملف الرفع", en: "All removed from the upload file" })}</span>
+                  <span className="mt-0.5 block text-[11px] font-normal text-red-600">{t({ ar: "يخرجون كلهم من ملف الرفع", en: "All removed from the upload file" })}</span>
                 </button>
                 <button
                   onClick={() => setPendingDelete(null)}
@@ -2292,12 +2368,12 @@ export function MergeTool() {
               {sending && (
                 <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs">
                   <span className="font-semibold text-[#0F172A]">{t({ ar: `جارٍ الإرسال: ${sendProgress.current} من ${sendProgress.total}`, en: `Sending: ${sendProgress.current} of ${sendProgress.total}` })}</span>
-                  <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-400 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
+                  <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-600 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
                 </div>
               )}
 
               {!sending && sendResult?.fatalError && (
-                <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{lang === "en" ? localizeMergeError(sendResult.fatalError) : sendResult.fatalError}</div>
+                <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">{lang === "en" ? localizeMergeError(sendResult.fatalError) : sendResult.fatalError}</div>
               )}
 
               {!sending && sendResult && !sendResult.fatalError && (
@@ -2314,12 +2390,43 @@ export function MergeTool() {
                   <div className="mb-2 text-xs leading-relaxed text-amber-700">{t({ ar: "توقفت العملية بسبب فشل حقيقي بإرسال أحد الحسابات (تفاصيله بالجدول أدناه بحالة \"خطأ\"). اختر كيف تكمل:", en: "The process stopped due to a real failure sending one account (details in the table below, marked \"Error\"). Choose how to continue:" })}</div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button onClick={continueSendAfterSkip} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"><ArrowRight size={13} /> {t({ ar: "تخطّي هذا الحساب والاستمرار بالباقي", en: "Skip this account and continue" })}</button>
+                    <button onClick={continueSendSkipAllErrors} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-700/40 bg-blue-700/10 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-700/20"><ArrowRight size={13} /> {t({ ar: "تخطّي الكل والإكمال (رفع الصحيحة فقط)", en: "Skip all and continue (valid accounts only)" })}</button>
                     <button onClick={stopAndEditNow} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/40 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف الآن والتعديل على الحسابات", en: "Stop now and edit the accounts" })}</button>
                   </div>
                 </div>
               )}
               {!sending && !sendPausedForDecision && sendResult?.stoppedEarly && !sendResult?.fatalError && (
                 <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700">{t({ ar: "توقفت العملية قبل إكمال كل الحسابات (فشل حقيقي أو إيقاف يدوي - التكرار وحده لا يوقف العملية). الحسابات التي لم تُرسل بنجاح ما زالت بالجدول أدناه - عدّلها ثم اضغط زر الإرسال مرة أخرى لإرسال المتبقي فقط.", en: "The process stopped before completing all accounts (a real failure or a manual stop - duplication alone never stops it). Accounts not sent successfully are still in the table below - edit them and press send again to send only what remains." })}</div>
+              )}
+
+              {/* [إضافة 2026-09-10] نفس نافذة النتائج تصير قابلة للتعديل مباشرة على
+                  الحسابات التي فشلت - بالاسم/الرمز/النوع/الحساب الرئيسي أو أي تفصيل،
+                  ثم "إرسال المعدَّل فقط" يرسل فقط ما عُدِّل هنا، متخطّيًا مباشرة كل
+                  حساب نجح فعلاً أو فشل ولم يُعدَّل - طلب المستخدم بالضبط. */}
+              {!sending && failedRowsLive.length > 0 && (
+                <div className="mb-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-[#0F172A]">{t({ ar: "الحسابات التي فشلت - عدّلها هنا ثم أعد الإرسال", en: "Failed accounts — edit them here, then resend" })}</div>
+                    <button onClick={resendEditedFailures} disabled={resendableFailedRows.length === 0} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
+                      <Send size={13} /> {t({ ar: `إرسال المعدَّل فقط (${resendableFailedRows.length})`, en: `Resend edited only (${resendableFailedRows.length})` })}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
+                    <table className="w-full text-right text-xs" style={{ minWidth: 860 }}>
+                      <thead className="bg-[#F8FAFC] text-[#64748B]">
+                        <tr>
+                           <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
+                           <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
+                           <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {failedRowsLive.map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-[#94A3B8]">{t({ ar: "فقط الحسابات المعدَّلة هنا (منذ فشلها) تُرسل عند الضغط على الزر أعلاه - أي حساب فشل ولم تعدّله يبقى متخطًّى.", en: "Only accounts edited here (since they failed) are sent when you press the button above — any failed account you didn't edit stays skipped." })}</p>
+                </div>
               )}
 
               {sendEntries.length > 0 && (
@@ -2355,7 +2462,7 @@ export function MergeTool() {
         )}
 
         {toast && (
-          <div className={`fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,560px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-semibold shadow-lg ${toast.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : toast.type === "info" ? "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B]" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
+          <div className={`fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,560px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-semibold shadow-lg ${toast.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-700" : toast.type === "info" ? "border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B]" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"}`}>
             <span>{lang === "en" ? localizeMergeError(toast.text) : toast.text}</span>
             <button onClick={() => setToast(null)} className="shrink-0 opacity-60 hover:opacity-100"><X size={14} /></button>
           </div>
@@ -2406,7 +2513,7 @@ export function MergeTool() {
                   {Object.keys(savedKeys).map((name) => (
                     <div key={name} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${savedKeys[name] === apiKey.trim() ? "border-blue-700 bg-blue-700/10 text-blue-700" : "border-[#E2E8F0] text-[#64748B]"}`}>
                       <span className="cursor-pointer" onClick={() => loadApiKey(name)}>{name}</span>
-                      <span className="cursor-pointer text-red-400 hover:text-red-600" onClick={() => removeApiKey(name)}>×</span>
+                      <span className="cursor-pointer text-red-500 hover:text-red-600" onClick={() => removeApiKey(name)}>×</span>
                     </div>
                   ))}
                 </div>
@@ -2452,7 +2559,7 @@ export function MergeTool() {
         {showPreCompareConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
             <div dir="rtl" className="w-full max-w-md rounded-2xl bg-[#FFFFFF] p-6 shadow-xl">
-              <div className="mb-3 flex items-center gap-2 text-amber-400"><AlertTriangle size={22} /><h3 className="text-base font-bold text-[#0F172A]">{t({ ar: "تأكيد قبل بدء المقارنة", en: "Confirmation before starting comparison" })}</h3></div>
+              <div className="mb-3 flex items-center gap-2 text-amber-600"><AlertTriangle size={22} /><h3 className="text-base font-bold text-[#0F172A]">{t({ ar: "تأكيد قبل بدء المقارنة", en: "Confirmation before starting comparison" })}</h3></div>
               <p className="text-sm leading-relaxed text-[#64748B]">{t({ ar: "يرجى التحقق من عدم حذف الحسابات الخمسة الرئيسية بالمستوى الأول (الأصول، الالتزامات، حقوق الملكية، الإيرادات، المصاريف)", en: "Please make sure the five main level-1 accounts (Assets, Liabilities, Equity, Revenue, Expenses)" })} <span className="font-semibold">{t({ ar: "من داخل النظام", en: "have not been deleted in the system" })}</span> {t({ ar: "قبل ما تبدأ المقارنة.", en: "before you start the comparison." })}</p>
               <div className="mt-5 flex justify-end gap-2">
                 <button onClick={() => setShowPreCompareConfirm(false)} className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-semibold text-[#64748B] hover:bg-[#F8FAFC]">{t({ ar: "إلغاء", en: "Cancel" })}</button>
@@ -2462,13 +2569,13 @@ export function MergeTool() {
           </div>
         )}
 
-        {error && (<div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"><XCircle size={18} className="mt-0.5 shrink-0" /><span>{lang === "en" ? localizeMergeError(error) : error}</span></div>)}
+        {error && (<div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700"><XCircle size={18} className="mt-0.5 shrink-0" /><span>{lang === "en" ? localizeMergeError(error) : error}</span></div>)}
 
         {results && (
           <div className="mt-8">
             {missingParentCodes.size > 0 && (
               <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs leading-relaxed text-red-300">
+                <div className="text-xs leading-relaxed text-red-700">
                   <div className="mb-1 flex items-center gap-1.5 font-bold"><XCircle size={15} /> {t({ ar: `فيه ${missingParentCodes.size} حساب رئيسي مفقود من الشجرة`, en: `There are ${missingParentCodes.size} missing parent accounts in the tree` })}</div>
                   <div className="font-mono">{Array.from(missingParentCodes).slice(0, 10).join("، ")}{missingParentCodes.size > 10 ? " ..." : ""}</div>
                   <div className="mt-1">{t({ ar: "رفع الملف بهالحالة راح يُرفض من قيود لأن الحسابات الفرعية تشير لأب غير موجود.", en: "Uploading the file in this state will be rejected by Qoyod because child accounts point to a non-existent parent." })}</div>
@@ -2490,7 +2597,7 @@ export function MergeTool() {
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button onClick={() => selectFilter("tree")} className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${activeFilter === "tree" ? "border-blue-700 bg-blue-700 text-white" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#0F172A] hover:border-blue-700 hover:text-blue-700"}`}><GitBranch size={16} /> {t({ ar: "مخطط شجرة الحسابات التفاعلي", en: "Interactive accounts tree diagram" })}</button>
-              <button onClick={fixMissingParents} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-violet-500 hover:text-violet-300"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
+              <button onClick={fixMissingParents} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-violet-500 hover:text-violet-700"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
               <button onClick={runRepairLevels} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-blue-700 hover:text-blue-700"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
             </div>
 
@@ -2542,7 +2649,7 @@ export function MergeTool() {
                   </div>
                 )}
 
-                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300"><Info size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "تم اختيار جميع أنواع الحسابات وتحديث فئاتها التابعة تلقائيًا، وترتيب ملف الرفع بحيث يسبق كل حساب أب أبناءه.", en: "All account types have been assigned and their sub-categories updated automatically, and the upload file is ordered so each parent precedes its children." })}</span></div>
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700"><Info size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "تم اختيار جميع أنواع الحسابات وتحديث فئاتها التابعة تلقائيًا، وترتيب ملف الرفع بحيث يسبق كل حساب أب أبناءه.", en: "All account types have been assigned and their sub-categories updated automatically, and the upload file is ordered so each parent precedes its children." })}</span></div>
 
                 <div className="mt-5 overflow-x-auto rounded-xl border border-[#E2E8F0] bg-[#FFFFFF]">
                   <table className="w-full text-right text-xs" style={{ minWidth: 960 }}>
@@ -2610,11 +2717,11 @@ function MappingSummary({ mapping, headerRow, onToggle }) {
 function SummaryCard({ label, value, tone, active, onClick }) {
   const tones = {
     slate: "bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0]",
-    green: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
-    amber: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-    red: "bg-red-500/10 text-red-300 border-red-500/30",
-    teal: "bg-blue-500/10 text-blue-300 border-blue-500/30",
-    violet: "bg-violet-500/10 text-violet-300 border-violet-500/30",
+    green: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30",
+    amber: "bg-amber-500/10 text-amber-700 border-amber-500/30",
+    red: "bg-red-500/10 text-red-700 border-red-500/30",
+    teal: "bg-blue-500/10 text-blue-700 border-blue-500/30",
+    violet: "bg-violet-500/10 text-violet-700 border-violet-500/30",
   };
   return (
     <button type="button" onClick={onClick} className={`rounded-xl border p-4 text-start transition ${tones[tone]} ${onClick ? "cursor-pointer hover:shadow-md" : ""} ${active ? "ring-2 ring-blue-700 ring-offset-1" : ""}`}>
@@ -2647,10 +2754,10 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
     <tr className={`border-t border-[#E2E8F0] align-top hover:bg-[#F8FAFC]/60 ${r.autoParent ? "bg-violet-500/10" : ""}`}>
       <td className="px-3 py-2">
         <StatusBadge row={r} />
-        {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-300"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
+        {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-700"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
         <ApiSendBadge row={r} />
       </td>
-      <td className="px-3 py-2"><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
+      <td className="px-3 py-2" style={{ minWidth: 130 }}><EditableCell value={r.code} onChange={(v) => updateRow(r.id, { code: v })} mono /></td>
       {/* الاسم الانجليزي غير معروض عمدًا - يبقى محفوظًا في بيانات الصف ويُصدَّر كما هو،
           حُذف فقط من هذا العرض لإتاحة عرض التنبيهات وباقي الأعمدة بلا تمرير أفقي */}
       <td className="px-3 py-2" style={{ minWidth: 260 }}><EditableCell value={r.nameAr} onChange={(v) => updateRow(r.id, { nameAr: v })} wrap /></td>
@@ -2661,7 +2768,7 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
       </td>
       <td className="px-3 py-2">
         <EditableCell value={r.parent} onChange={(v) => updateRow(r.id, { parent: v })} mono />
-        {parentMissing && (<div className="mt-0.5 text-[10px] font-semibold text-red-400">⚠ {t({ ar: "هذا الأب غير موجود بالشجرة", en: "This parent does not exist in the tree" })}</div>)}
+        {parentMissing && (<div className="mt-0.5 text-[10px] font-semibold text-red-600">⚠ {t({ ar: "هذا الأب غير موجود بالشجرة", en: "This parent does not exist in the tree" })}</div>)}
       </td>
       <td className="px-3 py-2">
         {isTopLevel ? (<span className="text-[#94A3B8]">— (لا ينطبق)</span>) : (
@@ -2679,12 +2786,12 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
       <td className="px-3 py-2" style={{ maxWidth: 220 }}><NotesCell row={r} /></td>
       <td className="px-3 py-2" style={{ maxWidth: 170 }}>
         {isExistingCodeConflict ? (
-          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "هذا الرمز موجود أصلاً بشجرة قيود", en: "This code already exists in the Qoyod chart of accounts" })} className="flex w-full flex-col items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-center text-[11px] font-semibold leading-snug text-amber-300 hover:bg-amber-500/25">
+          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "هذا الرمز موجود أصلاً بشجرة قيود", en: "This code already exists in the Qoyod chart of accounts" })} className="flex w-full flex-col items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-center text-[11px] font-semibold leading-snug text-amber-700 hover:bg-amber-500/25">
             <span className="flex items-center gap-1"><AlertTriangle size={12} /> {t({ ar: "احذف من ملف الاستيراد", en: "Remove from import file" })}</span>
-            <span className="font-normal text-amber-300">{t({ ar: "لأنه تم التعديل في شجرة الحسابات الموجودة", en: "Because it was modified in the existing chart of accounts" })}</span>
+            <span className="font-normal text-amber-700">{t({ ar: "لأنه تم التعديل في شجرة الحسابات الموجودة", en: "Because it was modified in the existing chart of accounts" })}</span>
           </button>
         ) : (
-          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "استبعاد هذا الحساب من الرفع", en: "Exclude this account from the upload" })} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/25">{t({ ar: "حذف", en: "Delete" })}</button>
+          <button onClick={() => setRowDeleted(r.id, true)} title={t({ ar: "استبعاد هذا الحساب من الرفع", en: "Exclude this account from the upload" })} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-500/25">{t({ ar: "حذف", en: "Delete" })}</button>
         )}
       </td>
     </tr>
@@ -2701,9 +2808,9 @@ function StatusBadge({ row, compact, reviewed }) {
     const title = row.errors.length > 0 ? t({ ar: "خطأ", en: "Error" }) : row.autoParent ? t({ ar: "أب أُنشئ تلقائيًا", en: "Auto-created parent" }) : row.warnings.length > 0 ? t({ ar: "تنبيه", en: "Warning" }) : t({ ar: "سليم", en: "OK" });
     return <span title={title} className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} />;
   }
-  if (row.errors.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-300"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>;
-  if (row.warnings.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"><AlertTriangle size={12} /> {t({ ar: "تنبيه", en: "Warning" })}</span>;
-  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300"><CheckCircle2 size={12} /> {t({ ar: "سليم", en: "OK" })}</span>;
+  if (row.errors.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-700"><XCircle size={12} /> {t({ ar: "خطأ", en: "Error" })}</span>;
+  if (row.warnings.length > 0) return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700"><AlertTriangle size={12} /> {t({ ar: "تنبيه", en: "Warning" })}</span>;
+  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700"><CheckCircle2 size={12} /> {t({ ar: "سليم", en: "OK" })}</span>;
 }
 
 // [إضافة 2026-09-09] يعرض نتيجة آخر محاولة إرسال عبر API لهذا الحساب تحديدًا
@@ -2740,8 +2847,8 @@ function NotesCell({ row }) {
   if (row.errors.length === 0 && row.warnings.length === 0) return <span className="text-[#94A3B8]">—</span>;
   return (
     <ul className="space-y-1">
-      {row.errors.map((e, i) => (<li key={`e${i}`} className="text-red-400">• {e}</li>))}
-      {row.warnings.map((w, i) => (<li key={`w${i}`} className="text-amber-400">• {w}</li>))}
+      {row.errors.map((e, i) => (<li key={`e${i}`} className="text-red-600">• {e}</li>))}
+      {row.warnings.map((w, i) => (<li key={`w${i}`} className="text-amber-600">• {w}</li>))}
     </ul>
   );
 }
@@ -2790,7 +2897,7 @@ function ExistingMatchesTable({ rows, compact }) {
                 <td className="px-3 py-2">{r.source.nameAr || r.source.nameEn}</td>
                 <td className="px-3 py-2">{r.matchedWith.nameAr || r.matchedWith.nameEn} ({r.matchedWith.code})</td>
                 <td className="px-3 py-2">{r.matchType === "code" ? t({ ar: "بالرمز", en: "By code" }) : r.matchType === "exact-name" ? t({ ar: "بالاسم (تام)", en: "By name (exact)" }) : t({ ar: `بالاسم (تقريبي ${Math.round(r.matchScore * 100)}%)`, en: `By name (fuzzy ${Math.round(r.matchScore * 100)}%)` })}</td>
-                <td className="px-3 py-2 text-amber-400">{r.warnings.join(" / ")}</td>
+                <td className="px-3 py-2 text-amber-600">{r.warnings.join(" / ")}</td>
               </tr>
             ))}
             {rows.length === 0 && (<tr><td colSpan={4} className="px-3 py-6 text-center text-[#94A3B8]">{t({ ar: "ما فيه حسابات مطابقة مسبقًا", en: "No previously-matched accounts" })}</td></tr>)}
@@ -3150,7 +3257,7 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
             {!node.isAnchor && <StatusBadge row={node.row} compact reviewed={isReviewed} />}
             <button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(node); }} title={t({ ar: "إضافة حساب فرعي", en: "Add child account" })} className="text-[#94A3B8] hover:text-blue-700"><Plus size={12} /></button>
             {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleEditing((c) => (c === code ? null : code)); }} title={t({ ar: "تعديل", en: "Edit" })} className="text-[#94A3B8] hover:text-blue-700"><Pencil size={11} /></button>)}
-            {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#94A3B8] hover:text-red-400"><Trash2 size={11} /></button>)}
+            {!node.isAnchor && (<button onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteNode(node); }} title={t({ ar: "استبعاد", en: "Exclude" })} className="text-[#94A3B8] hover:text-red-600"><Trash2 size={11} /></button>)}
           </div>
         </div>
         <div className={`truncate ${node.isAnchor ? "italic" : "font-semibold text-[#0F172A]"}`}>{name}</div>
@@ -3594,9 +3701,9 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   return (
     <div className={isFullscreen ? "fixed inset-0 z-[9999] flex flex-col bg-[#FFFFFF] p-4" : "mt-5"} dir={dir}>
       {!isFullscreen && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-300"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-700"><GitBranch size={15} className="mt-0.5 shrink-0" /><span>{t({ ar: "اسحب أي حساب (مستوى3+) وأفلته فوق حساب تاني تحت نفس الفئة. يتم توارث نوع الحساب تلقائيًا. الحسابات البنفسجية آباء أُنشئوا تلقائيًا لأنهم كانوا مفقودين.", en: "Drag any account (level 3+) and drop it onto another account under the same category. The account type is inherited automatically. Violet accounts are parents created automatically because they were missing." })}</span></div>
       )}
-      {dropMessage && (<div className={`mb-3 shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-300" : dropMessage.type === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
+      {dropMessage && (<div className={`mb-3 shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold ${dropMessage.type === "error" ? "border-red-500/30 bg-red-500/10 text-red-700" : dropMessage.type === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-700" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"}`}>{lang === "en" ? localizeMergeError(dropMessage.text) : dropMessage.text}</div>)}
       {bucketEntries.length === 0 ? (<div className="rounded-xl border border-dashed border-[#E2E8F0] bg-[#FFFFFF] py-8 text-center text-sm text-[#94A3B8]">{t({ ar: "ما فيه حسابات جديدة لعرضها", en: "No new accounts to display" })}</div>) : (
         <>
           <div className="mb-3 flex shrink-0 flex-wrap gap-2">
