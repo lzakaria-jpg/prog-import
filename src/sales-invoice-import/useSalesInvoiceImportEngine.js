@@ -29,6 +29,10 @@ import { generateFinalXlsx, triggerXlsxDownload } from './io/xmlExport.js';
 // بكلا الملفين لتفاصيل القرارات المؤكَّدة ميدانيًا (لا تُعدِّل أي كود مطابقة/تحقق).
 import { fetchSalesReferencesFromApi } from './api/qoyodSalesRefFetch.js';
 import { pushSalesInvoicesToQoyod } from './api/qoyodSalesInvoicePush.js';
+// [إضافة] حفظ مفتاح API باسم العميل — نفس مخزن localStorage المشترك أصلاً بين أداتَي شجرة
+// الحسابات (MergeTool.jsx) ورفع المنتجات (product-upload)؛ استيراد قراءة فقط لوحدة تخزين
+// جاهزة ومُختبَرة، لا تعديل عليها ولا على أي كود آخر خارج هذا المجلد.
+import { getSavedKeys, saveKeysToStorage } from '../product-upload/io/keyStorage.js';
 
 const EMPTY_TEMPLATE = { loaded: false, dropdowns: { G: [], H: [], S: ['نعم', 'لا'], L: [], V: [] }, colMap: {}, missingFields: COL_KEYS.slice() };
 const EMPTY_REF = { loaded: false, raw: null, headers: null, mapping: null };
@@ -79,6 +83,35 @@ export default function useSalesInvoiceImportEngine() {
   const [apiSendEntries, setApiSendEntries] = useState([]); // تتراكم حيّة أثناء الإرسال (للعرض التدريجي)
   const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
   const apiSendStoppedRef = useRef({ current: false });
+
+  // [إضافة] حفظ مفتاح API باسم العميل — تخزين محلي بحت (localStorage)، مستقل تمامًا عن
+  // apiKey أعلاه (قيمة الحقل الحالي بلا حفظ) وعن fetchReferencesFromApi (منطق الجلب نفسه
+  // بلا أي تغيير). customerName حقل واجهة فقط، savedKeys قاموس {اسم العميل: مفتاح}.
+  const [customerName, setCustomerName] = useState('');
+  const [savedKeys, setSavedKeysState] = useState(() => getSavedKeys());
+
+  const saveApiKeyForCustomer = useCallback((key, name) => {
+    const k = (key || '').trim();
+    const n = (name || '').trim();
+    if (!k || !n) return { ok: false };
+    const next = { ...getSavedKeys(), [n]: k };
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+    return { ok: true };
+  }, []);
+
+  // يُرجع المفتاح المحفوظ لهذا الاسم (بلا أي جلب تلقائي — الجلب يبقى بضغطة صريحة على "جلب").
+  const loadSavedApiKey = useCallback((name) => {
+    setCustomerName(name);
+    return savedKeys[name] || '';
+  }, [savedKeys]);
+
+  const removeSavedApiKey = useCallback((name) => {
+    const next = { ...getSavedKeys() };
+    delete next[name];
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+  }, []);
 
   const refs = useMemo(() => ({
     template, products: productsRef, customers: customersRef, stock: stockRef,
@@ -377,6 +410,39 @@ export default function useSalesInvoiceImportEngine() {
 
   const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
 
+  // [إضافة] "إعادة تعيين" — مسح كل بيانات الجلسة الحالية (الملفات المرفوعة/المجلوبة، الصفوف،
+  // نتائج التحقق والتصدير والإرسال) والعودة للخطوة 1، بنفس مبدأ resetAll بأداتي الشجرة
+  // والقيود. لا يمسّ: rowSeqRef (لا يُصفَّر أبدًا طوال الجلسة — قاعدة قائمة أصلاً)، apiKey
+  // المكتوب حاليًا بالحقل، ولا قاموس savedKeys المحفوظ بـlocalStorage (يبقى متاحًا للاستخدام
+  // فورًا بعد إعادة التعيين، تمامًا كما لا يمسح resetAll بـMergeTool.jsx مفاتيحه المحفوظة).
+  const resetAll = useCallback(() => {
+    setStep(1);
+    setTemplate(EMPTY_TEMPLATE);
+    setProductsRef(EMPTY_REF);
+    setStockRef(EMPTY_REF);
+    setCustomersRef(EMPTY_REF);
+    setInvoiceImportFile({ headers: [], rows: [] });
+    setInvoiceImportGuesses(null);
+    setInvoiceImportStatus('');
+    setUploadError('');
+    setRows([]);
+    setIssues(EMPTY_ISSUES);
+    setAmbiguities([]);
+    revokePrevExportUrl();
+    setExportBusy(false);
+    setExportResult(null);
+    setExportError('');
+    setApiFetchBusy(false);
+    setApiFetchError('');
+    setApiFetchSummary(null);
+    setLocationIdByName(null);
+    apiSendStoppedRef.current.current = false;
+    setApiSendBusy(false);
+    setApiSendResult(null);
+    setApiSendEntries([]);
+    setApiSendProgress({ current: 0, total: 0 });
+  }, [revokePrevExportUrl]);
+
   /* ========================= التنقل بين الخطوات ========================= */
 
   // نفس شرط goStep الأصلي: n===1 أو القالب محمَّل — الفارق أن القرار هنا في المكوّن (تعطيل التبويب)
@@ -410,5 +476,9 @@ export default function useSalesInvoiceImportEngine() {
     // [إضافة] جلب/إرسال عبر Qoyod API
     apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi,
     apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
+
+    // [إضافة] حفظ مفتاح API باسم العميل + إعادة التعيين
+    customerName, setCustomerName, savedKeys, saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,
+    resetAll,
   };
 }

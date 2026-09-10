@@ -17,7 +17,7 @@ export default function MappingTable({ title, kind, defs, headers, rows, onConfi
   const [mapping, setMapping] = useState(initialGuesses);
 
   return (
-    <div className="qsv-panel" style={{ background: '#fbfcfd' }}>
+    <div className="qsv-panel" style={{ background: 'var(--qsv-panel-tint)' }}>
       <h3>{title}</h3>
       <table className="qsv-mapping-table">
         <tbody>

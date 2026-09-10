@@ -30,7 +30,7 @@ export default function WideStockMappingTable({ headers, rows, templateLocations
   const [locCols, setLocCols] = useState(initialLocCols);
 
   return (
-    <div className="qsv-panel" style={{ background: '#fbfcfd' }}>
+    <div className="qsv-panel" style={{ background: 'var(--qsv-panel-tint)' }}>
       <h3>{t({ ar: 'مطابقة أعمدة تقرير مواقع المنتجات', en: 'Match the product locations report columns' })}</h3>
       <div className="qsv-note-box">
         📊 {t({

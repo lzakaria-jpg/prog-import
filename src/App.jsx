@@ -431,8 +431,12 @@ function AppShell() {
           {can(currentUserRecord, "tool.bills") && (
             <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport showHeader={false} /></div>
           )}
+          {/* [إعادة تصميم] showHeader مفعّل الآن (بلا تمرير false) — رأس الأداة الجديد صار
+              مطابقًا بصريًا لرأسَي أداتي الشجرة والقيود (MergeTool/JournalTool)، اللتين
+              تعرضان رأسيهما دائمًا بلا هذا الخيار أصلًا؛ يوحّد ظهور عنوان الأداة بأعلى الصفحة
+              بدل غياب أي عنوان سابقًا. تعديل سطر واحد بصري بحت، بلا أي أثر على منطق الأداة. */}
           {can(currentUserRecord, "tool.sales") && (
-            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool showHeader={false} /></div>
+            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool /></div>
           )}
           {can(currentUserRecord, "tool.products") && (
             <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}><ProductUploadTool showHeader={false} /></div>

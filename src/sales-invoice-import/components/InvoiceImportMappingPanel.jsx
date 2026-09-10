@@ -33,7 +33,7 @@ export default function InvoiceImportMappingPanel({ headers, rawRows, guesses, r
   };
 
   return (
-    <div className="qsv-panel" style={{ background: '#fbfcfd' }}>
+    <div className="qsv-panel" style={{ background: 'var(--qsv-panel-tint)' }}>
       <table className="qsv-mapping-table">
         <tbody>
           {COLUMNS.map((col) => {
@@ -61,7 +61,7 @@ export default function InvoiceImportMappingPanel({ headers, rawRows, guesses, r
             const guess = mapping[key];
             const meta = AUX_FIELD_LABELS[key];
             return (
-              <tr key={key} style={{ background: '#f8fbff' }}>
+              <tr key={key} style={{ background: 'var(--qsv-brand-bg)' }}>
                 <td>{meta.icon} {meta.label}<div className="qsv-hint">{meta.hint}</div></td>
                 <td>
                   <select value={guess || ''} onChange={(e) => setField(key, e.target.value)}>
