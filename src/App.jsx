@@ -171,9 +171,14 @@ function UpdateBanner() {
 // ── App Shell ──────────────────────────────────────────────────────
 
 function AppShell() {
-  const [tab, setTab] = useState("journal");
+  // [تعديل 2026-09-10] أول صفحة تُفتَح بعد تسجيل الدخول الآن هي "تحليل الشجرة
+  // واستيرادها" (استيراد شجرة الحسابات، ضمن "أدوات خدمات التأسيس") بدل "تحليل
+  // القيود واستيرادها" - طلب المستخدم الصريح. آمن لكل المستخدمين بلا استثناء:
+  // useEffect بالأسفل (visibleNavItems) يحوّل تلقائيًا لأول أداة يملك صلاحيتها
+  // فعليًا لو ما كان يملك صلاحية "merge" تحديدًا - فلا شاشة فارغة لأي أحد.
+  const [tab, setTab] = useState("merge");
   const [collapsed, setCollapsed] = useState(false);
-  const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("journal"));
+  const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("merge"));
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
@@ -249,7 +254,7 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "1.9.12";
+  const currentVersion = "1.9.13";
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
