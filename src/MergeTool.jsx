@@ -1695,6 +1695,18 @@ export function MergeTool() {
   // فقط الحسابات الفاشلة (قابلة للتعديل الكامل) - طلب المستخدم الصريح بالتنقل
   // الحر بينها بدل غرقها وسط كل النتائج.
   const [resultsTab, setResultsTab] = useState("all");
+  // [إضافة 2026-09-10] تحديد يدوي لحسابات فاشلة معيّنة بنافذة النتائج + "إرسال
+  // المحدد فقط" - مستقل عن آلية "إرسال المعدَّل فقط" التلقائية (تلك تعتمد على
+  // التعديل الفعلي؛ هذا تحكّم يدوي إضافي بحت، طلب المستخدم الصريح). Set وليس
+  // useRef حتى يُحدِّث الواجهة فورًا عند كل تأشير/إلغاء تأشير.
+  const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
+  const toggleRowSelected = (id) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
   // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
@@ -1858,6 +1870,7 @@ export function MergeTool() {
     setSendResult(null);
     setSendPausedForDecision(false);
     setResultsTab("all");
+    setSelectedRowIds(new Set());
     sendProcessedCountRef.current = 0;
     skipAllErrorsRef.current = false;
     // [إضافة 2026-09-09] لقطة ثابتة من الصفوف القابلة للإرسال وقت الضغط - تبقى
@@ -1899,9 +1912,28 @@ export function MergeTool() {
     setSendResult(null);
     setSendPausedForDecision(false);
     setResultsTab("all");
+    setSelectedRowIds(new Set());
     sendProcessedCountRef.current = 0;
     skipAllErrorsRef.current = false;
     sendRowsToSendRef.current = resendableFailedRows;
+    setShowSendResults(true);
+    await runSendSegment(sendRowsToSendRef.current);
+  };
+
+  // [إضافة 2026-09-10] "إرسال المحدد فقط" - تحكّم يدوي إضافي بجانب "إرسال
+  // المعدَّل فقط" التلقائي: يرسل فقط الحسابات الفاشلة اللي أشّر عليها المستخدم
+  // يدويًا بمربعات التحديد (selectedRowIds)، بصرف النظر عن كونها عُدِّلت أو لا.
+  const resendSelectedOnly = async () => {
+    const rowsToSend = failedRowsLive.filter((r) => selectedRowIds.has(r.id));
+    if (rowsToSend.length === 0) return;
+    setSendEntries([]);
+    setSendResult(null);
+    setSendPausedForDecision(false);
+    setResultsTab("all");
+    setSelectedRowIds(new Set());
+    sendProcessedCountRef.current = 0;
+    skipAllErrorsRef.current = false;
+    sendRowsToSendRef.current = rowsToSend;
     setShowSendResults(true);
     await runSendSegment(sendRowsToSendRef.current);
   };
@@ -2026,6 +2058,10 @@ export function MergeTool() {
   // (لا إيجابيات/سلبيات كاذبة) - بدل ترك المستخدم يكتشف الفشل بعد بدء الرفع.
   const rowsMissingQoyodType = useMemo(() => sendableNewRows.filter((r) => !mapRowToQoyodType(r)), [sendableNewRows]);
   const autoParentRows = useMemo(() => activeNewRows.filter((r) => r.autoParent), [activeNewRows]);
+  // [إضافة 2026-09-10] "الحسابات المعدَّلة" - مراجعة كل حساب لمسه المستخدم يدويًا
+  // (userEdited، عبر updateRow) قبل الإرسال - طلبه الصريح، بدون أي تأثير على
+  // منطق الفحص/التصنيف/التحقق نفسه (علم عرض بحت).
+  const editedRows = useMemo(() => activeNewRows.filter((r) => r.userEdited), [activeNewRows]);
   const errorCount = useMemo(() => activeNewRows.filter((r) => r.errors.length > 0).length, [activeNewRows]);
   const warningCount = useMemo(() => activeNewRows.filter((r) => r.warnings.length > 0 && r.errors.length === 0).length, [activeNewRows]);
   const cleanCount = activeNewRows.length - errorCount - warningCount;
@@ -2084,9 +2120,10 @@ export function MergeTool() {
       case "warning": return activeNewRows.filter((r) => r.warnings.length > 0 && r.errors.length === 0);
       case "clean": return activeNewRows.filter((r) => r.errors.length === 0 && r.warnings.length === 0);
       case "autoParent": return autoParentRows;
+      case "edited": return editedRows;
       default: return activeNewRows;
     }
-  }, [activeNewRows, autoParentRows, activeFilter]);
+  }, [activeNewRows, autoParentRows, editedRows, activeFilter]);
 
   // يجمع كل ذرية حساب (أبناء + أبناء الأبناء) من الصفوف الجديدة غير المستبعدة
   const collectDescendantIds = useCallback((rows, id, targetCode) => {
@@ -2201,7 +2238,11 @@ export function MergeTool() {
 
       const mapped = prev.map((r) => {
         if (r.id !== id) return r;
-        const updated = { ...r, ...nextPatch };
+        // [إضافة 2026-09-10] userEdited: true - علم عالمي بحت (لا يقرأه أي منطق
+        // فحص/تدقيق/تحقق حالي، فقط لتغذية فلتر عرض "الحسابات المعدَّلة" الجديد
+        // للمراجعة قبل الإرسال) - يُعلَّم على أي استدعاء لـupdateRow لأن كل
+        // استدعاء أصلاً ناتج عن تعديل مستخدم فعلي بواجهة الجدول/الشجرة.
+        const updated = { ...r, ...nextPatch, userEdited: true };
         if (touchesPayload && (r.apiStatus === "skip" || r.apiStatus === "error")) {
           updated.apiStatus = undefined;
           updated.apiStatusReason = "";
@@ -2301,7 +2342,14 @@ export function MergeTool() {
         </div>
 
         {pendingDelete && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => setPendingDelete(null)}>
+          // [تصحيح 2026-09-10] كان z-[60] - نفس طبقة كل الشاشات الثانوية الأخرى
+          // (تأكيد الإرسال، نتائج الإرسال) وأقل من العرض بملء الشاشة للمخطط
+          // التفاعلي (z-[9999]) - فهذا التنبيه، اللي ممكن يُستدعى من داخل أي منها
+          // (حذف حساب له أبناء بجدول نتائج الإرسال أو بمخطط الشجرة بملء الشاشة)،
+          // كان يُرسم خلفها فعليًا وما يظهر للمستخدم إطلاقًا (بلا أي رسالة خطأ -
+          // العملية تبدو "معلّقة" بصمت). رُفع لأعلى طبقة بالتطبيق كامل حتى يظهر
+          // فوق أي شاشة يُستدعى منها دائمًا.
+          <div className="fixed inset-0 z-[10010] flex items-center justify-center bg-slate-900/50 px-4" onClick={() => setPendingDelete(null)}>
             <div dir="rtl" className="w-full max-w-md rounded-2xl bg-[#FFFFFF] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="mb-2 flex items-center gap-2 text-[#0F172A]">
                 <AlertTriangle size={18} className="text-amber-500" />
@@ -2424,31 +2472,51 @@ export function MergeTool() {
                     حساب نجح فعلاً أو فشل ولم يُعدَّل - طلب المستخدم بالضبط. تظهر بتبويب
                     "الكل" و"فشل" فقط - باقي التبويبات جدول عرض بسيط غير قابل للتعديل
                     (نجح/تخطّي لا يحتاجان تعديلًا أصلاً). */}
-                {!sending && (resultsTab === "all" || resultsTab === "error") && failedRowsLive.length > 0 && (
-                  <div className="mb-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs font-bold text-[#0F172A]">{t({ ar: `الحسابات التي فشلت (${failedRowsLive.length}) - عدّلها هنا ثم أعد الإرسال`, en: `Failed accounts (${failedRowsLive.length}) — edit them here, then resend` })}</div>
-                      <button onClick={resendEditedFailures} disabled={resendableFailedRows.length === 0} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
-                        <Send size={13} /> {t({ ar: `إرسال المعدَّل فقط (${resendableFailedRows.length})`, en: `Resend edited only (${resendableFailedRows.length})` })}
-                      </button>
+                {!sending && (resultsTab === "all" || resultsTab === "error") && failedRowsLive.length > 0 && (() => {
+                  const allSelected = failedRowsLive.length > 0 && failedRowsLive.every((r) => selectedRowIds.has(r.id));
+                  const toggleSelectAll = () => {
+                    setSelectedRowIds((prev) => {
+                      if (allSelected) return new Set();
+                      const next = new Set(prev);
+                      failedRowsLive.forEach((r) => next.add(r.id));
+                      return next;
+                    });
+                  };
+                  const selectedCount = failedRowsLive.filter((r) => selectedRowIds.has(r.id)).length;
+                  return (
+                    <div className="mb-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-bold text-[#0F172A]">{t({ ar: `الحسابات التي فشلت (${failedRowsLive.length}) - عدّلها هنا ثم أعد الإرسال`, en: `Failed accounts (${failedRowsLive.length}) — edit them here, then resend` })}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* [إضافة 2026-09-10] "إرسال المحدد فقط" - تحكّم يدوي إضافي بجانب
+                              "إرسال المعدَّل فقط" التلقائي - طلب المستخدم الصريح. */}
+                          <button onClick={resendSelectedOnly} disabled={selectedCount === 0} className="flex items-center gap-1.5 rounded-lg border border-blue-700/40 bg-blue-700/10 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-700/20 disabled:cursor-not-allowed disabled:opacity-40">
+                            <Send size={13} /> {t({ ar: `إرسال المحدد فقط (${selectedCount})`, en: `Send selected only (${selectedCount})` })}
+                          </button>
+                          <button onClick={resendEditedFailures} disabled={resendableFailedRows.length === 0} className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
+                            <Send size={13} /> {t({ ar: `إرسال المعدَّل فقط (${resendableFailedRows.length})`, en: `Resend edited only (${resendableFailedRows.length})` })}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
+                        <table className="w-full text-right text-xs" style={{ minWidth: 900 }}>
+                          <thead className="bg-[#F8FAFC] text-[#64748B]">
+                            <tr>
+                               <th className="px-3 py-2"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="h-4 w-4 cursor-pointer accent-blue-700" title={t({ ar: "تحديد الكل", en: "Select all" })} /></th>
+                               <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
+                               <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
+                               <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {failedRowsLive.map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} selectable selected={selectedRowIds.has(r.id)} onToggleSelect={toggleRowSelected} />))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-[#94A3B8]">{t({ ar: "\"إرسال المعدَّل فقط\" يرسل الحسابات المعدَّلة هنا منذ فشلها تلقائيًا. \"إرسال المحدد فقط\" يرسل فقط ما أشّرت عليه بمربعات التحديد، بصرف النظر عن التعديل. زر \"حذف\" آخر عمود يستبعد الحساب من قائمة الرفع نهائيًا.", en: "\"Resend edited only\" sends accounts edited here since they failed. \"Send selected only\" sends only what you checked, regardless of editing. The \"Delete\" button in the last column excludes the account from the upload list entirely." })}</p>
                     </div>
-                    <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
-                      <table className="w-full text-right text-xs" style={{ minWidth: 860 }}>
-                        <thead className="bg-[#F8FAFC] text-[#64748B]">
-                          <tr>
-                             <th className="px-3 py-2">{t({ ar: "الحالة", en: "Status" })}</th><th className="px-3 py-2">{t({ ar: "الرمز", en: "Code" })}</th><th className="px-3 py-2">{t({ ar: "الاسم العربي", en: "Arabic name" })}</th>
-                             <th className="px-3 py-2">{t({ ar: "المستوى", en: "Level" })}</th><th className="px-3 py-2">{t({ ar: "الحساب الرئيسي", en: "Parent account" })}</th><th className="px-3 py-2">{t({ ar: "الفئة الرئيسية (م2)", en: "Main category (L2)" })}</th>
-                             <th className="px-3 py-2">{t({ ar: "نوع الحساب", en: "Account type" })}</th><th className="px-3 py-2">{t({ ar: "ملاحظات", en: "Notes" })}</th><th className="px-3 py-2">{t({ ar: "حذف", en: "Delete" })}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {failedRowsLive.map((r) => (<NewAccountRow key={r.id} row={r} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} parentMissing={!!r.parent && missingParentCodes.has(String(r.parent).trim())} />))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="mt-1.5 text-[10px] text-[#94A3B8]">{t({ ar: "فقط الحسابات المعدَّلة هنا (منذ فشلها) تُرسل عند الضغط على الزر أعلاه - أي حساب فشل ولم تعدّله يبقى متخطًّى. زر \"حذف\" آخر عمود يستبعد الحساب من قائمة الرفع نهائيًا.", en: "Only accounts edited here (since they failed) are sent when you press the button above — any failed account you didn't edit stays skipped. The \"Delete\" button in the last column excludes the account from the upload list entirely." })}</p>
-                  </div>
-                )}
+                  );
+                })()}
                 {!sending && resultsTab === "error" && failedRowsLive.length === 0 && (
                   <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4 text-center text-xs text-[#64748B]">{t({ ar: "ما فيه حسابات فاشلة حاليًا 🎉", en: "No failed accounts right now 🎉" })}</div>
                 )}
@@ -2491,6 +2559,19 @@ export function MergeTool() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* [إضافة 2026-09-10] أيقونة عائمة دائمة لإعادة فتح نافذة نتائج الإرسال بعد
+            إغلاقها (بالضغط خارجها أو زر ×) - طلب المستخدم الصريح: كانت تختفي كليًا
+            بلا أي طريقة رجوع. البيانات (sendEntries/sendResult/resultsTab/التحديد)
+            كلها محفوظة أصلاً بحالة المكوّن الأعلى (لا تُمسح بإغلاق النافذة نفسها) -
+            فإعادة الفتح تعيدها لنفس التبويب وبنفس التعديلات فورًا بلا أي عمل إضافي. */}
+        {!showSendResults && sendResult && (
+          <button onClick={() => setShowSendResults(true)} title={t({ ar: "الرجوع لنتائج آخر إرسال عبر API", en: "Back to the last API send results" })} className="fixed bottom-5 left-5 z-[55] flex items-center gap-2 rounded-full bg-[#162560] px-4 py-3 text-xs font-semibold text-white shadow-2xl hover:bg-[#1c2f7a]">
+            <Send size={16} />
+            {t({ ar: "نتائج الإرسال", en: "Send results" })}
+            {sendResult.failed > 0 && (<span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold">{sendResult.failed}</span>)}
+          </button>
         )}
 
         {toast && (
@@ -2623,6 +2704,7 @@ export function MergeTool() {
               <SummaryCard label={t({ ar: "تحتاج تنبيه", en: "Need attention" })} value={warningCount} tone="amber" active={activeFilter === "warning"} onClick={() => selectFilter("warning")} />
               <SummaryCard label={t({ ar: "أخطاء تحتاج تعديل", en: "Errors to fix" })} value={errorCount} tone="red" active={activeFilter === "error"} onClick={() => selectFilter("error")} />
               <SummaryCard label={t({ ar: "آباء أُنشئوا تلقائيًا", en: "Auto-created parents" })} value={autoParentRows.length} tone="violet" active={activeFilter === "autoParent"} onClick={() => selectFilter("autoParent")} />
+              <SummaryCard label={t({ ar: "الحسابات المعدَّلة", en: "Edited accounts" })} value={editedRows.length} tone="teal" active={activeFilter === "edited"} onClick={() => selectFilter("edited")} />
               <SummaryCard label={t({ ar: "مستبعدة (محذوفة)", en: "Excluded (deleted)" })} value={deletedRows.length} tone="slate" active={activeFilter === "deleted"} onClick={() => selectFilter("deleted")} />
             </div>
             {activeFilter !== "all" && activeFilter !== "tree" && (<button onClick={() => selectFilter("all")} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">{t({ ar: "✕ إلغاء الفلتر وعرض الكل", en: "✕ Clear filter and show all" })}</button>)}
@@ -2762,7 +2844,7 @@ function SummaryCard({ label, value, tone, active, onClick }) {
   );
 }
 
-const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, setRowDeleted, availableTypesFor, parentMissing }) {
+const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, setRowDeleted, availableTypesFor, parentMissing, selectable, selected, onToggleSelect }) {
   const { t } = useLanguage();
   const isExistingCodeConflict = r.errors.some((e) => e.includes("مستخدم مسبقًا"));
 
@@ -2783,7 +2865,15 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
   const typeOptions = r.type && !baseTypeOptions.includes(r.type) ? [r.type, ...baseTypeOptions] : baseTypeOptions;
 
   return (
-    <tr className={`border-t border-[#E2E8F0] align-top hover:bg-[#F8FAFC]/60 ${r.autoParent ? "bg-violet-500/10" : ""}`}>
+    <tr className={`border-t border-[#E2E8F0] align-top hover:bg-[#F8FAFC]/60 ${r.autoParent ? "bg-violet-500/10" : ""} ${selected ? "bg-blue-500/10" : ""}`}>
+      {/* [إضافة 2026-09-10] عمود تحديد اختياري - يظهر فقط لو selectable مُمرَّرة
+          (نافذة نتائج الإرسال تحديدًا) - بلا أي أثر على استخدامات NewAccountRow
+          الأخرى (الجدول الرئيسي/نتائج البحث) اللي ما تمرّره إطلاقًا. */}
+      {selectable && (
+        <td className="px-3 py-2">
+          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect && onToggleSelect(r.id)} className="h-4 w-4 cursor-pointer accent-blue-700" />
+        </td>
+      )}
       <td className="px-3 py-2">
         <StatusBadge row={r} />
         {r.autoParent && (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-500/25 px-2 py-0.5 text-[10px] font-semibold text-violet-700"><Wand2 size={10} /> {t({ ar: "أب تلقائي", en: "Auto parent" })}</div>)}
@@ -2828,7 +2918,7 @@ const NewAccountRow = React.memo(function NewAccountRow({ row: r, updateRow, set
       </td>
     </tr>
   );
-}, (prev, next) => prev.row === next.row && prev.parentMissing === next.parentMissing);
+}, (prev, next) => prev.row === next.row && prev.parentMissing === next.parentMissing && prev.selected === next.selected);
 
 function StatusBadge({ row, compact, reviewed }) {
   const { t } = useLanguage();
