@@ -1,0 +1,137 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { buildSalesInvoicePayload, pushSalesInvoicesToQoyod } from '../qoyodSalesInvoicePush.js';
+
+afterEach(() => { vi.restoreAllMocks(); });
+
+function makeRow(overrides) {
+  return {
+    id: 'r1', A: 'INV-1', B: '', C: '205', D: '11/09/2026', E: '', F: '',
+    G: 'المركز الرئيسي', H: '', I: '', J: '', K: '', L: '', M: '',
+    N: '358719364730', O: '', P: '2', Q: '', R: '100', S: 'لا', T: '', U: '', V: '15%',
+    ...overrides,
+  };
+}
+
+const productsIndex = { bySku: new Map([['358719364730', { sku: '358719364730', name: 'اسوارة', sellable: true, stocked: true, id: 1 }]]) };
+const locationIdByName = new Map([['المركز الرئيسي', 1]]);
+
+describe('buildSalesInvoicePayload', () => {
+  it('يبني حمولة صحيحة كاملة من مجموعة صفوف فاتورة واحدة', () => {
+    const built = buildSalesInvoicePayload([makeRow()], { productsIndex, locationIdByName, status: 'Draft' });
+    expect(built.ok).toBe(true);
+    expect(built.payload).toEqual({
+      invoice: {
+        contact_id: 205,
+        issue_date: '2026-09-11',
+        due_date: '2026-09-11',
+        status: 'Draft',
+        inventory_id: 1,
+        draft_if_out_of_stock: true,
+        line_items: [{ product_id: 1, quantity: 2, unit_price: 100, is_inclusive: false }],
+        reference: 'INV-1',
+      },
+    });
+  });
+
+  it('لا يرسل tax_percent إطلاقًا (Qoyod يطبّقها تلقائيًا من المنتج)', () => {
+    const built = buildSalesInvoicePayload([makeRow()], { productsIndex, locationIdByName });
+    expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_percent');
+  });
+
+  it('due_date يرث issue_date عند فراغ E', () => {
+    const built = buildSalesInvoicePayload([makeRow({ E: '' })], { productsIndex, locationIdByName });
+    expect(built.payload.invoice.due_date).toBe(built.payload.invoice.issue_date);
+  });
+
+  it('يستخدم E كتاريخ استحقاق منفصل عند تعبئته', () => {
+    const built = buildSalesInvoicePayload([makeRow({ E: '15/09/2026' })], { productsIndex, locationIdByName });
+    expect(built.payload.invoice.due_date).toBe('2026-09-15');
+  });
+
+  it('نسبة الخصم (T) تُرسَل كـdiscount/discount_type=percentage', () => {
+    const built = buildSalesInvoicePayload([makeRow({ T: '10' })], { productsIndex, locationIdByName });
+    expect(built.payload.invoice.line_items[0]).toMatchObject({ discount: 10, discount_type: 'percentage' });
+  });
+
+  it('قيمة الخصم (U) تُرسَل كـdiscount/discount_type=amount', () => {
+    const built = buildSalesInvoicePayload([makeRow({ U: '5' })], { productsIndex, locationIdByName });
+    expect(built.payload.invoice.line_items[0]).toMatchObject({ discount: 5, discount_type: 'amount' });
+  });
+
+  it('يفشل بوضوح لو تعذّر تحديد رقم العميل الحقيقي', () => {
+    const built = buildSalesInvoicePayload([makeRow({ C: 'CUS-XYZ' })], { productsIndex, locationIdByName });
+    expect(built.ok).toBe(false);
+    expect(built.error).toMatch(/رقم العميل/);
+  });
+
+  it('يفشل بوضوح لو تعذّر مطابقة الموقع بمعرّف مخزون', () => {
+    const built = buildSalesInvoicePayload([makeRow({ G: 'موقع غير معروف' })], { productsIndex, locationIdByName });
+    expect(built.ok).toBe(false);
+    expect(built.error).toMatch(/الموقع/);
+  });
+
+  it('يفشل بوضوح لو تعذّر تحديد معرّف المنتج الحقيقي', () => {
+    const built = buildSalesInvoicePayload([makeRow({ N: 'SKU-غير-موجود' })], { productsIndex, locationIdByName });
+    expect(built.ok).toBe(false);
+    expect(built.error).toMatch(/المنتج/);
+  });
+
+  it('يجمع أكثر من بند لنفس الفاتورة بمصفوفة line_items واحدة', () => {
+    const rows = [makeRow(), makeRow({ id: 'r2', N: '358719364730', P: '1' })];
+    const built = buildSalesInvoicePayload(rows, { productsIndex, locationIdByName });
+    expect(built.payload.invoice.line_items).toHaveLength(2);
+  });
+});
+
+describe('pushSalesInvoicesToQoyod', () => {
+  it('يرسل فاتورة واحدة بنجاح', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 229, total: '115.0' } }),
+    });
+    const entries = [];
+    const result = await pushSalesInvoicesToQoyod([makeRow()], 'KEY', {
+      productsIndex, locationIdByName, onEntry: (e) => entries.push(e),
+    });
+    expect(result).toMatchObject({ total: 1, sent: 1, failed: 0, stoppedEarly: false });
+    expect(entries).toEqual([{ ref: 'INV-1', status: 'success', id: 229, total: '115.0' }]);
+  });
+
+  it('فشل فاتورة واحدة (رفض API) لا يوقف باقي الفواتير المستقلة', async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) return { ok: false, status: 422, text: async () => 'Validation failed' };
+      return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 300, total: '50.0' } }) };
+    });
+    const rows = [makeRow(), makeRow({ id: 'r2', A: 'INV-2' })];
+    const result = await pushSalesInvoicesToQoyod(rows, 'KEY', { productsIndex, locationIdByName });
+    expect(result.total).toBe(2);
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0].status).toBe('error');
+    expect(result.entries[1].status).toBe('success');
+  });
+
+  it('صفوف بلا مرجع فاتورة (__blank__) تُستبعَد من الإرسال', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 1 } }) });
+    const result = await pushSalesInvoicesToQoyod([makeRow({ A: '' })], 'KEY', { productsIndex, locationIdByName });
+    expect(result.total).toBe(0);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('يرجّع fatalError واضح بلا مفتاح API، بلا أي استدعاء شبكة', async () => {
+    global.fetch = vi.fn();
+    const result = await pushSalesInvoicesToQoyod([makeRow()], '', { productsIndex, locationIdByName });
+    expect(result.fatalError).toMatch(/مفتاح API/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('فشل بناء الحمولة (لا معرّف عميل مثلاً) يُسجَّل كخطأ ويكمل الباقي بلا استدعاء API لتلك الفاتورة', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 5 } }) });
+    const rows = [makeRow({ C: 'CUS-XYZ' }), makeRow({ id: 'r2', A: 'INV-2' })];
+    const result = await pushSalesInvoicesToQoyod(rows, 'KEY', { productsIndex, locationIdByName });
+    expect(result.failed).toBe(1);
+    expect(result.sent).toBe(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+});

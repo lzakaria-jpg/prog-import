@@ -3,6 +3,7 @@ import { useLanguage } from '../../language.jsx';
 import UploadCard from './UploadCard.jsx';
 import MappingTable from './MappingTable.jsx';
 import WideStockMappingTable from './WideStockMappingTable.jsx';
+import ApiFetchPanel from './ApiFetchPanel.jsx'; // [إضافة] جلب اختياري عبر API — راجع تعليق رأس الملف
 import { COLUMNS, MAPPING_DEFS } from '../engine/constants.js';
 import { detectStockFormat } from '../engine/columnShape.js';
 
@@ -56,6 +57,8 @@ export default function Step1References({ engine }) {
 
       {/* [إصلاح] رسالة خطأ رفع ظاهرة — كان فشل قراءة أي ملف يُبتلَع بصمت تمامًا */}
       {uploadError && <div className="qsv-note-box err" style={{ marginBottom: 10 }}>⛔ {uploadError}</div>}
+
+      <ApiFetchPanel engine={engine} />
 
       <div className="qsv-grid4">
         <UploadCard

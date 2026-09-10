@@ -25,6 +25,11 @@ import { parseTemplateFile } from './io/template.js';
 import { readGenericSpreadsheet } from './io/readGenericSpreadsheet.js';
 import { generateFinalXlsx, triggerXlsxDownload } from './io/xmlExport.js';
 
+// [إضافة] جلب/إرسال عبر Qoyod API — ميزة إضافية بحتة، راجع تعليقات الرأس
+// بكلا الملفين لتفاصيل القرارات المؤكَّدة ميدانيًا (لا تُعدِّل أي كود مطابقة/تحقق).
+import { fetchSalesReferencesFromApi } from './api/qoyodSalesRefFetch.js';
+import { pushSalesInvoicesToQoyod } from './api/qoyodSalesInvoicePush.js';
+
 const EMPTY_TEMPLATE = { loaded: false, dropdowns: { G: [], H: [], S: ['نعم', 'لا'], L: [], V: [] }, colMap: {}, missingFields: COL_KEYS.slice() };
 const EMPTY_REF = { loaded: false, raw: null, headers: null, mapping: null };
 const EMPTY_ISSUES = { byRow: {}, list: [] };
@@ -60,6 +65,20 @@ export default function useSalesInvoiceImportEngine() {
   const [exportResult, setExportResult] = useState(null); // {url, filename} | null
   const [exportError, setExportError] = useState('');
   const prevExportUrlRef = useRef(null);
+
+  // [إضافة] حالة الجلب/الإرسال عبر Qoyod API — منفصلة تمامًا عن حالة الرفع/التصدير
+  // اليدوي أعلاه، بلا أي تداخل معها. apiKey واحد يُستخدَم بالخطوة 1 (الجلب) والخطوة 4
+  // (الإرسال) إن رغب المستخدم، لكن كل مسار يعمل باستقلالية تامة عن الآخر.
+  const [apiKey, setApiKey] = useState('');
+  const [apiFetchBusy, setApiFetchBusy] = useState(false);
+  const [apiFetchError, setApiFetchError] = useState('');
+  const [apiFetchSummary, setApiFetchSummary] = useState(null); // {products, customers} | null
+  const [locationIdByName, setLocationIdByName] = useState(null); // Map | null — لمسار الإرسال فقط
+  const [apiSendBusy, setApiSendBusy] = useState(false);
+  const [apiSendResult, setApiSendResult] = useState(null);
+  const [apiSendEntries, setApiSendEntries] = useState([]); // تتراكم حيّة أثناء الإرسال (للعرض التدريجي)
+  const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
+  const apiSendStoppedRef = useRef({ current: false });
 
   const refs = useMemo(() => ({
     template, products: productsRef, customers: customersRef, stock: stockRef,
@@ -120,6 +139,28 @@ export default function useSalesInvoiceImportEngine() {
     else index = buildCustomersIndex(raw, headers, mapping);
     setter((prev) => ({ ...prev, loaded: true, mapping, ...index }));
   }, [productsRef, stockRef, customersRef]);
+
+  // [إضافة] جلب المنتجات/المخزون/العملاء دفعة واحدة عبر Qoyod API، بديل اختياري
+  // للبطاقات الثلاث اليدوية المقابلة (بطاقة القالب تبقى رفعًا يدويًا دومًا —
+  // راجع تعليق رأس qoyodSalesRefFetch.js). لا تُستدعى إلا بضغطة صريحة من المستخدم.
+  const fetchReferencesFromApi = useCallback(async (key) => {
+    setApiFetchBusy(true); setApiFetchError(''); setApiFetchSummary(null);
+    try {
+      const result = await fetchSalesReferencesFromApi(key);
+      setApiKey(key);
+      setProductsRef(result.productsRef);
+      setStockRef(result.stockRef);
+      setCustomersRef(result.customersRef);
+      setLocationIdByName(result.locationIdByName);
+      setApiFetchSummary(result.counts);
+      return result;
+    } catch (err) {
+      setApiFetchError(err?.message || String(err));
+      return null;
+    } finally {
+      setApiFetchBusy(false);
+    }
+  }, []);
 
   /* ========================= الخطوة 2: استيراد ملف فواتير غير منظم ========================= */
 
@@ -315,6 +356,27 @@ export default function useSalesInvoiceImportEngine() {
 
   const resetExport = useCallback(() => { revokePrevExportUrl(); setExportResult(null); setExportError(''); }, [revokePrevExportUrl]);
 
+  // [إضافة] إرسال الفواتير الجاهزة مباشرة عبر Qoyod API — بديل اختياري لتنزيل
+  // ملف القالب النهائي (exportFinal أعلاه، لا تُعدَّل). يُستدعى فقط من Step4Export
+  // بضغطة صريحة، وبعد نفس شرط errCount===0 المستخدم أصلاً لتفعيل التصدير اليدوي.
+  const sendInvoicesViaApi = useCallback(async (key, { status } = {}) => {
+    apiSendStoppedRef.current.current = false;
+    setApiSendBusy(true); setApiSendResult(null); setApiSendEntries([]); setApiSendProgress({ current: 0, total: 0 });
+    const result = await pushSalesInvoicesToQoyod(rows, key, {
+      productsIndex: productsRef,
+      locationIdByName,
+      status,
+      stoppedRef: apiSendStoppedRef.current,
+      onProgress: (current, total) => setApiSendProgress({ current, total }),
+      onEntry: (entry) => setApiSendEntries((prev) => [...prev, entry]),
+    });
+    setApiSendResult(result);
+    setApiSendBusy(false);
+    return result;
+  }, [rows, productsRef, locationIdByName]);
+
+  const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
+
   /* ========================= التنقل بين الخطوات ========================= */
 
   // نفس شرط goStep الأصلي: n===1 أو القالب محمَّل — الفارق أن القرار هنا في المكوّن (تعطيل التبويب)
@@ -344,5 +406,9 @@ export default function useSalesInvoiceImportEngine() {
     validOnlyRows, exportBusy, exportResult, exportError, exportFinal, resetExport,
 
     refs, makeRow,
+
+    // [إضافة] جلب/إرسال عبر Qoyod API
+    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi,
+    apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
   };
 }
