@@ -41,10 +41,13 @@ describe('buildSalesInvoicePayload', () => {
   describe('[إضافة] مطابقة عمود الضريبة% (V) بفئة ضريبية حقيقية (tax_id)', () => {
     const taxesIndex = { byLabel: new Map([['15%', { id: 7, rate: 15, label: '15%' }]]) };
 
-    it('V مطابقة لفئة حقيقية ⇒ tax_id تُرسَل بالبند', () => {
+    // [إصلاح 2026-09-11، اختبار حي ثانٍ] tax_id وحده بلا tax_percentage يرفضه قيود
+    // فعليًا (422 "invoice_items.tax_percentage: Cannot be 0") — يُرسَلان معًا دومًا.
+    it('V مطابقة لفئة حقيقية ⇒ tax_id وtax_percentage (نصًا) تُرسَلان معًا بالبند', () => {
       const built = buildSalesInvoicePayload([makeRow({ V: '15%' })], { productsIndex, locationIdByName, taxesIndex });
       expect(built.ok).toBe(true);
       expect(built.payload.invoice.line_items[0].tax_id).toBe(7);
+      expect(built.payload.invoice.line_items[0].tax_percentage).toBe('15');
     });
 
     it('بلا taxesIndex أصلًا: V تُتجاهَل بصمت، بلا tax_id، بلا خطأ (نفس السلوك الافتراضي الأصلي)', () => {
@@ -66,6 +69,7 @@ describe('buildSalesInvoicePayload', () => {
       const built = buildSalesInvoicePayload([makeRow({ V: '15.0%' })], { productsIndex, locationIdByName, taxesIndex });
       expect(built.ok).toBe(true);
       expect(built.payload.invoice.line_items[0].tax_id).toBe(7);
+      expect(built.payload.invoice.line_items[0].tax_percentage).toBe('15');
     });
   });
 
