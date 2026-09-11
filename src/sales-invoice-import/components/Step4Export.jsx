@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { norm } from '../engine/text.js';
 import ApiSendResultsModal from './ApiSendResultsModal.jsx'; // [إضافة] إرسال مباشر عبر API — راجع تعليق رأس qoyodSalesInvoicePush.js
+import StockShortageReviewPanel from './StockShortageReviewPanel.jsx'; // [إضافة] مراجعة فواتير نقص الكمية قبل الإرسال — راجع تعليق رأسه
 
 // [إضافة] استُخرج قسم "إرسال مباشر عبر API" لمكوّن مستقل لأنه صار يُعرض بمكانين:
 // بعد نجاح توليد الملف اليدوي (كخيار إضافي)، أو وحده مباشرة لو لا يوجد قالب
@@ -9,10 +10,29 @@ import ApiSendResultsModal from './ApiSendResultsModal.jsx'; // [إضافة] إ�
 // تغيير على منطق الإرسال نفسه (sendInvoicesViaApi بالهوك يبقى كما هو).
 function ApiSendSection({ engine, invoiceCount, standalone }) {
   const { t } = useLanguage();
-  const { apiKey } = engine;
+  const { apiKey, stockShortageGroups } = engine;
   const [apiKeyInput, setApiKeyInput] = useState(apiKey || '');
   const [sendStatus, setSendStatus] = useState('Draft');
   const [showSendModal, setShowSendModal] = useState(false);
+  const [showStockReview, setShowStockReview] = useState(false);
+
+  // [إضافة] لو فيه فواتير نقص كمية "قابلة للإرسال كمسودة" (راجع تعليق رأس
+  // StockShortageReviewPanel)، نعرض لوحة المراجعة أول ما يُضغَط الزر بدل الإرسال
+  // المباشر — القرار النهائي (استبعاد/إجبار مسودة) يُمرَّر لـsendInvoicesViaApi.
+  const handleSendClick = () => {
+    if (stockShortageGroups && stockShortageGroups.length > 0) {
+      setShowStockReview(true);
+    } else {
+      setShowSendModal(true);
+      engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus });
+    }
+  };
+
+  const handleStockReviewConfirm = (decision) => {
+    setShowStockReview(false);
+    setShowSendModal(true);
+    engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus, ...decision });
+  };
 
   return (
     <div style={standalone ? undefined : { marginTop: 26, paddingTop: 20, borderTop: '1px dashed var(--qsv-border)', textAlign: 'right' }}>
@@ -41,11 +61,18 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
           type="button"
           className="qsv-btn"
           disabled={!apiKeyInput.trim()}
-          onClick={() => { setShowSendModal(true); engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus }); }}
+          onClick={handleSendClick}
         >
           📤 {t({ ar: 'إرسال عبر API', en: 'Send via API' })}
         </button>
       </div>
+      {showStockReview && (
+        <StockShortageReviewPanel
+          groups={stockShortageGroups}
+          onCancel={() => setShowStockReview(false)}
+          onConfirm={handleStockReviewConfirm}
+        />
+      )}
       {showSendModal && <ApiSendResultsModal engine={engine} onClose={() => setShowSendModal(false)} />}
     </div>
   );

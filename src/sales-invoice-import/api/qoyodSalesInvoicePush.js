@@ -113,13 +113,18 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {object} opts.productsIndex نفس refs.products (يحتاج bySku مع id لكل سجل)
  * @param {Map}    opts.locationIdByName من qoyodSalesRefFetch.js
  * @param {'Draft'|'Approved'} [opts.status]
+ * @param {Set<string>} [opts.forceDraftRefs] [إضافة] مراجع فواتير (row.A) تُرسَل
+ *   دومًا كمسودة (Draft) بغض النظر عن opts.status — تُستخدَم من لوحة مراجعة نقص
+ *   الكمية بالخطوة 4 (StockShortageReviewPanel) عندما يختار المستخدم إرسال فواتير
+ *   محفوفة بمخاطر نقص الكمية مع فواتير أخرى سليمة بحالة "معتمدة" بنفس الدفعة —
+ *   الفواتير المحفوفة بالمخاطر فقط تُجبَر على Draft، الباقي يتبع opts.status كالمعتاد.
  * @param {(entry:{ref,status:'success'|'error',reason?,id?,total?}) => void} [opts.onEntry]
  * @param {(current:number, total:number) => void} [opts.onProgress]
  * @param {{current:boolean}} [opts.stoppedRef]
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
-  const { productsIndex, locationIdByName, status, onEntry, onProgress, stoppedRef } = opts;
+  const { productsIndex, locationIdByName, status, forceDraftRefs, onEntry, onProgress, stoppedRef } = opts;
   const entries = [];
   const emit = (entry) => { entries.push(entry); if (onEntry) onEntry(entry); };
 
@@ -136,7 +141,8 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
     const [ref, rowsInGroup] = groups[i];
     if (onProgress) onProgress(i, groups.length);
 
-    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status });
+    const effectiveStatus = forceDraftRefs && forceDraftRefs.has(ref) ? 'Draft' : status;
+    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status: effectiveStatus });
     if (!built.ok) {
       failed++;
       emit({ ref, status: 'error', reason: built.error });

@@ -126,6 +126,20 @@ describe('pushSalesInvoicesToQoyod', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it('[إضافة] forceDraftRefs يجبر Draft على فواتير محددة فقط، والباقي يتبع status العام', async () => {
+    const sentBodies = [];
+    global.fetch = vi.fn().mockImplementation(async (url, opts) => {
+      sentBodies.push(JSON.parse(opts.body));
+      return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 1 } }) };
+    });
+    const rows = [makeRow({ A: 'INV-RISKY' }), makeRow({ id: 'r2', A: 'INV-CLEAN' })];
+    await pushSalesInvoicesToQoyod(rows, 'KEY', {
+      productsIndex, locationIdByName, status: 'Approved', forceDraftRefs: new Set(['INV-RISKY']),
+    });
+    expect(sentBodies[0].invoice.status).toBe('Draft'); // INV-RISKY مُجبَرة
+    expect(sentBodies[1].invoice.status).toBe('Approved'); // INV-CLEAN تتبع status العام
+  });
+
   it('فشل بناء الحمولة (لا معرّف عميل مثلاً) يُسجَّل كخطأ ويكمل الباقي بلا استدعاء API لتلك الفاتورة', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 5 } }) });
     const rows = [makeRow({ C: 'CUS-XYZ' }), makeRow({ id: 'r2', A: 'INV-2' })];

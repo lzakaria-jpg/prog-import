@@ -22,11 +22,16 @@ export function runValidation(rows, refs = {}){
   const issuesByRow = {}; // id -> {colKey: [{sev,msg}]}
   const summary = []; // {sev, msg, rowId, colKey}
 
-  function addIssue(rowId, colKey, sev, msg){
+  // [إضافة] code باراميتر اختياري خامس — يُستخدَم فقط لتمييز نوع مُلاحَظ برمجيًا
+  // (مثل 'stock_shortage_draft' من checkStockSequential) بلا الاعتماد على نص msg
+  // نفسه بأي منطق. بلا code (كل نداءات addIssue الأصلية)، السلوك والمخرجات كما
+  // كانت تمامًا — {sev,msg} فقط.
+  function addIssue(rowId, colKey, sev, msg, code){
     if(!issuesByRow[rowId]) issuesByRow[rowId] = {};
     if(!issuesByRow[rowId][colKey]) issuesByRow[rowId][colKey] = [];
-    issuesByRow[rowId][colKey].push({sev,msg});
-    summary.push({sev, msg, rowId, colKey});
+    const entry = code ? {sev,msg,code} : {sev,msg};
+    issuesByRow[rowId][colKey].push(entry);
+    summary.push({...entry, rowId, colKey});
   }
 
   const template = refs.template || {loaded:false};
@@ -196,7 +201,7 @@ export function runValidation(rows, refs = {}){
   // التحقق التراكمي من كفاية المخزون (محاكاة الاستهلاك التسلسلي) — انظر stockSimulation.js
   if(stock.loaded){
     checkStockSequential(rows, {productsIndex: products.loaded ? products : null, stockIndex: stock}).forEach(iss=>{
-      addIssue(iss.rowId, iss.colKey, iss.sev, iss.msg);
+      addIssue(iss.rowId, iss.colKey, iss.sev, iss.msg, iss.code);
     });
   }
 
@@ -226,4 +231,29 @@ export function getValidOnlyRows(rows, issuesByRow){
     if(!anyErr) for(let i=0;i<rowsInGroup.length;i++) validRows.push(rowsInGroup[i]); // بلا spread — راجع تعليق excelCore.js.readWorkbookRows لسبب تجنّبه مع مصفوفات كبيرة
   });
   return validRows;
+}
+
+export const STOCK_SHORTAGE_DRAFT_CODE = 'stock_shortage_draft';
+
+// [إضافة] يرجّع مجموعات الفواتير (مرجع + صفوفها + رسائل التحذير) التي فيها نقص
+// كمية "قابل للإرسال كمسودة" (code==='stock_shortage_draft' — فقط بمسار المخزون
+// المجلوب عبر API، راجع checkStockSequential) — تُستخدَم بلوحة مراجعة الخطوة 4
+// (StockShortageReviewPanel) لعرض الفواتير المحفوفة بالمخاطر والسماح بقرار صريح
+// لكل واحدة قبل الإرسال، بدل حجبها بالكامل عن مسار الإرسال عبر API.
+export function getStockShortageDraftGroups(rows, issuesByRow){
+  const groups = groupRowsByInvoiceRef(rows);
+  const result = [];
+  groups.forEach((rowsInGroup, key)=>{
+    if(key.startsWith('__blank__')) return;
+    const messages = [];
+    rowsInGroup.forEach(r=>{
+      const byCol = issuesByRow[r.id];
+      if(!byCol) return;
+      Object.values(byCol).forEach(arr=>{
+        arr.forEach(i=>{ if(i.code === STOCK_SHORTAGE_DRAFT_CODE) messages.push(i.msg); });
+      });
+    });
+    if(messages.length) result.push({ref: key, rows: rowsInGroup, messages});
+  });
+  return result;
 }

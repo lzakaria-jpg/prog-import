@@ -33,7 +33,18 @@ export function checkStockSequential(rows, {productsIndex, stockIndex} = {}){
     if(qty <= rem){
       running.set(key, rem-qty);
     } else {
-      issues.push({rowId:row.id, colKey:'P', sev:'err', msg:`السطر ${idx+1}: ⚠️ يُتوقَّع رفض هذه الفاتورة من قيود لعدم توفر كمية كافية من المنتج "${row.N}" في الموقع "${row.G}" — المتبقي المتوقع بعد الفواتير السابقة في هذا الملف: ${rem}، والمطلوب هنا: ${qty}. (الفواتير السابقة لنفس المنتج/الموقع في هذا الملف قد تنجح وتستهلك الكمية أولًا).`});
+      // [إضافة] لو المخزون جاء عبر جلب API (stockIndex.raw===null — نفس التمييز
+      // المستخدم بكل مكان آخر باليوم لمعرفة أصل البيانات)، نقص الكمية يصير تنبيهًا
+      // لا خطأً حاجبًا: كل فاتورة تُرسَل عبر API تحمل أصلًا draft_if_out_of_stock:true
+      // (راجع qoyodSalesInvoicePush.js)، فقيود نفسها تُنشئها كمسودة بدل رفضها —
+      // الرسالة تُصاغ لتعكس هذا الفرق الحقيقي بدل التحذير من رفض لن يحدث فعليًا.
+      const isApiStock = stockIndex && stockIndex.raw === null;
+      const sev = isApiStock ? 'warn' : 'err';
+      const code = isApiStock ? 'stock_shortage_draft' : undefined;
+      const msg = isApiStock
+        ? `السطر ${idx+1}: ⚠️ نقص متوقَّع بكمية المنتج "${row.N}" في الموقع "${row.G}" — المتبقي المتوقع بعد الفواتير السابقة في هذا الملف: ${rem}، والمطلوب هنا: ${qty}. الفاتورة ستُرسَل كمسودة (Draft) بدل الرفض إن أرسلتها عبر API — راجع لوحة المراجعة بالخطوة 4.`
+        : `السطر ${idx+1}: ⚠️ يُتوقَّع رفض هذه الفاتورة من قيود لعدم توفر كمية كافية من المنتج "${row.N}" في الموقع "${row.G}" — المتبقي المتوقع بعد الفواتير السابقة في هذا الملف: ${rem}، والمطلوب هنا: ${qty}. (الفواتير السابقة لنفس المنتج/الموقع في هذا الملف قد تنجح وتستهلك الكمية أولًا).`;
+      issues.push({rowId:row.id, colKey:'P', sev, msg, ...(code?{code}:{})});
       running.set(key, 0);
     }
   });
