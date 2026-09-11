@@ -21,6 +21,7 @@
 // بالشات فقط (src/chat.jsx يستدعي هذا الملف حصرياً).
 
 import * as XLSX from "xlsx";
+import { extractPdfTextLines } from "./pdfTextLines";
 
 const MAX_ROWS_IN_PROMPT = 300;
 const MAX_CELL_CHARS = 120;
@@ -67,29 +68,7 @@ async function readSpreadsheetRows(file) {
 }
 
 async function readPdfLines(file) {
-  const pdfjsLib = await import("pdfjs-dist");
-  const pdfjsWorker = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const lines = [];
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    const content = await page.getTextContent();
-    let currentLine = "";
-    let lastY = null;
-    content.items.forEach((item) => {
-      const y = item.transform[5];
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (currentLine.trim()) lines.push(currentLine);
-        currentLine = "";
-      }
-      currentLine += item.str + " ";
-      lastY = y;
-    });
-    if (currentLine.trim()) lines.push(currentLine);
-  }
-  return lines;
+  return extractPdfTextLines(file);
 }
 
 async function readDocxText(file) {
