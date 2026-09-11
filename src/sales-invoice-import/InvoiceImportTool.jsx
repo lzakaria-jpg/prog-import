@@ -49,7 +49,7 @@ export default function InvoiceImportTool({ showHeader = true } = {}) {
         </header>
       )}
 
-      <RefDatalists customersRef={engine.customersRef} productsRef={engine.productsRef} projectsRef={engine.projectsRef} />
+      <RefDatalists customersRef={engine.customersRef} productsRef={engine.productsRef} projectsRef={engine.projectsRef} stockRef={engine.stockRef} />
 
       <div className="qsv-wrap">
         <StepNav step={engine.step} templateLoaded={engine.template.loaded} onGoStep={engine.goToStep} />

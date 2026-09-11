@@ -26,7 +26,7 @@ const OVERSCAN_ROWS = 8;
 const DEFAULT_ROW_HEIGHT = 30; // تقدير أولي قبل قياس ارتفاع صف فعلي مُعروض؛ يُصحَّح فورًا
 
 const InvoiceGrid = React.forwardRef(function InvoiceGrid(
-  { tableId, rows, template, customersRef, productsRef, taxesRef, locationOptions, projectsRef, issues, revalidate, onUpdateCell, onDeleteRow, onPasteGrid },
+  { tableId, rows, template, customersRef, productsRef, taxesRef, locationOptions, projectsRef, stockRef, issues, revalidate, onUpdateCell, onDeleteRow, onPasteGrid },
   ref,
 ) {
   const { t } = useLanguage();
@@ -149,7 +149,7 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
                 <td key={col.key}>
                   <GridCell
                     row={row} col={col} template={template} customersRef={customersRef} productsRef={productsRef}
-                    taxesRef={taxesRef} locationOptions={locationOptions}
+                    taxesRef={taxesRef} locationOptions={locationOptions} stockRef={stockRef}
                     issueList={(issues.byRow[row.id] || {})[col.key]}
                     onChange={(value) => onUpdateCell(row.id, col.key, value, { revalidate })}
                   />

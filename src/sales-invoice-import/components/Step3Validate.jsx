@@ -36,7 +36,7 @@ export default function Step3Validate({ engine }) {
       <InvoiceGrid
         ref={gridRef}
         tableId="data-grid-2" rows={rows} template={template} customersRef={customersRef} productsRef={productsRef}
-        taxesRef={engine.taxesRef} locationOptions={engine.locationOptions} projectsRef={engine.projectsRef}
+        taxesRef={engine.taxesRef} locationOptions={engine.locationOptions} projectsRef={engine.projectsRef} stockRef={engine.stockRef}
         issues={issues} revalidate onUpdateCell={updateCell} onDeleteRow={deleteRow} onPasteGrid={pasteGrid}
       />
 

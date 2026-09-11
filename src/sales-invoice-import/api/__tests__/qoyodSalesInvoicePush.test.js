@@ -53,10 +53,19 @@ describe('buildSalesInvoicePayload', () => {
       expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
     });
 
-    it('V غير مطابقة لأي فئة حقيقية: تُتجاهَل بصمت، بلا خطأ (V كانت اختيارية الأثر دومًا)', () => {
+    // [إصلاح 2026-09-11، بلاغ اختبار حي] كانت تُتجاهَل بصمت (فتُنشأ الفاتورة بضريبة
+    // صفرية تلقائيًا بدل احترام الضريبة الحقيقية المطلوبة) — الآن خطأ حاجب صريح متى
+    // كان taxesIndex يحمل فئات حقيقية فعلًا (نفس فلسفة الموقع/المشروع).
+    it('V غير مطابقة لأي فئة حقيقية رغم وجود فئات فعلية بالفهرس ⇒ خطأ صريح', () => {
       const built = buildSalesInvoicePayload([makeRow({ V: '99%' })], { productsIndex, locationIdByName, taxesIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/تعذّر مطابقة فئة الضريبة/);
+    });
+
+    it('[إضافة] مطابقة رقمية متسامحة (فرق تنسيق طفيف لم يمر عبر snapTaxCategory) ⇒ tax_id تُرسَل رغم عدم تطابق نصي حرفي', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '15.0%' })], { productsIndex, locationIdByName, taxesIndex });
       expect(built.ok).toBe(true);
-      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
+      expect(built.payload.invoice.line_items[0].tax_id).toBe(7);
     });
   });
 
@@ -67,16 +76,17 @@ describe('buildSalesInvoicePayload', () => {
       byName: new Map([['مشروعالرياض', [{ id: 9, name: 'مشروع الرياض' }]]]),
     };
 
-    it('بلا projectRef إطلاقًا: لا project_id بالحمولة، بلا خطأ', () => {
+    it('بلا projectRef إطلاقًا: لا project_id بأي بند، بلا خطأ', () => {
       const built = buildSalesInvoicePayload([makeRow()], { productsIndex, locationIdByName, projectsIndex });
       expect(built.ok).toBe(true);
       expect(built.payload.invoice).not.toHaveProperty('project_id');
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('project_id');
     });
 
     it('projectRef موجود لكن بلا projectsIndex أصلًا: يُتجاهَل بصمت، لا خطأ', () => {
       const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName });
       expect(built.ok).toBe(true);
-      expect(built.payload.invoice).not.toHaveProperty('project_id');
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('project_id');
     });
 
     // [إضافة — إصلاح خطأ حقيقي 2026-09-11] projectsIndex.loaded===false (مثل
@@ -89,19 +99,32 @@ describe('buildSalesInvoicePayload', () => {
         productsIndex, locationIdByName, projectsIndex: { loaded: false },
       });
       expect(built.ok).toBe(true);
-      expect(built.payload.invoice).not.toHaveProperty('project_id');
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('project_id');
     });
 
-    it('يطابق بالرقم (byId) أولًا', () => {
+    // [إصلاح 2026-09-11، بلاغ اختبار حي + مثال طلب حقيقي] project_id على كل
+    // line_item لا على الفاتورة نفسها — الإصدار الأول كان يضعه بمستوى الفاتورة
+    // فتُنشأ الفاتورة بنجاح بلا أي خطأ لكن بلا مشروع مرفق فعليًا (قيود لا يقرأ
+    // project_id بهذا المستوى إطلاقًا).
+    it('يطابق بالرقم (byId) أولًا، ويُرسَل على البند لا على الفاتورة', () => {
       const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName, projectsIndex });
       expect(built.ok).toBe(true);
-      expect(built.payload.invoice.project_id).toBe(9);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+      expect(built.payload.invoice.line_items[0].project_id).toBe(9);
     });
 
     it('يطابق بالاسم عند عدم مطابقة الرقم', () => {
       const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع الرياض' })], { productsIndex, locationIdByName, projectsIndex });
       expect(built.ok).toBe(true);
-      expect(built.payload.invoice.project_id).toBe(9);
+      expect(built.payload.invoice.line_items[0].project_id).toBe(9);
+    });
+
+    it('نفس project_id يُطبَّق على كل بنود نفس الفاتورة (أكثر من سطر)', () => {
+      const rows = [makeRow({ projectRef: '9' }), makeRow({ id: 'r2', projectRef: '9' })];
+      const built = buildSalesInvoicePayload(rows, { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0].project_id).toBe(9);
+      expect(built.payload.invoice.line_items[1].project_id).toBe(9);
     });
 
     it('اسم غير مطابق لأي مشروع ⇒ خطأ صريح', () => {
