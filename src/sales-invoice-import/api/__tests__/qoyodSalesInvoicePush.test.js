@@ -38,6 +38,53 @@ describe('buildSalesInvoicePayload', () => {
     expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_percent');
   });
 
+  describe('[إضافة، غير مؤكَّد ميدانيًا] مطابقة عمود المشروع (projectRef)', () => {
+    const projectsIndex = {
+      byId: new Map([['9', { id: 9, name: 'مشروع الرياض' }]]),
+      byName: new Map([['مشروعالرياض', [{ id: 9, name: 'مشروع الرياض' }]]]),
+    };
+
+    it('بلا projectRef إطلاقًا: لا project_id بالحمولة، بلا خطأ', () => {
+      const built = buildSalesInvoicePayload([makeRow()], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+    });
+
+    it('projectRef موجود لكن بلا projectsIndex أصلًا: يُتجاهَل بصمت، لا خطأ', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+    });
+
+    it('يطابق بالرقم (byId) أولًا', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.project_id).toBe(9);
+    });
+
+    it('يطابق بالاسم عند عدم مطابقة الرقم', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع الرياض' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.project_id).toBe(9);
+    });
+
+    it('اسم غير مطابق لأي مشروع ⇒ خطأ صريح', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع غير موجود' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/تعذّر مطابقة المشروع/);
+    });
+
+    it('اسم مطابق لأكثر من مشروع ⇒ خطأ يطلب استخدام الرقم', () => {
+      const ambiguousIndex = {
+        byId: new Map(),
+        byName: new Map([['مشروعمشترك', [{ id: 1, name: 'مشروع مشترك' }, { id: 2, name: 'مشروع مشترك' }]]]),
+      };
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع مشترك' })], { productsIndex, locationIdByName, projectsIndex: ambiguousIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/مطابق لأكثر من مشروع/);
+    });
+  });
+
   it('due_date يرث issue_date عند فراغ E', () => {
     const built = buildSalesInvoicePayload([makeRow({ E: '' })], { productsIndex, locationIdByName });
     expect(built.payload.invoice.due_date).toBe(built.payload.invoice.issue_date);

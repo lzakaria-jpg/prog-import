@@ -146,10 +146,44 @@ export function buildCustomersIndexFromApi(apiCustomers) {
 }
 
 /**
+ * يبني فهرس مشاريع منشأة العميل من مصفوفة GET /projects الخام —
+ * byId (مفتاحه String(id)، يطابق كتابة رقم المشروع مباشرة بملف الفواتير)
+ * وbyName (لمطابقة الاسم عند عدم كتابة الرقم). [غير مؤكَّد ميدانيًا بخلاف
+ * /products و/customers أعلاه — راجع تعليق fetchSalesReferencesFromApi أدناه]
+ * افتراض شكل الحقول (id, name) قياسًا على نفس نمط GET /customers الموثَّق
+ * والمؤكَّد فعليًا.
+ */
+export function buildProjectsIndexFromApi(apiProjects) {
+  const byId = new Map();
+  const byName = new Map();
+  (apiProjects || []).forEach((p) => {
+    const id = p?.id;
+    if (id === undefined || id === null) return;
+    const name = norm(p?.name);
+    const rec = { id, name };
+    byId.set(String(id), rec);
+    if (name) {
+      const nk = normKey(name);
+      if (!byName.has(nk)) byName.set(nk, []);
+      byName.get(nk).push(rec);
+    }
+  });
+  return { byId, byName };
+}
+
+/**
  * الدالة المنسِّقة — تُستدعى من useSalesInvoiceImportEngine.js فقط. تجلب
  * /products و/customers بالتوازي (نفس مفتاح API)، وتبني الفهارس الثلاثة
  * (منتجات/مخزون/عملاء) + فهرس المواقع الداخلي للإرسال لاحقًا.
  * ترمي استثناءً برسالة عربية واضحة عند أي فشل شبكي — الهوك هو من يلتقطه ويعرضه.
+ *
+ * [إضافة، غير مؤكَّد ميدانيًا] جلب /projects لدعم عمود "المشروع" الاختياري —
+ * بخلاف /products و/customers (مؤكَّدان باختبار حي فعلي 2026-09-11)، شكل رد
+ * /projects واسم الحقول (id/name) هنا افتراض قياسًا على نمط بقية موارد Qoyod
+ * REST، لم يُختبر حيًا بعد. لهذا فشل جلبها تحديدًا (404 لمنشأة بلا موديول
+ * مشاريع مفعّل، أو أي خطأ آخر) لا يُفشل الجلب الكامل — يُعامَل كـ"لا مشاريع
+ * متاحة" فقط، فلا يؤثر على منتجات/مخزون/عملاء الأداة الأساسيين. يجب اختبارها
+ * حيًا على منشأة حقيقية فيها مشاريع قبل الاعتماد الكامل على هذه الميزة.
  */
 export async function fetchSalesReferencesFromApi(apiKey) {
   const key = (apiKey || '').trim();
@@ -165,16 +199,25 @@ export async function fetchSalesReferencesFromApi(apiKey) {
     throw new Error(`تعذّر جلب البيانات المرجعية من قيود: ${e.message || String(e)}`);
   }
 
+  let apiProjects;
+  try {
+    apiProjects = await fetchAll('/projects', key);
+  } catch (e) {
+    apiProjects = [];
+  }
+
   const products = buildProductsIndexFromApi(apiProducts);
   const stock = buildStockIndexFromApi(apiProducts);
   const customers = buildCustomersIndexFromApi(apiCustomers);
+  const projects = buildProjectsIndexFromApi(apiProjects);
   const locationIdByName = buildLocationIdIndexFromApi(apiProducts);
 
   return {
     productsRef: { loaded: true, raw: null, headers: null, mapping: null, ...products },
     stockRef: { loaded: true, raw: null, headers: null, mapping: null, ...stock },
     customersRef: { loaded: true, raw: null, headers: null, mapping: null, ...customers },
+    projectsRef: { loaded: true, raw: null, headers: null, mapping: null, ...projects },
     locationIdByName,
-    counts: { products: apiProducts.length, customers: apiCustomers.length },
+    counts: { products: apiProducts.length, customers: apiCustomers.length, projects: apiProjects.length },
   };
 }

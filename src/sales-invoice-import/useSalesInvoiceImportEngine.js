@@ -50,6 +50,9 @@ export default function useSalesInvoiceImportEngine() {
   const [productsRef, setProductsRef] = useState(EMPTY_REF);
   const [stockRef, setStockRef] = useState(EMPTY_REF);
   const [customersRef, setCustomersRef] = useState(EMPTY_REF);
+  // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
+  // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
+  const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
 
   const [invoiceImportFile, setInvoiceImportFile] = useState({ headers: [], rows: [] });
   const [invoiceImportGuesses, setInvoiceImportGuesses] = useState(null); // {mainGuesses, auxGuesses} | null
@@ -184,6 +187,7 @@ export default function useSalesInvoiceImportEngine() {
       setProductsRef(result.productsRef);
       setStockRef(result.stockRef);
       setCustomersRef(result.customersRef);
+      setProjectsRef(result.projectsRef || EMPTY_REF);
       setLocationIdByName(result.locationIdByName);
       setApiFetchSummary(result.counts);
       return result;
@@ -409,6 +413,7 @@ export default function useSalesInvoiceImportEngine() {
     const result = await pushSalesInvoicesToQoyod(targetRows, key, {
       productsIndex: productsRef,
       locationIdByName,
+      projectsIndex: projectsRef,
       status,
       forceDraftRefs,
       stoppedRef: apiSendStoppedRef.current,
@@ -418,7 +423,7 @@ export default function useSalesInvoiceImportEngine() {
     setApiSendResult(result);
     setApiSendBusy(false);
     return result;
-  }, [rows, productsRef, locationIdByName]);
+  }, [rows, productsRef, locationIdByName, projectsRef]);
 
   const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
 
@@ -433,6 +438,7 @@ export default function useSalesInvoiceImportEngine() {
     setProductsRef(EMPTY_REF);
     setStockRef(EMPTY_REF);
     setCustomersRef(EMPTY_REF);
+    setProjectsRef(EMPTY_REF);
     setInvoiceImportFile({ headers: [], rows: [] });
     setInvoiceImportGuesses(null);
     setInvoiceImportStatus('');
@@ -491,7 +497,7 @@ export default function useSalesInvoiceImportEngine() {
     refs, makeRow,
 
     // [إضافة] جلب/إرسال عبر Qoyod API
-    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi,
+    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi, projectsRef,
     apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
 
     // [إضافة] حفظ مفتاح API باسم العميل + إعادة التعيين

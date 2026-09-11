@@ -176,6 +176,28 @@ describe("applyInvoiceImportMapping — مطابقة الاسم عند غياب 
   });
 });
 
+describe("applyInvoiceImportMapping — [إضافة، غير مؤكَّد ميدانيًا] عمود المشروع (mapping._project)", () => {
+  it("يُخزَّن خامًا (بلا مطابقة هنا) على row.projectRef، ويُنشَر لبقية صفوف نفس المرجع", () => {
+    const headers = ['Ref', 'Qty', 'Price', 'SKU', 'Proj'];
+    const rawRows = [
+      ['INV-1', '2', '50', 'SKU-1', 'مشروع الرياض'],
+      ['INV-1', '1', '30', 'SKU-2', ''],
+    ];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', N: 'SKU', _project: 'Proj' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].projectRef).toBe('مشروع الرياض');
+    expect(importedRows[1].projectRef).toBe('مشروع الرياض'); // مُعبَّأ من fillDownHeaderFields
+  });
+
+  it("بلا mapping._project أصلًا: لا projectRef على أي صف", () => {
+    const headers = ['Ref', 'Qty'];
+    const rawRows = [['INV-1', '2']];
+    const mapping = { A: 'Ref', P: 'Qty' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].projectRef).toBeUndefined();
+  });
+});
+
 describe("applyInvoiceImportMapping — تعبئة رأس الفاتورة وتصفية الصفوف الفارغة", () => {
   it("يُطبَّق fillDownHeaderFields على النتيجة النهائية عبر صفوف نفس المرجع", () => {
     const headers = ['Ref', 'Qty', 'Price', 'Date', 'Cust', 'Loc', 'SKU'];

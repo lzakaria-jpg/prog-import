@@ -32,6 +32,13 @@ export function forwardFillInvoiceRef(rows){
   });
 }
 
+// [إضافة] projectRef حقل رأس فاتورة مستقل تمامًا عن COL_KEYS (راجع تعليق
+// AUX_FIELD_KEYWORDS._project بـconstants.js — لا علاقة له بأعمدة القالب
+// الرسمي A-V)، لكنه سلوكيًا حقل رأس فاتورة عادي (نفس دلالة C/D/G): يُكتَب
+// غالبًا مرة واحدة بأول سطر الفاتورة بملف العميل الخام ويُترك فارغًا ببقية
+// سطورها، فيحتاج نفس معاملة التكرار على كل صفوف نفس المرجع.
+const HEADER_FILL_KEYS = [...HEADER_COLS, 'projectRef'];
+
 // تُنسخ أول قيمة غير فارغة لكل حقل من حقول رأس الفاتورة إلى بقية صفوف نفس المرجع، بحيث تتكرر
 // بيانات الفاتورة الرئيسية في كل صف بشكل متطابق حرفيًا. لا نلمس القيم غير الفارغة المختلفة حتى
 // يبقى تعارض البيانات مرئيًا في خطوة التحقق بدل إخفائه.
@@ -41,7 +48,7 @@ export function fillDownHeaderFields(rows){
   const groups = new Map();
   rows.forEach(r=>{ const k = norm(r.A); if(!k) return; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(r); });
   groups.forEach(list=>{
-    HEADER_COLS.forEach(hk=>{
+    HEADER_FILL_KEYS.forEach(hk=>{
       const src = list.find(r=>!isBlank(r[hk]));
       if(!src) return;
       const val = src[hk];

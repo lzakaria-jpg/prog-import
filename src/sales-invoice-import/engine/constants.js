@@ -66,6 +66,12 @@ export const AUX_FIELD_KEYWORDS = {
   _lineTotal: ['إجمالي مبلغ البند','إجمالي البند','قيمة السطر','المبلغ الإجمالي','الإجمالي','line total','line amount','net amount','amount','total','subtotal'],
   _customerName: ['اسم العميل','العميل','customer name','client name','customer'],
   _productName: ['اسم المنتج','وصف المنتج','product name','item name','product','products','items','المنتج','الصنف'],
+  // [إضافة] عمود "المشروع" — رقم أو اسم مشروع العميل الحقيقي بقيود، يُطابَق ويُرفَق
+  // (project_id) وقت الإرسال عبر API فقط (qoyodSalesInvoicePush.js). لا علاقة له
+  // بأعمدة القالب الرسمي A-V إطلاقًا (Qoyod API لا يوفر مصدرًا آخر للمشاريع، ولا
+  // علاقة لهذا بملف القالب المرفوع أو الرفع اليدوي) — يُخزَّن على row.projectRef
+  // (حقل مستقل تمامًا عن COL_KEYS، راجع applyInvoiceImportMapping).
+  _project: ['المشروع','مشروع','project','project name','project number','project id','project ref'],
 };
 // عناوين لا يصح إسنادها لحقل مساعد معيّن مهما بلغ التشابه
 export const AUX_FIELD_REJECT = {
@@ -77,6 +83,7 @@ export const AUX_FIELD_LABELS = {
   _grandTotal: {icon:'🧮', label:'الإجمالي شامل الضريبة', hint:'(اختياري — يُستخدم لاستنتاج نسبة الضريبة تلقائيًا عند عدم وجود عمود صريح لها)'},
   _customerName: {icon:'👤', label:'اسم العميل', hint:'(اختياري — يُستخدم لمطابقة الرقم المرجعي تلقائيًا إن لم يوجد عمود رقم مرجعي صريح)'},
   _productName: {icon:'📦', label:'اسم المنتج', hint:'(اختياري — يُستخدم لمطابقة كود/باركود المنتج تلقائيًا إن لم يوجد عمود كود صريح)'},
+  _project: {icon:'📁', label:'المشروع', hint:'(اختياري — رقم أو اسم مشروع العميل، يُطابَق مع مشاريع منشأة العميل الحقيقية ويُرفَق بالفاتورة عند الإرسال عبر API فقط — يحتاج جلب مشاريع العميل أولًا)'},
 };
 
 export const MONTH_NAMES = {

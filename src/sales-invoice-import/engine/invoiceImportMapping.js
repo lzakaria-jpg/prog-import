@@ -153,6 +153,17 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
 
     const lineTotalH = mapping._lineTotal, grandTotalH = mapping._grandTotal;
     const custNameH = mapping._customerName, prodNameH = mapping._productName;
+
+    // [إضافة] عمود "المشروع" — يُخزَّن خامًا كما كُتب بملف العميل (رقم أو اسم)
+    // على row.projectRef؛ المطابقة الفعلية بمشاريع منشأة العميل الحقيقية تحدث
+    // لاحقًا وقت الإرسال عبر API فقط (buildSalesInvoicePayload بـqoyodSalesInvoicePush.js)
+    // — بلا أي محاولة مطابقة هنا، بنفس نمط عمود الموقع (G) الذي يُترك نصًا خامًا
+    // ويُحل لاحقًا أيضًا وقت الإرسال، لا وقت الاستيراد.
+    const projectH = mapping._project;
+    if(projectH){
+      const projectVal = norm(rowGet(r, headers, projectH));
+      if(projectVal) row.projectRef = projectVal;
+    }
     const lineTotalVal = lineTotalH ? parseFloat(norm(rowGet(r, headers, lineTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const grandTotalVal = grandTotalH ? parseFloat(norm(rowGet(r, headers, grandTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const qty = parseFloat(row.P);

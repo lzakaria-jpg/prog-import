@@ -34,7 +34,7 @@
 import { api } from '../../product-upload/io/network.js';
 import { groupRowsByInvoiceRef } from '../engine/grouping.js';
 import { fromDMY } from '../engine/dates.js';
-import { norm, isBlank } from '../engine/text.js';
+import { norm, normKey, isBlank } from '../engine/text.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأدوات API الأخرى بالمشروع
 
@@ -45,7 +45,7 @@ const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليً�
  * — دالة نقية بالكامل، بلا أي إرسال فعلي هنا (فصل البناء عن الإرسال لتسهيل
  * الاختبار، نفس نمط buildQoyodAccountPayload).
  */
-export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status } = {}) {
+export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, projectsIndex, status } = {}) {
   if (!rowsInGroup || !rowsInGroup.length) return { ok: false, error: 'مجموعة فاتورة فارغة' };
   const header = rowsInGroup[0];
 
@@ -98,6 +98,25 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
   if (!isBlank(header.A)) invoice.reference = norm(header.A);
   if (!isBlank(header.B)) invoice.description = norm(header.B);
 
+  // [إضافة] عمود "المشروع" (projectRef — خارج COL_KEYS، راجع constants.js
+  // AUX_FIELD_KEYWORDS._project) — يُطابَق برقم المشروع الحقيقي (byId) أولًا،
+  // وإلا بالاسم (byName). بلا قيمة أصلًا = لا مشروع لهذه الفاتورة (طبيعي، ليس
+  // خطأ). قيمة موجودة لكن غير مطابقة = خطأ صريح بدل إرسال فاتورة بمشروع خاطئ
+  // بصمت أو تجاهل المشروع بصمت — نفس فلسفة الموقع (G) أعلاه بالضبط.
+  if (!isBlank(header.projectRef) && projectsIndex) {
+    const typed = norm(header.projectRef);
+    let matched = projectsIndex.byId ? projectsIndex.byId.get(typed) : undefined;
+    if (!matched) {
+      const candidates = (projectsIndex.byName ? projectsIndex.byName.get(normKey(typed)) : undefined) || [];
+      if (candidates.length === 1) matched = candidates[0];
+      else if (candidates.length > 1) {
+        return { ok: false, error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم لهذه الفاتورة.` };
+      }
+    }
+    if (!matched) return { ok: false, error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
+    invoice.project_id = matched.id;
+  }
+
   return { ok: true, payload: { invoice } };
 }
 
@@ -112,6 +131,9 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {object} opts
  * @param {object} opts.productsIndex نفس refs.products (يحتاج bySku مع id لكل سجل)
  * @param {Map}    opts.locationIdByName من qoyodSalesRefFetch.js
+ * @param {object} [opts.projectsIndex] [إضافة، غير مؤكَّد ميدانيًا] نفس refs.projects
+ *   (byId/byName) — بلا تمريره، أي فاتورة فيها projectRef تُرسَل بلا project_id بصمت
+ *   (لا خطأ)؛ بتمريره، projectRef غير المطابَق يصير خطأً حاجبًا لتلك الفاتورة.
  * @param {'Draft'|'Approved'} [opts.status]
  * @param {Set<string>} [opts.forceDraftRefs] [إضافة] مراجع فواتير (row.A) تُرسَل
  *   دومًا كمسودة (Draft) بغض النظر عن opts.status — تُستخدَم من لوحة مراجعة نقص
@@ -124,7 +146,7 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
-  const { productsIndex, locationIdByName, status, forceDraftRefs, onEntry, onProgress, stoppedRef } = opts;
+  const { productsIndex, locationIdByName, projectsIndex, status, forceDraftRefs, onEntry, onProgress, stoppedRef } = opts;
   const entries = [];
   const emit = (entry) => { entries.push(entry); if (onEntry) onEntry(entry); };
 
@@ -142,7 +164,7 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
     if (onProgress) onProgress(i, groups.length);
 
     const effectiveStatus = forceDraftRefs && forceDraftRefs.has(ref) ? 'Draft' : status;
-    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status: effectiveStatus });
+    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, projectsIndex, status: effectiveStatus });
     if (!built.ok) {
       failed++;
       emit({ ref, status: 'error', reason: built.error });

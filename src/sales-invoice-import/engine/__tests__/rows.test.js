@@ -101,6 +101,15 @@ describe("fillDownHeaderFields — §6.13 (تعبئة الفارغ فقط من �
     const next = fillDownHeaderFields(rows);
     expect(next[0].C).toBe('');
   });
+
+  it("[إضافة] projectRef (خارج COL_KEYS تمامًا) يُعامَل كحقل رأس فاتورة عادي ويُعبَّأ لبقية صفوف نفس المرجع", () => {
+    const rows = [
+      createRow(1, { A: 'INV-1', projectRef: 'مشروع الرياض' }),
+      createRow(2, { A: 'INV-1' }), // بلا projectRef إطلاقًا
+    ];
+    const next = fillDownHeaderFields(rows);
+    expect(next[1].projectRef).toBe('مشروع الرياض');
+  });
 });
 
 describe("compressHeaderFields — §6.14 (تكرار متطابق من أول قيمة غير فارغة على كل الصفوف)", () => {
