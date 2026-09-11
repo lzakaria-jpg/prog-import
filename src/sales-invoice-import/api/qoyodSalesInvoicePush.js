@@ -35,6 +35,14 @@
       فارغ) تصبح خطأ حاجبًا صريحًا بدل إرسال الفاتورة بضريبة خاطئة/صفرية بصمت
       — نفس فلسفة الموقع (G) والمشروع أدناه بالضبط. taxesIndex غائب أو فهرسه
       فارغ فعلًا (لا فئات بمنشأة العميل) = تُترَك كما كانت (بلا فرض مطابقة).
+    line_items[].tax_percentage — [إصلاح 2026-09-11، اختبار حي ثانٍ بعد الإصلاح
+      أعلاه] tax_id بمفرده (بلا tax_percentage) يرفضه قيود فعليًا: 422
+      "invoice_items.tax_percentage: Cannot be 0" — قيود لا يحسب tax_percentage
+      تلقائيًا من tax_id إطلاقًا (خلافًا للافتراض الأصلي)، فيبقى 0 ويُرفَض. فاتورة
+      #229 الأصلية (بلا أي حقل ضريبة على الإطلاق) نجحت لأنها حالة مختلفة تمامًا:
+      حين لا يُرسَل أي حقل ضريبة، قيود يطبّق ضريبة المنتج الافتراضية كاملة (id
+      ونسبة معًا من إعداد المنتج نفسه) — لا علاقة لها بإرسال tax_id وحده. الآن
+      يُرسَلان معًا دومًا (نص، نفس صيغة مثال الطلب الحقيقي "15" لا رقمًا).
     line_items[].project_id — [تصحيح 2026-09-11، بلاغ اختبار حي + مثال طلب
       حقيقي من المستخدم] الإصدار الأول وضع project_id على مستوى الفاتورة
       (invoice.project_id) قياسًا على حقول أخرى مثل contact_id — خطأ: حمولة
@@ -157,14 +165,21 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
     // لكن يتعذّر ربطها بأي فئة حقيقية = خطأ حاجب صريح الآن (كان يُتجاهَل بصمت فتُنشأ
     // الفاتورة بضريبة صفرية تلقائية). بلا فهرس ضرائب حقيقي أصلًا = تُترَك كما كانت
     // (بلا فرض مطابقة، لا بيانات حقيقية لفرضها).
+    // [إصلاح 2026-09-11، اختبار حي ثانٍ] tax_id وحده بلا tax_percentage يرفضه قيود
+    // فعليًا (422 "invoice_items.tax_percentage: Cannot be 0") — قيود لا يحسب
+    // tax_percentage تلقائيًا من tax_id إطلاقًا، بعكس الافتراض الأصلي المبني على
+    // اختبار #229 (بلا أي حقل ضريبة على الإطلاق، فطبَّق قيود ضريبة المنتج الافتراضية
+    // كاملة؛ حالة مختلفة تمامًا عن إرسال tax_id بمفرده). الآن يُرسَلان معًا دومًا —
+    // tax_percentage كنص (نفس صيغة مثال الطلب الحقيقي: "15") لا رقمًا.
     if (!isBlank(r.V)) {
       if (hasRealTaxes) {
         const tax = resolveTaxEntry(r.V, taxesIndex);
         if (!tax) return { ok: false, error: `تعذّر مطابقة فئة الضريبة "${norm(r.V)}" (كود المنتج "${sku}") بأي فئة ضريبية حقيقية بمنشأة العميل.` };
         item.tax_id = tax.id;
+        item.tax_percentage = String(tax.rate);
       } else if (taxesIndex && taxesIndex.byLabel) {
         const tax = taxesIndex.byLabel.get(norm(r.V));
-        if (tax) item.tax_id = tax.id;
+        if (tax) { item.tax_id = tax.id; item.tax_percentage = String(tax.rate); }
       }
     }
     if (matchedProjectId !== undefined) item.project_id = matchedProjectId;
@@ -207,6 +222,8 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  *   (تُترَك كما كانت، قيود يطبّق ضريبة المنتج تلقائيًا). بفئات حقيقية موجودة، V غير
  *   فارغة يتعذّر ربطها بأي فئة منها (resolveTaxEntry) تصير خطأً حاجبًا لتلك الفاتورة
  *   — [إصلاح 2026-09-11] كانت تُتجاهَل بصمت فتُنشأ الفاتورة بضريبة صفرية تلقائيًا.
+ *   مطابقة ناجحة تُرسِل tax_id وtax_percentage معًا دومًا — [إصلاح 2026-09-11،
+ *   اختبار حي ثانٍ] tax_id وحده يرفضه قيود فعليًا (422 tax_percentage Cannot be 0).
  * @param {'Draft'|'Approved'} [opts.status]
  * @param {Set<string>} [opts.forceDraftRefs] [إضافة] مراجع فواتير (row.A) تُرسَل
  *   دومًا كمسودة (Draft) بغض النظر عن opts.status — تُستخدَم من لوحة مراجعة نقص
