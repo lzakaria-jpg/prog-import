@@ -8,7 +8,7 @@ const YES_NO_LOWER = ['نعم', 'لا', 'yes', 'no'];
 // نسخ حرفي لمنطق inputCellHtml الأصلي (سطر 1541-1583) — كل شرط ونوع خلية كما هو،
 // فقط استبدال بناء نص HTML بعناصر React مقابلة. خيارا نعم/لا الاحتياطيان (عند غياب
 // قالب محمَّل) يبقيان كما يعرّفهما قالب قيود الرسمي (عربي) — طبقة عمل مؤجَّلة.
-export default function GridCell({ row, col, template, customersRef, productsRef, issueList, onChange }) {
+export default function GridCell({ row, col, template, customersRef, productsRef, taxesRef, locationOptions, issueList, onChange }) {
   const { t } = useLanguage();
   const val = row[col.key] === undefined ? '' : row[col.key];
   const cls = issueList ? (issueList.some((i) => i.sev === 'err') ? 'qsv-cell-err' : 'qsv-cell-warn') : '';
@@ -37,6 +37,13 @@ export default function GridCell({ row, col, template, customersRef, productsRef
   }
   if (col.type === 'dropdown') {
     let options = (template.loaded ? template.dropdowns[col.dd] : []) || [];
+    // [إضافة] بلا قالب مرفوع، لو فيه بيانات حقيقية مجلوبة عبر API لهذا العمود
+    // بالذات (مواقع لـG، فئات ضريبية حقيقية لـV — وM تشترك dd:'V' فتستفيد
+    // تلقائيًا) نستخدمها كقائمة منسدلة بديلة، بدل النص الحر الافتراضي بلا قالب.
+    if (!template.loaded) {
+      if (col.dd === 'G' && locationOptions && locationOptions.length) options = locationOptions;
+      else if (col.dd === 'V' && taxesRef && taxesRef.loaded && taxesRef.labels && taxesRef.labels.length) options = taxesRef.labels;
+    }
     if (col.key === 'S') {
       const yn = options.filter((o) => YES_NO_LOWER.includes(String(o).trim().toLowerCase()));
       options = yn.length ? yn : ['نعم', 'لا'];
@@ -51,7 +58,7 @@ export default function GridCell({ row, col, template, customersRef, productsRef
         </select>
       );
     }
-    if (!template.loaded || options.length === 0) {
+    if (options.length === 0) {
       return (
         <SafeInput
           {...dataAttrs}

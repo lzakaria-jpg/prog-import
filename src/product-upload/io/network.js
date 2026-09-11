@@ -13,7 +13,34 @@
 
 export const PROXY_BASE = "/api/qoyod-proxy";
 
+// [إضافة] حد Qoyod الرسمي للطلبات: 300 طلب لكل 60 ثانية لكل منشأة (موثَّق بتوثيق
+// Qoyod الرسمي لـAPI rate limiting). نافذة انزلاقية مشتركة على مستوى الوحدة —
+// كل نداء عبر api() (من أي أداة بالمشروع: رفع المنتجات، جلب/إرسال فواتير
+// المبيعات...) يمر من هنا، فيُحمى تلقائيًا مهما كان مصدر النداء أو تزامنه
+// (Promise.all لجلب منتجات+عملاء معًا مثلًا)، بلا حاجة لتنسيق يدوي بين
+// المستدعين. لا يضيف أي تأخير إطلاقًا طالما الاستخدام دون الحد (الحالة
+// المعتادة) — التأخير يحدث فقط لو اقتربنا فعليًا من 300 طلب خلال آخر 60 ثانية.
+const RATE_LIMIT_MAX_CALLS = 300;
+const RATE_LIMIT_WINDOW_MS = 60000;
+const rateLimitCallTimestamps = [];
+
+async function waitForRateLimitSlot() {
+  for (;;) {
+    const now = Date.now();
+    while (rateLimitCallTimestamps.length && now - rateLimitCallTimestamps[0] >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitCallTimestamps.shift();
+    }
+    if (rateLimitCallTimestamps.length < RATE_LIMIT_MAX_CALLS) {
+      rateLimitCallTimestamps.push(now);
+      return;
+    }
+    const waitMs = RATE_LIMIT_WINDOW_MS - (now - rateLimitCallTimestamps[0]) + 5;
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
 export async function api(method, path, body, apiKey) {
+  await waitForRateLimitSlot();
   const opts = {
     method,
     headers: { "API-KEY": apiKey, "Content-Type": "application/json", Accept: "application/json" },

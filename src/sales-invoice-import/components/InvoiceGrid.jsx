@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import GridCell from './GridCell.jsx';
+import { SafeInput } from '../../lib/SafeInput.jsx';
 import { COLUMNS } from '../engine/constants.js';
 
 /**
@@ -25,7 +26,7 @@ const OVERSCAN_ROWS = 8;
 const DEFAULT_ROW_HEIGHT = 30; // تقدير أولي قبل قياس ارتفاع صف فعلي مُعروض؛ يُصحَّح فورًا
 
 const InvoiceGrid = React.forwardRef(function InvoiceGrid(
-  { tableId, rows, template, customersRef, productsRef, issues, revalidate, onUpdateCell, onDeleteRow, onPasteGrid },
+  { tableId, rows, template, customersRef, productsRef, taxesRef, locationOptions, projectsRef, issues, revalidate, onUpdateCell, onDeleteRow, onPasteGrid },
   ref,
 ) {
   const { t } = useLanguage();
@@ -116,7 +117,9 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
   const visibleRows = shouldVirtualize ? rows.slice(startIndex, endIndex) : rows;
   const topSpacerHeight = shouldVirtualize ? startIndex * rowHeight : 0;
   const bottomSpacerHeight = shouldVirtualize ? Math.max(0, (total - endIndex) * rowHeight) : 0;
-  const colSpanTotal = COLUMNS.length + 2; // + عمود رقم الصف + عمود الحذف
+  // [إضافة] + عمود المشروع (اختياري تمامًا خارج COLUMNS — راجع تعليق رأس
+  // engine/rows.js.HEADER_FILL_KEYS لسبب بقائه مستقلًا عن أعمدة القالب A-V).
+  const colSpanTotal = COLUMNS.length + 3; // + عمود رقم الصف + عمود المشروع + عمود الحذف
 
   return (
     <div className="qsv-grid-scroll" ref={scrollRef}>
@@ -129,6 +132,7 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
                 {c.name}{c.required && <span className="qsv-req-star"> *</span>}
               </th>
             ))}
+            <th className="qsv-col-group-header">{t({ ar: 'المشروع', en: 'Project' })}</th>
             <th>{t({ ar: 'حذف', en: 'Delete' })}</th>
           </tr>
         </thead>
@@ -145,11 +149,27 @@ const InvoiceGrid = React.forwardRef(function InvoiceGrid(
                 <td key={col.key}>
                   <GridCell
                     row={row} col={col} template={template} customersRef={customersRef} productsRef={productsRef}
+                    taxesRef={taxesRef} locationOptions={locationOptions}
                     issueList={(issues.byRow[row.id] || {})[col.key]}
                     onChange={(value) => onUpdateCell(row.id, col.key, value, { revalidate })}
                   />
                 </td>
               ))}
+              <td>
+                {/* [ملاحظة] بلا data-row-id/data-col-key عمدًا — عمود المشروع خارج COL_KEYS
+                    تمامًا، وpaste.js.applyPastedGrid يفهرس COLUMNS مباشرة بالاعتماد على
+                    COL_KEYS.indexOf(startColKey)؛ لو بدأ لصق متعدد الخلايا من هنا سيُرجع
+                    -1 ويرمي استثناءً (COLUMNS[-1] غير معرَّف). حذف السمتين يجعل معالج
+                    اللصق بـInvoiceGrid.jsx يتجاهل الخلية تمامًا (يعمل اللصق العادي بخلية
+                    واحدة من المتصفح بلا مشكلة) — لصق متعدد الخلايا لهذا العمود تحديدًا
+                    خارج نطاق هذه الإضافة. */}
+                <SafeInput
+                  list={projectsRef && projectsRef.loaded ? 'dl-projects' : undefined}
+                  value={row.projectRef === undefined ? '' : row.projectRef}
+                  placeholder={t({ ar: 'ابحث بالاسم أو الرقم...', en: 'Search by name or number...' })}
+                  onChange={(e) => onUpdateCell(row.id, 'projectRef', e.target.value, { revalidate })}
+                />
+              </td>
               <td className="qsv-del-col">
                 <button type="button" className="qsv-btn danger" onClick={() => onDeleteRow(row.id, { revalidate })}>✕</button>
               </td>

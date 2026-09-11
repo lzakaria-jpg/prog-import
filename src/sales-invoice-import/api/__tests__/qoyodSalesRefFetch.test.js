@@ -4,6 +4,8 @@ import {
   buildStockIndexFromApi,
   buildLocationIdIndexFromApi,
   buildCustomersIndexFromApi,
+  buildProjectsIndexFromApi,
+  buildTaxesIndexFromApi,
   fetchSalesReferencesFromApi,
 } from '../qoyodSalesRefFetch.js';
 
@@ -68,12 +70,45 @@ describe('buildCustomersIndexFromApi', () => {
   });
 });
 
+describe('buildProjectsIndexFromApi — [إضافة، غير مؤكَّد ميدانيًا]', () => {
+  it('يبني byId (مفتاحه String(id)) وbyName من مصفوفة مشاريع', () => {
+    const idx = buildProjectsIndexFromApi([{ id: 9, name: 'مشروع الرياض' }]);
+    expect(idx.byId.get('9')).toEqual({ id: 9, name: 'مشروع الرياض' });
+    expect(idx.byName.get('مشروعالرياض')).toEqual([{ id: 9, name: 'مشروع الرياض' }]);
+  });
+  it('مشروع بلا id يُتجاهَل', () => {
+    const idx = buildProjectsIndexFromApi([{ name: 'بلا رقم' }]);
+    expect(idx.byId.size).toBe(0);
+  });
+  it('مصفوفة فارغة أو غير موجودة ⇒ فهارس فارغة بلا خطأ', () => {
+    expect(buildProjectsIndexFromApi([]).byId.size).toBe(0);
+    expect(buildProjectsIndexFromApi(undefined).byId.size).toBe(0);
+  });
+});
+
+describe('buildTaxesIndexFromApi — endpoint مؤكَّد (/taxes مستخدَم فعليًا بأداة رفع المنتجات)', () => {
+  it('يبني byLabel بصيغة "15%" (نفس صيغة قوائم القالب) من حقل rate', () => {
+    const idx = buildTaxesIndexFromApi([{ id: 1, name: 'ضريبة القيمة المضافة', rate: 15 }]);
+    expect(idx.byLabel.get('15%')).toEqual({ id: 1, rate: 15, label: '15%' });
+    expect(idx.labels).toEqual(['15%']);
+  });
+  it('يقبل percentage أو percent أو value كبديل لـrate (نفس فحص chooseTax الدفاعي)', () => {
+    expect(buildTaxesIndexFromApi([{ id: 1, percentage: 5 }]).byLabel.has('5%')).toBe(true);
+    expect(buildTaxesIndexFromApi([{ id: 2, percent: 8 }]).byLabel.has('8%')).toBe(true);
+    expect(buildTaxesIndexFromApi([{ id: 3, value: 0 }]).byLabel.has('0%')).toBe(true);
+  });
+  it('ضريبة بلا id أو بلا نسبة قابلة للتحويل لرقم تُتجاهَل', () => {
+    expect(buildTaxesIndexFromApi([{ name: 'بلا id', rate: 15 }]).byLabel.size).toBe(0);
+    expect(buildTaxesIndexFromApi([{ id: 1, rate: 'غير رقمي' }]).byLabel.size).toBe(0);
+  });
+});
+
 describe('fetchSalesReferencesFromApi', () => {
   it('يرمي خطأ واضح بلا مفتاح API', async () => {
     await expect(fetchSalesReferencesFromApi('')).rejects.toThrow(/مفتاح API/);
   });
 
-  it('يجمع المنتجات والعملاء ويبني الفهارس الأربعة معًا', async () => {
+  it('يجمع المنتجات والعملاء ويبني الفهارس الأربعة معًا (لا مشاريع لهذه المنشأة — 404)', async () => {
     global.fetch = vi.fn().mockImplementation(async (url) => {
       if (String(url).includes('/products')) {
         return { ok: true, status: 200, text: async () => JSON.stringify({ products: [SAMPLE_PRODUCT] }) };
@@ -89,8 +124,46 @@ describe('fetchSalesReferencesFromApi', () => {
     expect(result.stockRef.loaded).toBe(true);
     expect(result.customersRef.loaded).toBe(true);
     expect(result.customersRef.byRef.get('205').name).toBe('nouf sss');
+    expect(result.projectsRef.loaded).toBe(true);
+    expect(result.projectsRef.byId.size).toBe(0); // 404 يُعامَل كـ"لا مشاريع"، لا خطأ يُفشل الجلب الكامل
+    expect(result.taxesRef.byLabel.size).toBe(0); // نفس المعاملة لـ/taxes (404 = بلا ضرائب معرَّفة)
     expect(result.locationIdByName.get('المركز الرئيسي')).toBe(1);
-    expect(result.counts).toEqual({ products: 1, customers: 1 });
+    expect(result.counts).toEqual({ products: 1, customers: 1, projects: 0, taxes: 0 });
+  });
+
+  it('[إضافة، غير مؤكَّد ميدانيًا] فشل جلب /projects لأي سبب آخر (500 مثلًا) لا يُفشل جلب المنتجات/العملاء', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      if (String(url).includes('/products')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ products: [SAMPLE_PRODUCT] }) };
+      }
+      if (String(url).includes('/customers')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ customers: [SAMPLE_CUSTOMER] }) };
+      }
+      return { ok: false, status: 500, text: async () => 'server error' };
+    });
+    const result = await fetchSalesReferencesFromApi('KEY');
+    expect(result.productsRef.loaded).toBe(true);
+    expect(result.customersRef.loaded).toBe(true);
+    expect(result.projectsRef.loaded).toBe(true);
+    expect(result.projectsRef.byId.size).toBe(0);
+  });
+
+  it('يجمع المشاريع فعليًا عند توفرها', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      if (String(url).includes('/products')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ products: [SAMPLE_PRODUCT] }) };
+      }
+      if (String(url).includes('/customers')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ customers: [SAMPLE_CUSTOMER] }) };
+      }
+      if (String(url).includes('/projects')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ projects: [{ id: 9, name: 'مشروع الرياض' }] }) };
+      }
+      return { ok: false, status: 404, text: async () => 'not found' };
+    });
+    const result = await fetchSalesReferencesFromApi('KEY');
+    expect(result.projectsRef.byId.get('9')).toEqual({ id: 9, name: 'مشروع الرياض' });
+    expect(result.counts.projects).toBe(1);
   });
 
   it('يرمي خطأ عربي واضح عند فشل الشبكة', async () => {

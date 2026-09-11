@@ -38,6 +38,75 @@ describe('buildSalesInvoicePayload', () => {
     expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_percent');
   });
 
+  describe('[إضافة] مطابقة عمود الضريبة% (V) بفئة ضريبية حقيقية (tax_id)', () => {
+    const taxesIndex = { byLabel: new Map([['15%', { id: 7, rate: 15, label: '15%' }]]) };
+
+    it('V مطابقة لفئة حقيقية ⇒ tax_id تُرسَل بالبند', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '15%' })], { productsIndex, locationIdByName, taxesIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0].tax_id).toBe(7);
+    });
+
+    it('بلا taxesIndex أصلًا: V تُتجاهَل بصمت، بلا tax_id، بلا خطأ (نفس السلوك الافتراضي الأصلي)', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '15%' })], { productsIndex, locationIdByName });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
+    });
+
+    it('V غير مطابقة لأي فئة حقيقية: تُتجاهَل بصمت، بلا خطأ (V كانت اختيارية الأثر دومًا)', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '99%' })], { productsIndex, locationIdByName, taxesIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
+    });
+  });
+
+  describe('[إضافة، غير مؤكَّد ميدانيًا] مطابقة عمود المشروع (projectRef)', () => {
+    const projectsIndex = {
+      byId: new Map([['9', { id: 9, name: 'مشروع الرياض' }]]),
+      byName: new Map([['مشروعالرياض', [{ id: 9, name: 'مشروع الرياض' }]]]),
+    };
+
+    it('بلا projectRef إطلاقًا: لا project_id بالحمولة، بلا خطأ', () => {
+      const built = buildSalesInvoicePayload([makeRow()], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+    });
+
+    it('projectRef موجود لكن بلا projectsIndex أصلًا: يُتجاهَل بصمت، لا خطأ', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+    });
+
+    it('يطابق بالرقم (byId) أولًا', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.project_id).toBe(9);
+    });
+
+    it('يطابق بالاسم عند عدم مطابقة الرقم', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع الرياض' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.project_id).toBe(9);
+    });
+
+    it('اسم غير مطابق لأي مشروع ⇒ خطأ صريح', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع غير موجود' })], { productsIndex, locationIdByName, projectsIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/تعذّر مطابقة المشروع/);
+    });
+
+    it('اسم مطابق لأكثر من مشروع ⇒ خطأ يطلب استخدام الرقم', () => {
+      const ambiguousIndex = {
+        byId: new Map(),
+        byName: new Map([['مشروعمشترك', [{ id: 1, name: 'مشروع مشترك' }, { id: 2, name: 'مشروع مشترك' }]]]),
+      };
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: 'مشروع مشترك' })], { productsIndex, locationIdByName, projectsIndex: ambiguousIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/مطابق لأكثر من مشروع/);
+    });
+  });
+
   it('due_date يرث issue_date عند فراغ E', () => {
     const built = buildSalesInvoicePayload([makeRow({ E: '' })], { productsIndex, locationIdByName });
     expect(built.payload.invoice.due_date).toBe(built.payload.invoice.issue_date);
@@ -124,6 +193,20 @@ describe('pushSalesInvoicesToQoyod', () => {
     const result = await pushSalesInvoicesToQoyod([makeRow()], '', { productsIndex, locationIdByName });
     expect(result.fatalError).toMatch(/مفتاح API/);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('[إضافة] forceDraftRefs يجبر Draft على فواتير محددة فقط، والباقي يتبع status العام', async () => {
+    const sentBodies = [];
+    global.fetch = vi.fn().mockImplementation(async (url, opts) => {
+      sentBodies.push(JSON.parse(opts.body));
+      return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 1 } }) };
+    });
+    const rows = [makeRow({ A: 'INV-RISKY' }), makeRow({ id: 'r2', A: 'INV-CLEAN' })];
+    await pushSalesInvoicesToQoyod(rows, 'KEY', {
+      productsIndex, locationIdByName, status: 'Approved', forceDraftRefs: new Set(['INV-RISKY']),
+    });
+    expect(sentBodies[0].invoice.status).toBe('Draft'); // INV-RISKY مُجبَرة
+    expect(sentBodies[1].invoice.status).toBe('Approved'); // INV-CLEAN تتبع status العام
   });
 
   it('فشل بناء الحمولة (لا معرّف عميل مثلاً) يُسجَّل كخطأ ويكمل الباقي بلا استدعاء API لتلك الفاتورة', async () => {

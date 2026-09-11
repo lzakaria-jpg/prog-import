@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
+import { buildSendResultsReportBlob } from '../io/sendResultsReport.js'; // [إضافة] تقرير Excel لنتائج الإرسال — راجع تعليق رأسه
+import { downloadBlob } from '../../lib/downloadBlob.js';
 
 /**
  * [إضافة] شاشة نتائج الإرسال المباشر لفواتير المبيعات عبر Qoyod API — تُفتح من
@@ -10,8 +12,22 @@ import { useLanguage } from '../../language.jsx';
  */
 export default function ApiSendResultsModal({ engine, onClose }) {
   const { t } = useLanguage();
-  const { apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, stopApiSend } = engine;
+  const { apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, stopApiSend, rows } = engine;
   const [tab, setTab] = useState('all');
+  const [reportBusy, setReportBusy] = useState(false);
+
+  // [إضافة] تنزيل تقرير Excel كامل بنتائج الإرسال — نفس أعمدة الملف الجاهز
+  // للرفع + عمودي حالة الإرسال/سبب الفشل، وحدود حمراء بارزة على صفوف الفواتير
+  // الفاشلة. متاح بعد اكتمال الإرسال (ولو بدون أي فشل — تقرير شامل مفيد دومًا).
+  const downloadReport = async () => {
+    setReportBusy(true);
+    try {
+      const blob = await buildSendResultsReportBlob(rows, apiSendEntries, t);
+      downloadBlob(blob, t({ ar: 'تقرير-نتائج-الإرسال.xlsx', en: 'send-results-report.xlsx' }));
+    } finally {
+      setReportBusy(false);
+    }
+  };
 
   const sentCount = apiSendResult ? apiSendResult.sent : apiSendEntries.filter((e) => e.status === 'success').length;
   const failedCount = apiSendResult ? apiSendResult.failed : apiSendEntries.filter((e) => e.status === 'error').length;
@@ -95,6 +111,11 @@ export default function ApiSendResultsModal({ engine, onClose }) {
         </div>
 
         <div className="qsv-modal-actions" style={{ marginTop: 14 }}>
+          {!apiSendBusy && apiSendResult && !apiSendResult.fatalError && (
+            <button type="button" className="qsv-btn secondary" disabled={reportBusy} onClick={downloadReport}>
+              ⬇️ {reportBusy ? t({ ar: 'جارٍ التجهيز...', en: 'Preparing...' }) : t({ ar: 'تحميل تقرير النتائج (Excel)', en: 'Download results report (Excel)' })}
+            </button>
+          )}
           <button type="button" className="qsv-btn ghost" disabled={apiSendBusy} onClick={onClose}>{t({ ar: 'إغلاق', en: 'Close' })}</button>
         </div>
       </div>

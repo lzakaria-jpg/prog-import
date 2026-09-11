@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runValidation, findInvoicesMissingLocation, getValidOnlyRows } from "../validation.js";
+import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups } from "../validation.js";
 import { createRow } from "../rows.js";
 
 function validRow(overrides) {
@@ -15,12 +15,24 @@ describe("runValidation — الحقول الإلزامية على مستوى ا
     const { list } = runValidation([validRow({})]);
     expect(list.filter(i => i.sev === 'err')).toEqual([]);
   });
-  it("N/P/R/S/V فارغة كل واحدة تولّد خطأ مستقل على نفس الحقل", () => {
+  it("N/P/R/S/V فارغة كل واحدة تولّد خطأ مستقل على نفس الحقل (بقالب مرفوع)", () => {
     const row = validRow({ N: '', P: '', R: '', S: '', V: '' });
-    const { byRow } = runValidation([row]);
+    const refs = { template: { loaded: true, dropdowns: { G: ['الرياض'], V: ['15%'], H: [] } } };
+    const { byRow } = runValidation([row], refs);
     ['N', 'P', 'R', 'S', 'V'].forEach(k => {
       expect(byRow[row.id][k].some(i => i.sev === 'err')).toBe(true);
     });
+  });
+  // [إضافة] بلا قالب مرفوع (مسار جلب المرجعيات عبر API — راجع تعليق رأس
+  // lineItemRequiredCols بـvalidation.js)، الضريبة% (V) لم تعد إلزامية — لا توجد
+  // فئات ضريبية حقيقية نتحقق مقابلها، والإرسال عبر API يتجاهلها عمدًا أصلًا.
+  it("V غير إلزامية بلا قالب مرفوع، بينما N/P/R/S تبقى إلزامية كما هي", () => {
+    const row = validRow({ N: '', P: '', R: '', S: '', V: '' });
+    const { byRow } = runValidation([row]); // بلا refs — يعني template.loaded=false
+    ['N', 'P', 'R', 'S'].forEach(k => {
+      expect(byRow[row.id][k].some(i => i.sev === 'err')).toBe(true);
+    });
+    expect(byRow[row.id].V).toBeUndefined();
   });
   it("مرجع الفاتورة (A) فارغ ⇒ خطأ حاجب مستقل", () => {
     const row = validRow({ A: '' });
@@ -194,5 +206,26 @@ describe("getValidOnlyRows — معياره الفاتورة كاملة لا ا�
     const { byRow } = runValidation(rows);
     const validOnly = getValidOnlyRows(rows, byRow);
     expect(validOnly.map(r => r.id)).toEqual([1]);
+  });
+});
+
+describe("getStockShortageDraftGroups — [إضافة] فواتير نقص الكمية القابلة للإرسال كمسودة (مسار API)", () => {
+  it("يرصد فقط الفواتير التي فيها تحذير stock_shortage_draft، بلا الفواتير السليمة", () => {
+    const rows = [
+      validRow({ id: 1, A: 'INV-OK', N: 'SKU-1', G: 'الرياض', P: '2' }),
+      validRow({ id: 2, A: 'INV-SHORT', N: 'SKU-1', G: 'الرياض', P: '20' }),
+    ];
+    const refs = { stock: { loaded: true, raw: null, byKey: new Map([['SKU-1||الرياض', 10]]) } };
+    const { byRow } = runValidation(rows, refs);
+    const groups = getStockShortageDraftGroups(rows, byRow);
+    expect(groups.map(g => g.ref)).toEqual(['INV-SHORT']);
+    expect(groups[0].messages.length).toBe(1);
+  });
+
+  it("مخزون مرفوع يدويًا (raw فعلي لا null) ⇒ لا مجموعات (تبقى أخطاء حاجبة عادية)", () => {
+    const rows = [validRow({ id: 1, A: 'INV-SHORT', N: 'SKU-1', G: 'الرياض', P: '20' })];
+    const refs = { stock: { loaded: true, raw: [['SKU-1', 'الرياض', 10]], byKey: new Map([['SKU-1||الرياض', 10]]) } };
+    const { byRow } = runValidation(rows, refs);
+    expect(getStockShortageDraftGroups(rows, byRow)).toEqual([]);
   });
 });

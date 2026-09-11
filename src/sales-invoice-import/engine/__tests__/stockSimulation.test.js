@@ -64,6 +64,20 @@ describe("checkStockSequential — §6.15 (محاكاة استهلاك تسلس�
     expect(issues.length).toBe(0);
   });
 
+  it("[إضافة] مخزون مجلوب عبر API (stockIndex.raw===null) ⇒ نقص الكمية تحذير قابل للإرسال كمسودة لا خطأ حاجب", () => {
+    const rows = [
+      createRow(1, { N: 'SKU-1', G: 'الرياض', P: '8' }),
+      createRow(2, { N: 'SKU-1', G: 'الرياض', P: '5' }),
+    ];
+    const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
+    const issues = checkStockSequential(rows, { stockIndex: apiStockIndex });
+    expect(issues.length).toBe(1);
+    expect(issues[0].rowId).toBe(2);
+    expect(issues[0].sev).toBe('warn');
+    expect(issues[0].code).toBe('stock_shortage_draft');
+    expect(issues[0].msg).toContain('مسودة');
+  });
+
   it("بلا stockIndex أصلاً ⇒ لا فحص ولا أخطاء", () => {
     const rows = [createRow(1, { N: 'SKU-1', G: 'الرياض', P: '5' })];
     expect(checkStockSequential(rows, {})).toEqual([]);

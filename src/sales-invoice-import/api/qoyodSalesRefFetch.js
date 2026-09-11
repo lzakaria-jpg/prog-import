@@ -10,11 +10,16 @@
   خطوات الأداة (المطابقة/التحقق/التصدير اليدوي تبقى كما هي 100%).
 
   [قرار صريح بعد تحقق حي مع المستخدم 2026-09-11] "قالب استيراد فواتير المبيعات"
-  (dropdowns.G/H/V وbuild colMap) يبقى رفعًا يدويًا دائمًا — Qoyod API لا يوفر
-  أي endpoint لقائمة الفئات الضريبية (V)، وشكل القالب نفسه (عدد الأعمدة) يختلف
-  فعليًا حسب إعدادات كل منشأة (مثال: تفعيل خصم إجمالي على المستند يضيف أعمدة) —
-  معلومة لا بديل عنها عن تحليل الملف الحقيقي المُنزَّل من قيود. هذا الملف لا
-  يتعرض لـtemplate.js/columnMatching.js إطلاقًا.
+  (dropdowns.G/H/V وbuild colMap) يبقى رفعًا يدويًا دائمًا اختياريًا — شكل القالب
+  نفسه (عدد الأعمدة) يختلف فعليًا حسب إعدادات كل منشأة (مثال: تفعيل خصم إجمالي
+  على المستند يضيف أعمدة)، فيبقى مصدرًا مفيدًا حين يتوفر. هذا الملف لا يتعرض
+  لـtemplate.js/columnMatching.js إطلاقًا.
+  [تصحيح 2026-09-11] الجملة السابقة هنا ادّعت عدم وجود أي endpoint لقائمة
+  الفئات الضريبية بقيود — غير صحيح: GET /taxes موجود ومؤكَّد فعليًا (مستخدَم
+  بالفعل بأداة رفع المنتجات، product-upload/useProductUploadEngine.js)، وأكّده
+  المستخدم بمثال طلب إنشاء فاتورة حقيقي يحمل tax_id/tax_percentage صريحين. الآن
+  V (وM، تشترك dd:'V') تُبنى كقائمة منسدلة فعلية من /taxes بمسار API — راجع
+  buildTaxesIndexFromApi أدناه وGridCell.jsx.
 
   مصادر البيانات الفعلية (مؤكَّدة باختبار حي على منشأة اختبارية 2026-09-11):
     - GET /products  → sku, name_ar, name_en, is_sold, track_quantity, tax_id,
@@ -146,10 +151,76 @@ export function buildCustomersIndexFromApi(apiCustomers) {
 }
 
 /**
+ * يبني فهرس مشاريع منشأة العميل من مصفوفة GET /projects الخام —
+ * byId (مفتاحه String(id)، يطابق كتابة رقم المشروع مباشرة بملف الفواتير)
+ * وbyName (لمطابقة الاسم عند عدم كتابة الرقم). [غير مؤكَّد ميدانيًا بخلاف
+ * /products و/customers أعلاه — راجع تعليق fetchSalesReferencesFromApi أدناه]
+ * افتراض شكل الحقول (id, name) قياسًا على نفس نمط GET /customers الموثَّق
+ * والمؤكَّد فعليًا.
+ */
+export function buildProjectsIndexFromApi(apiProjects) {
+  const byId = new Map();
+  const byName = new Map();
+  (apiProjects || []).forEach((p) => {
+    const id = p?.id;
+    if (id === undefined || id === null) return;
+    const name = norm(p?.name);
+    const rec = { id, name };
+    byId.set(String(id), rec);
+    if (name) {
+      const nk = normKey(name);
+      if (!byName.has(nk)) byName.set(nk, []);
+      byName.get(nk).push(rec);
+    }
+  });
+  return { byId, byName };
+}
+
+/**
+ * يبني قائمة الفئات الضريبية الحقيقية بمنشأة العميل من مصفوفة GET /taxes الخام
+ * — endpoint مؤكَّد فعليًا (مستخدَم بالفعل بأداة رفع المنتجات، راجع
+ * product-upload/useProductUploadEngine.js وchooseTax بـengine/parsing.js هناك)،
+ * فليس افتراضًا هنا كحال /projects أعلاه. حقل النسبة نفسه يختلف اسمه بين منشآت/
+ * إصدارات — نفس الفحص الدفاعي المستخدم فعليًا بـchooseTax (rate أو percentage
+ * أو percent أو value، أول واحد موجود).
+ * byLabel مفتاحه نص العرض "15%" (نفس صيغة قوائم القالب — راجع parseRateFromDropdownLabel
+ * بـengine/taxAndDiscount.js، يبقى يعمل بلا أي تعديل عليه) لمطابقته لاحقًا بـtax_id
+ * الحقيقي وقت الإرسال (qoyodSalesInvoicePush.js). فئتان بنفس النسبة بالضبط: الأخيرة
+ * تفوز (تبسيط مقصود — تعارض نادر وعرضهما بقيمة واحدة متطابقة بالقائمة لن يُفرَّق
+ * بينهما بصريًا على أي حال).
+ */
+export function buildTaxesIndexFromApi(apiTaxes) {
+  const byLabel = new Map();
+  const labels = [];
+  (apiTaxes || []).forEach((tx) => {
+    const id = tx?.id;
+    if (id === undefined || id === null) return;
+    const rateRaw = tx?.rate !== undefined ? tx.rate
+      : tx?.percentage !== undefined ? tx.percentage
+      : tx?.percent !== undefined ? tx.percent
+      : tx?.value;
+    const rate = parseFloat(rateRaw);
+    if (isNaN(rate)) return;
+    const label = `${rate}%`;
+    if (!byLabel.has(label)) labels.push(label);
+    byLabel.set(label, { id, rate, label });
+  });
+  return { byLabel, labels };
+}
+
+/**
  * الدالة المنسِّقة — تُستدعى من useSalesInvoiceImportEngine.js فقط. تجلب
  * /products و/customers بالتوازي (نفس مفتاح API)، وتبني الفهارس الثلاثة
  * (منتجات/مخزون/عملاء) + فهرس المواقع الداخلي للإرسال لاحقًا.
  * ترمي استثناءً برسالة عربية واضحة عند أي فشل شبكي — الهوك هو من يلتقطه ويعرضه.
+ *
+ * [إضافة، غير مؤكَّد ميدانيًا] جلب /projects لدعم عمود "المشروع" الاختياري —
+ * بخلاف /products و/customers (مؤكَّدان باختبار حي فعلي 2026-09-11)، شكل رد
+ * /projects واسم الحقول (id/name) هنا افتراض قياسًا على نمط بقية موارد Qoyod
+ * REST، لم يُختبر حيًا بعد. لهذا فشل جلبها تحديدًا (404 لمنشأة بلا موديول
+ * مشاريع مفعّل، أو أي خطأ آخر) لا يُفشل الجلب الكامل — يُعامَل كـ"لا مشاريع
+ * متاحة" فقط، فلا يؤثر على منتجات/مخزون/عملاء الأداة الأساسيين. يجب اختبارها
+ * حيًا على منشأة حقيقية فيها مشاريع قبل الاعتماد الكامل على هذه الميزة.
  */
 export async function fetchSalesReferencesFromApi(apiKey) {
   const key = (apiKey || '').trim();
@@ -165,16 +236,34 @@ export async function fetchSalesReferencesFromApi(apiKey) {
     throw new Error(`تعذّر جلب البيانات المرجعية من قيود: ${e.message || String(e)}`);
   }
 
+  let apiProjects;
+  try {
+    apiProjects = await fetchAll('/projects', key);
+  } catch (e) {
+    apiProjects = [];
+  }
+
+  let apiTaxes;
+  try {
+    apiTaxes = await fetchAll('/taxes', key);
+  } catch (e) {
+    apiTaxes = []; // منشأة بلا ضرائب مُعرَّفة أصلاً (نادر لكن ممكن) — لا يوقف باقي الجلب
+  }
+
   const products = buildProductsIndexFromApi(apiProducts);
   const stock = buildStockIndexFromApi(apiProducts);
   const customers = buildCustomersIndexFromApi(apiCustomers);
+  const projects = buildProjectsIndexFromApi(apiProjects);
+  const taxes = buildTaxesIndexFromApi(apiTaxes);
   const locationIdByName = buildLocationIdIndexFromApi(apiProducts);
 
   return {
     productsRef: { loaded: true, raw: null, headers: null, mapping: null, ...products },
     stockRef: { loaded: true, raw: null, headers: null, mapping: null, ...stock },
     customersRef: { loaded: true, raw: null, headers: null, mapping: null, ...customers },
+    projectsRef: { loaded: true, raw: null, headers: null, mapping: null, ...projects },
+    taxesRef: { loaded: true, raw: null, headers: null, mapping: null, ...taxes },
     locationIdByName,
-    counts: { products: apiProducts.length, customers: apiCustomers.length },
+    counts: { products: apiProducts.length, customers: apiCustomers.length, projects: apiProjects.length, taxes: apiTaxes.length },
   };
 }

@@ -19,22 +19,25 @@
       (locationIdByName من qoyodSalesRefFetch.js) لا علاقة له بـtemplate.dropdowns.G.
     line_items[].product_id (مطلوب) — رقمي، يُحل من كود المنتج (row.N) عبر
       products.bySku (نفس الفهرس الذي يستخدمه التحقق الحالي، بإضافة id فقط).
-    line_items[].tax_percent — [قرار مؤكَّد باختبار حي] يُترَك بلا إرسال عمدًا:
-      Qoyod يطبّق تلقائيًا نسبة الضريبة المُسجَّلة على المنتج نفسه إن لم تُرسَل،
-      وهذا مؤكَّد بالاختبار الحي (فاتورة #229: أرسلنا بلا tax_percent، ورجع
-      "tax_percent":"15.0" و"total":"115.0" تلقائيًا من ضريبة المنتج). لا يوجد
-      أي endpoint لقائمة الفئات الضريبية بـQoyod API (تأكَّد بالبحث الكامل
-      بالتوثيق)، فعمود V بالجدول الداخلي (مطلوب دومًا لاجتياز التحقق الحالي،
-      بلا أي تغيير عليه) لا يُستخدَم إطلاقًا بهذا المسار — قيمته تُتجاهَل عمدًا.
-    طريقة الدفع (عمود H) — [قرار صريح من المستخدم 2026-09-10] تُتجاهَل تمامًا:
-      لا يوجد لها أي حقل بإنشاء الفاتورة عبر API أصلاً (مورد Invoice Payments
-      منفصل تمامًا، خارج نطاق هذه الميزة).
+    line_items[].tax_id — [تصحيح 2026-09-11] الجملة السابقة هنا ادّعت عدم وجود
+      أي endpoint لقائمة الفئات الضريبية — غير صحيح: GET /taxes موجود ومؤكَّد
+      (مستخدَم فعليًا بأداة رفع المنتجات) وأكّده المستخدم بمثال طلب حقيقي يحمل
+      tax_id/tax_percentage صريحين. الآن: لو V (عمود عنصر البند) غير فارغة
+      ومطابقة لفئة ضريبية حقيقية من taxesIndex (مجلوبة عبر /taxes)، تُرسَل
+      tax_id صريحًا. غير مطابقة أو taxesIndex غائب = تُترَك كما كانت (بلا
+      إرسال) — قيود يطبّق حينها تلقائيًا ضريبة المنتج نفسه، وهذا مؤكَّد
+      بالاختبار الحي الأصلي (فاتورة #229: بلا أي حقل ضريبة، رجع "tax_percent":
+      "15.0" تلقائيًا من ضريبة المنتج) ولا يزال صحيحًا كسلوك افتراضي.
+    طريقة الدفع (عمود H) — [قرار صريح من المستخدم 2026-09-10، لا يزال ساريًا]
+      تُتجاهَل عمدًا هنا رغم وجود حقل payment_method فعليًا بحمولة إنشاء الفاتورة
+      (اكتشاف 2026-09-11 من مثال طلب حقيقي من المستخدم) — ربط قيمة H النصية
+      برقم طريقة دفع حقيقي بمنشأة العميل مهمة منفصلة لم تُطلَب بعد.
  ============================================================================
 */
 import { api } from '../../product-upload/io/network.js';
 import { groupRowsByInvoiceRef } from '../engine/grouping.js';
 import { fromDMY } from '../engine/dates.js';
-import { norm, isBlank } from '../engine/text.js';
+import { norm, normKey, isBlank } from '../engine/text.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأدوات API الأخرى بالمشروع
 
@@ -45,7 +48,7 @@ const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليً�
  * — دالة نقية بالكامل، بلا أي إرسال فعلي هنا (فصل البناء عن الإرسال لتسهيل
  * الاختبار، نفس نمط buildQoyodAccountPayload).
  */
-export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status } = {}) {
+export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, projectsIndex, taxesIndex, status } = {}) {
   if (!rowsInGroup || !rowsInGroup.length) return { ok: false, error: 'مجموعة فاتورة فارغة' };
   const header = rowsInGroup[0];
 
@@ -82,7 +85,14 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
     if (!isBlank(r.O)) item.description = norm(r.O);
     if (!isBlank(r.T)) { item.discount = parseFloat(r.T); item.discount_type = 'percentage'; }
     else if (!isBlank(r.U)) { item.discount = parseFloat(r.U); item.discount_type = 'amount'; }
-    // tax_percent متروكة عمدًا — راجع تعليق الرأس أعلاه.
+    // [إضافة] فئة ضريبية حقيقية مُختارة صراحةً (V مطابقة لـtaxesIndex — راجع
+    // تعليق الرأس أعلاه) — غير مطابقة أو taxesIndex غائب = تُترَك كما كانت
+    // (بلا إرسال، قيود يطبّق ضريبة المنتج تلقائيًا). لا خطأ عند عدم المطابقة
+    // عمدًا (بخلاف الموقع/المنتج/المشروع) — V كانت اختيارية الأثر دومًا.
+    if (!isBlank(r.V) && taxesIndex && taxesIndex.byLabel) {
+      const tax = taxesIndex.byLabel.get(norm(r.V));
+      if (tax) item.tax_id = tax.id;
+    }
     lineItems.push(item);
   }
 
@@ -98,6 +108,25 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
   if (!isBlank(header.A)) invoice.reference = norm(header.A);
   if (!isBlank(header.B)) invoice.description = norm(header.B);
 
+  // [إضافة] عمود "المشروع" (projectRef — خارج COL_KEYS، راجع constants.js
+  // AUX_FIELD_KEYWORDS._project) — يُطابَق برقم المشروع الحقيقي (byId) أولًا،
+  // وإلا بالاسم (byName). بلا قيمة أصلًا = لا مشروع لهذه الفاتورة (طبيعي، ليس
+  // خطأ). قيمة موجودة لكن غير مطابقة = خطأ صريح بدل إرسال فاتورة بمشروع خاطئ
+  // بصمت أو تجاهل المشروع بصمت — نفس فلسفة الموقع (G) أعلاه بالضبط.
+  if (!isBlank(header.projectRef) && projectsIndex) {
+    const typed = norm(header.projectRef);
+    let matched = projectsIndex.byId ? projectsIndex.byId.get(typed) : undefined;
+    if (!matched) {
+      const candidates = (projectsIndex.byName ? projectsIndex.byName.get(normKey(typed)) : undefined) || [];
+      if (candidates.length === 1) matched = candidates[0];
+      else if (candidates.length > 1) {
+        return { ok: false, error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم لهذه الفاتورة.` };
+      }
+    }
+    if (!matched) return { ok: false, error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
+    invoice.project_id = matched.id;
+  }
+
   return { ok: true, payload: { invoice } };
 }
 
@@ -112,14 +141,24 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {object} opts
  * @param {object} opts.productsIndex نفس refs.products (يحتاج bySku مع id لكل سجل)
  * @param {Map}    opts.locationIdByName من qoyodSalesRefFetch.js
+ * @param {object} [opts.projectsIndex] [إضافة، غير مؤكَّد ميدانيًا] نفس refs.projects
+ *   (byId/byName) — بلا تمريره، أي فاتورة فيها projectRef تُرسَل بلا project_id بصمت
+ *   (لا خطأ)؛ بتمريره، projectRef غير المطابَق يصير خطأً حاجبًا لتلك الفاتورة.
+ * @param {object} [opts.taxesIndex] نفس refs.taxes (byLabel) — بلا تمريره أو V غير
+ *   مطابقة، لا tax_id يُرسَل (بلا خطأ — قيود يطبّق ضريبة المنتج تلقائيًا حينها).
  * @param {'Draft'|'Approved'} [opts.status]
+ * @param {Set<string>} [opts.forceDraftRefs] [إضافة] مراجع فواتير (row.A) تُرسَل
+ *   دومًا كمسودة (Draft) بغض النظر عن opts.status — تُستخدَم من لوحة مراجعة نقص
+ *   الكمية بالخطوة 4 (StockShortageReviewPanel) عندما يختار المستخدم إرسال فواتير
+ *   محفوفة بمخاطر نقص الكمية مع فواتير أخرى سليمة بحالة "معتمدة" بنفس الدفعة —
+ *   الفواتير المحفوفة بالمخاطر فقط تُجبَر على Draft، الباقي يتبع opts.status كالمعتاد.
  * @param {(entry:{ref,status:'success'|'error',reason?,id?,total?}) => void} [opts.onEntry]
  * @param {(current:number, total:number) => void} [opts.onProgress]
  * @param {{current:boolean}} [opts.stoppedRef]
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
-  const { productsIndex, locationIdByName, status, onEntry, onProgress, stoppedRef } = opts;
+  const { productsIndex, locationIdByName, projectsIndex, taxesIndex, status, forceDraftRefs, onEntry, onProgress, stoppedRef } = opts;
   const entries = [];
   const emit = (entry) => { entries.push(entry); if (onEntry) onEntry(entry); };
 
@@ -136,7 +175,8 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
     const [ref, rowsInGroup] = groups[i];
     if (onProgress) onProgress(i, groups.length);
 
-    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, status });
+    const effectiveStatus = forceDraftRefs && forceDraftRefs.has(ref) ? 'Draft' : status;
+    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, projectsIndex, taxesIndex, status: effectiveStatus });
     if (!built.ok) {
       failed++;
       emit({ ref, status: 'error', reason: built.error });

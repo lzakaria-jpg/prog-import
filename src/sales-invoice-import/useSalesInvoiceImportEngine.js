@@ -18,7 +18,7 @@ import { resolveNamesToRefs } from './engine/resolveNames.js';
 import { snapTaxCategoriesInRows } from './engine/taxAndDiscount.js';
 import { buildProductsIndex, buildStockIndex, buildCustomersIndex } from './engine/referenceIndexes.js';
 import { guessInvoiceImportMapping, applyInvoiceImportMapping } from './engine/invoiceImportMapping.js';
-import { runValidation, findInvoicesMissingLocation, getValidOnlyRows } from './engine/validation.js';
+import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups } from './engine/validation.js';
 import { applyPastedGrid } from './engine/paste.js';
 
 import { parseTemplateFile } from './io/template.js';
@@ -50,6 +50,12 @@ export default function useSalesInvoiceImportEngine() {
   const [productsRef, setProductsRef] = useState(EMPTY_REF);
   const [stockRef, setStockRef] = useState(EMPTY_REF);
   const [customersRef, setCustomersRef] = useState(EMPTY_REF);
+  // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
+  // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
+  const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
+  // [إضافة] الفئات الضريبية الحقيقية بمنشأة العميل — endpoint مؤكَّد (/taxes)،
+  // تُستخدَم كقائمة منسدلة بديلة لعمود الضريبة% (V) بلا قالب مرفوع (GridCell.jsx).
+  const [taxesRef, setTaxesRef] = useState(EMPTY_REF);
 
   const [invoiceImportFile, setInvoiceImportFile] = useState({ headers: [], rows: [] });
   const [invoiceImportGuesses, setInvoiceImportGuesses] = useState(null); // {mainGuesses, auxGuesses} | null
@@ -116,6 +122,13 @@ export default function useSalesInvoiceImportEngine() {
   const refs = useMemo(() => ({
     template, products: productsRef, customers: customersRef, stock: stockRef,
   }), [template, productsRef, customersRef, stockRef]);
+
+  // [إضافة] أسماء المواقع الحقيقية المجلوبة عبر API (نفس مفاتيح locationIdByName)
+  // — تُستخدَم كقائمة منسدلة بديلة لعمود الموقع (G) بلا قالب مرفوع (GridCell.jsx).
+  const locationOptions = useMemo(
+    () => (locationIdByName ? Array.from(locationIdByName.keys()) : []),
+    [locationIdByName],
+  );
 
   const revalidateNow = useCallback((rowsOverride) => {
     // [إصلاح] كان زر "إعادة التحقق" يمرّر حدث النقر (SyntheticEvent) كـrowsOverride،
@@ -184,6 +197,8 @@ export default function useSalesInvoiceImportEngine() {
       setProductsRef(result.productsRef);
       setStockRef(result.stockRef);
       setCustomersRef(result.customersRef);
+      setProjectsRef(result.projectsRef || EMPTY_REF);
+      setTaxesRef(result.taxesRef || EMPTY_REF);
       setLocationIdByName(result.locationIdByName);
       setApiFetchSummary(result.counts);
       return result;
@@ -368,6 +383,11 @@ export default function useSalesInvoiceImportEngine() {
 
   const validOnlyRows = useMemo(() => getValidOnlyRows(rows, issues.byRow), [rows, issues]);
 
+  // [إضافة] فواتير نقص الكمية "القابلة للإرسال كمسودة" (تحذير لا خطأ حاجب —
+  // فقط لو المخزون مجلوب عبر API، راجع stockSimulation.js) — تُستخدَم بلوحة
+  // مراجعة الخطوة 4 (StockShortageReviewPanel) قبل الإرسال الفعلي عبر API.
+  const stockShortageGroups = useMemo(() => getStockShortageDraftGroups(rows, issues.byRow), [rows, issues]);
+
   // kind: 'all' | 'validOnly' — يطابق downloadRowsAsXlsx(state.rows) مقابل downloadRowsAsXlsx(getValidOnlyRows()).
   const exportFinal = useCallback(async (kind) => {
     setExportBusy(true); setExportError('');
@@ -392,13 +412,22 @@ export default function useSalesInvoiceImportEngine() {
   // [إضافة] إرسال الفواتير الجاهزة مباشرة عبر Qoyod API — بديل اختياري لتنزيل
   // ملف القالب النهائي (exportFinal أعلاه، لا تُعدَّل). يُستدعى فقط من Step4Export
   // بضغطة صريحة، وبعد نفس شرط errCount===0 المستخدم أصلاً لتفعيل التصدير اليدوي.
-  const sendInvoicesViaApi = useCallback(async (key, { status } = {}) => {
+  // [إضافة] excludeRefs: مراجع فواتير (row.A) تُستبعَد من هذه الدفعة بالكامل —
+  // تُستخدَم من StockShortageReviewPanel عند "تجاهل الفواتير الناقصة" (كل مراجع
+  // stockShortageGroups) أو "إرسال جزء منها فقط" (المراجع غير المحدَّدة). forceDraftRefs
+  // يُمرَّر مباشرة لـpushSalesInvoicesToQoyod (راجع تعليق رأسه). بلا الاثنين
+  // (الاستخدام الافتراضي بلا فواتير محفوفة بالمخاطر)، السلوك كما كان تمامًا.
+  const sendInvoicesViaApi = useCallback(async (key, { status, excludeRefs, forceDraftRefs } = {}) => {
     apiSendStoppedRef.current.current = false;
     setApiSendBusy(true); setApiSendResult(null); setApiSendEntries([]); setApiSendProgress({ current: 0, total: 0 });
-    const result = await pushSalesInvoicesToQoyod(rows, key, {
+    const targetRows = excludeRefs && excludeRefs.size ? rows.filter((r) => !excludeRefs.has(norm(r.A))) : rows;
+    const result = await pushSalesInvoicesToQoyod(targetRows, key, {
       productsIndex: productsRef,
       locationIdByName,
+      projectsIndex: projectsRef,
+      taxesIndex: taxesRef,
       status,
+      forceDraftRefs,
       stoppedRef: apiSendStoppedRef.current,
       onProgress: (current, total) => setApiSendProgress({ current, total }),
       onEntry: (entry) => setApiSendEntries((prev) => [...prev, entry]),
@@ -406,7 +435,7 @@ export default function useSalesInvoiceImportEngine() {
     setApiSendResult(result);
     setApiSendBusy(false);
     return result;
-  }, [rows, productsRef, locationIdByName]);
+  }, [rows, productsRef, locationIdByName, projectsRef, taxesRef]);
 
   const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
 
@@ -421,6 +450,8 @@ export default function useSalesInvoiceImportEngine() {
     setProductsRef(EMPTY_REF);
     setStockRef(EMPTY_REF);
     setCustomersRef(EMPTY_REF);
+    setProjectsRef(EMPTY_REF);
+    setTaxesRef(EMPTY_REF);
     setInvoiceImportFile({ headers: [], rows: [] });
     setInvoiceImportGuesses(null);
     setInvoiceImportStatus('');
@@ -453,7 +484,11 @@ export default function useSalesInvoiceImportEngine() {
     setStep(n);
   }, [enterStep3, resetExport]);
 
-  const readyForStep2 = template.loaded;
+  // [إضافة] قالب قيود يصبح اختياريًا فقط عند جلب المرجعيات الثلاث (منتجات/مخزون/
+  // عملاء) فعليًا عبر API — apiFetchSummary لا يُعبَّأ إلا بعد نجاح
+  // fetchReferencesFromApi الكامل. الرفع اليدوي بلا قالب يبقى كما كان دومًا
+  // (غير كافٍ للمتابعة) — الاستثناء محصور بمسار API فقط كما طُلب بالتحديد.
+  const readyForStep2 = template.loaded || !!apiFetchSummary;
 
   return {
     step, goToStep, readyForStep2,
@@ -470,11 +505,12 @@ export default function useSalesInvoiceImportEngine() {
     issues, stats, missingLocationGroups, applyMissingLocation, revalidateNow,
 
     validOnlyRows, exportBusy, exportResult, exportError, exportFinal, resetExport,
+    stockShortageGroups,
 
     refs, makeRow,
 
     // [إضافة] جلب/إرسال عبر Qoyod API
-    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi,
+    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi, projectsRef, taxesRef, locationOptions,
     apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
 
     // [إضافة] حفظ مفتاح API باسم العميل + إعادة التعيين
