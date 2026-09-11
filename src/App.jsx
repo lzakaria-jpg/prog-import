@@ -254,7 +254,10 @@ function AppShell() {
   const chevRot = collapsed ? 180 : 0;
   const chevTotal = chevBase + chevRot;
 
-  const currentVersion = "2.0.0";
+  // [إصلاح] كان رقمًا ثابتًا هنا منفصلًا عن package.json (راجع شرح __APP_VERSION__
+  // بـvite.config.js) — الآن مصدر واحد يُحقَن وقت البناء، فيستحيل يتكرر نفس
+  // التناقض الصامت الذي حصل فعليًا (package.json تحدّث والتذييل لم يتحدّث).
+  const currentVersion = __APP_VERSION__;
   const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
