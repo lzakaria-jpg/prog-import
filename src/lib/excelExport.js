@@ -64,16 +64,7 @@ export async function buildImportFile(entries) {
   });
 }
 
-export function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+export { downloadBlob } from "./downloadBlob";
 
 // Same 9 columns, tab-separated, blank line between entries — kept as a fallback/manual option.
 export function buildPasteText(entries) {
