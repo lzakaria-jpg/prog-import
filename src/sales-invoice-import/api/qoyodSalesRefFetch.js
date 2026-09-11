@@ -10,11 +10,16 @@
   خطوات الأداة (المطابقة/التحقق/التصدير اليدوي تبقى كما هي 100%).
 
   [قرار صريح بعد تحقق حي مع المستخدم 2026-09-11] "قالب استيراد فواتير المبيعات"
-  (dropdowns.G/H/V وbuild colMap) يبقى رفعًا يدويًا دائمًا — Qoyod API لا يوفر
-  أي endpoint لقائمة الفئات الضريبية (V)، وشكل القالب نفسه (عدد الأعمدة) يختلف
-  فعليًا حسب إعدادات كل منشأة (مثال: تفعيل خصم إجمالي على المستند يضيف أعمدة) —
-  معلومة لا بديل عنها عن تحليل الملف الحقيقي المُنزَّل من قيود. هذا الملف لا
-  يتعرض لـtemplate.js/columnMatching.js إطلاقًا.
+  (dropdowns.G/H/V وbuild colMap) يبقى رفعًا يدويًا دائمًا اختياريًا — شكل القالب
+  نفسه (عدد الأعمدة) يختلف فعليًا حسب إعدادات كل منشأة (مثال: تفعيل خصم إجمالي
+  على المستند يضيف أعمدة)، فيبقى مصدرًا مفيدًا حين يتوفر. هذا الملف لا يتعرض
+  لـtemplate.js/columnMatching.js إطلاقًا.
+  [تصحيح 2026-09-11] الجملة السابقة هنا ادّعت عدم وجود أي endpoint لقائمة
+  الفئات الضريبية بقيود — غير صحيح: GET /taxes موجود ومؤكَّد فعليًا (مستخدَم
+  بالفعل بأداة رفع المنتجات، product-upload/useProductUploadEngine.js)، وأكّده
+  المستخدم بمثال طلب إنشاء فاتورة حقيقي يحمل tax_id/tax_percentage صريحين. الآن
+  V (وM، تشترك dd:'V') تُبنى كقائمة منسدلة فعلية من /taxes بمسار API — راجع
+  buildTaxesIndexFromApi أدناه وGridCell.jsx.
 
   مصادر البيانات الفعلية (مؤكَّدة باختبار حي على منشأة اختبارية 2026-09-11):
     - GET /products  → sku, name_ar, name_en, is_sold, track_quantity, tax_id,
@@ -172,6 +177,38 @@ export function buildProjectsIndexFromApi(apiProjects) {
 }
 
 /**
+ * يبني قائمة الفئات الضريبية الحقيقية بمنشأة العميل من مصفوفة GET /taxes الخام
+ * — endpoint مؤكَّد فعليًا (مستخدَم بالفعل بأداة رفع المنتجات، راجع
+ * product-upload/useProductUploadEngine.js وchooseTax بـengine/parsing.js هناك)،
+ * فليس افتراضًا هنا كحال /projects أعلاه. حقل النسبة نفسه يختلف اسمه بين منشآت/
+ * إصدارات — نفس الفحص الدفاعي المستخدم فعليًا بـchooseTax (rate أو percentage
+ * أو percent أو value، أول واحد موجود).
+ * byLabel مفتاحه نص العرض "15%" (نفس صيغة قوائم القالب — راجع parseRateFromDropdownLabel
+ * بـengine/taxAndDiscount.js، يبقى يعمل بلا أي تعديل عليه) لمطابقته لاحقًا بـtax_id
+ * الحقيقي وقت الإرسال (qoyodSalesInvoicePush.js). فئتان بنفس النسبة بالضبط: الأخيرة
+ * تفوز (تبسيط مقصود — تعارض نادر وعرضهما بقيمة واحدة متطابقة بالقائمة لن يُفرَّق
+ * بينهما بصريًا على أي حال).
+ */
+export function buildTaxesIndexFromApi(apiTaxes) {
+  const byLabel = new Map();
+  const labels = [];
+  (apiTaxes || []).forEach((tx) => {
+    const id = tx?.id;
+    if (id === undefined || id === null) return;
+    const rateRaw = tx?.rate !== undefined ? tx.rate
+      : tx?.percentage !== undefined ? tx.percentage
+      : tx?.percent !== undefined ? tx.percent
+      : tx?.value;
+    const rate = parseFloat(rateRaw);
+    if (isNaN(rate)) return;
+    const label = `${rate}%`;
+    if (!byLabel.has(label)) labels.push(label);
+    byLabel.set(label, { id, rate, label });
+  });
+  return { byLabel, labels };
+}
+
+/**
  * الدالة المنسِّقة — تُستدعى من useSalesInvoiceImportEngine.js فقط. تجلب
  * /products و/customers بالتوازي (نفس مفتاح API)، وتبني الفهارس الثلاثة
  * (منتجات/مخزون/عملاء) + فهرس المواقع الداخلي للإرسال لاحقًا.
@@ -206,10 +243,18 @@ export async function fetchSalesReferencesFromApi(apiKey) {
     apiProjects = [];
   }
 
+  let apiTaxes;
+  try {
+    apiTaxes = await fetchAll('/taxes', key);
+  } catch (e) {
+    apiTaxes = []; // منشأة بلا ضرائب مُعرَّفة أصلاً (نادر لكن ممكن) — لا يوقف باقي الجلب
+  }
+
   const products = buildProductsIndexFromApi(apiProducts);
   const stock = buildStockIndexFromApi(apiProducts);
   const customers = buildCustomersIndexFromApi(apiCustomers);
   const projects = buildProjectsIndexFromApi(apiProjects);
+  const taxes = buildTaxesIndexFromApi(apiTaxes);
   const locationIdByName = buildLocationIdIndexFromApi(apiProducts);
 
   return {
@@ -217,7 +262,8 @@ export async function fetchSalesReferencesFromApi(apiKey) {
     stockRef: { loaded: true, raw: null, headers: null, mapping: null, ...stock },
     customersRef: { loaded: true, raw: null, headers: null, mapping: null, ...customers },
     projectsRef: { loaded: true, raw: null, headers: null, mapping: null, ...projects },
+    taxesRef: { loaded: true, raw: null, headers: null, mapping: null, ...taxes },
     locationIdByName,
-    counts: { products: apiProducts.length, customers: apiCustomers.length, projects: apiProjects.length },
+    counts: { products: apiProducts.length, customers: apiCustomers.length, projects: apiProjects.length, taxes: apiTaxes.length },
   };
 }

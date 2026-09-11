@@ -53,6 +53,9 @@ export default function useSalesInvoiceImportEngine() {
   // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
   // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
   const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
+  // [إضافة] الفئات الضريبية الحقيقية بمنشأة العميل — endpoint مؤكَّد (/taxes)،
+  // تُستخدَم كقائمة منسدلة بديلة لعمود الضريبة% (V) بلا قالب مرفوع (GridCell.jsx).
+  const [taxesRef, setTaxesRef] = useState(EMPTY_REF);
 
   const [invoiceImportFile, setInvoiceImportFile] = useState({ headers: [], rows: [] });
   const [invoiceImportGuesses, setInvoiceImportGuesses] = useState(null); // {mainGuesses, auxGuesses} | null
@@ -119,6 +122,13 @@ export default function useSalesInvoiceImportEngine() {
   const refs = useMemo(() => ({
     template, products: productsRef, customers: customersRef, stock: stockRef,
   }), [template, productsRef, customersRef, stockRef]);
+
+  // [إضافة] أسماء المواقع الحقيقية المجلوبة عبر API (نفس مفاتيح locationIdByName)
+  // — تُستخدَم كقائمة منسدلة بديلة لعمود الموقع (G) بلا قالب مرفوع (GridCell.jsx).
+  const locationOptions = useMemo(
+    () => (locationIdByName ? Array.from(locationIdByName.keys()) : []),
+    [locationIdByName],
+  );
 
   const revalidateNow = useCallback((rowsOverride) => {
     // [إصلاح] كان زر "إعادة التحقق" يمرّر حدث النقر (SyntheticEvent) كـrowsOverride،
@@ -188,6 +198,7 @@ export default function useSalesInvoiceImportEngine() {
       setStockRef(result.stockRef);
       setCustomersRef(result.customersRef);
       setProjectsRef(result.projectsRef || EMPTY_REF);
+      setTaxesRef(result.taxesRef || EMPTY_REF);
       setLocationIdByName(result.locationIdByName);
       setApiFetchSummary(result.counts);
       return result;
@@ -414,6 +425,7 @@ export default function useSalesInvoiceImportEngine() {
       productsIndex: productsRef,
       locationIdByName,
       projectsIndex: projectsRef,
+      taxesIndex: taxesRef,
       status,
       forceDraftRefs,
       stoppedRef: apiSendStoppedRef.current,
@@ -423,7 +435,7 @@ export default function useSalesInvoiceImportEngine() {
     setApiSendResult(result);
     setApiSendBusy(false);
     return result;
-  }, [rows, productsRef, locationIdByName, projectsRef]);
+  }, [rows, productsRef, locationIdByName, projectsRef, taxesRef]);
 
   const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
 
@@ -439,6 +451,7 @@ export default function useSalesInvoiceImportEngine() {
     setStockRef(EMPTY_REF);
     setCustomersRef(EMPTY_REF);
     setProjectsRef(EMPTY_REF);
+    setTaxesRef(EMPTY_REF);
     setInvoiceImportFile({ headers: [], rows: [] });
     setInvoiceImportGuesses(null);
     setInvoiceImportStatus('');
@@ -497,7 +510,7 @@ export default function useSalesInvoiceImportEngine() {
     refs, makeRow,
 
     // [إضافة] جلب/إرسال عبر Qoyod API
-    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi, projectsRef,
+    apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi, projectsRef, taxesRef, locationOptions,
     apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
 
     // [إضافة] حفظ مفتاح API باسم العميل + إعادة التعيين

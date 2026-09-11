@@ -38,6 +38,28 @@ describe('buildSalesInvoicePayload', () => {
     expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_percent');
   });
 
+  describe('[إضافة] مطابقة عمود الضريبة% (V) بفئة ضريبية حقيقية (tax_id)', () => {
+    const taxesIndex = { byLabel: new Map([['15%', { id: 7, rate: 15, label: '15%' }]]) };
+
+    it('V مطابقة لفئة حقيقية ⇒ tax_id تُرسَل بالبند', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '15%' })], { productsIndex, locationIdByName, taxesIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0].tax_id).toBe(7);
+    });
+
+    it('بلا taxesIndex أصلًا: V تُتجاهَل بصمت، بلا tax_id، بلا خطأ (نفس السلوك الافتراضي الأصلي)', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '15%' })], { productsIndex, locationIdByName });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
+    });
+
+    it('V غير مطابقة لأي فئة حقيقية: تُتجاهَل بصمت، بلا خطأ (V كانت اختيارية الأثر دومًا)', () => {
+      const built = buildSalesInvoicePayload([makeRow({ V: '99%' })], { productsIndex, locationIdByName, taxesIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice.line_items[0]).not.toHaveProperty('tax_id');
+    });
+  });
+
   describe('[إضافة، غير مؤكَّد ميدانيًا] مطابقة عمود المشروع (projectRef)', () => {
     const projectsIndex = {
       byId: new Map([['9', { id: 9, name: 'مشروع الرياض' }]]),

@@ -82,6 +82,7 @@ export default function Step2Entry({ engine }) {
 
       <InvoiceGrid
         tableId="data-grid" rows={rows} template={template} customersRef={customersRef} productsRef={productsRef}
+        taxesRef={engine.taxesRef} locationOptions={engine.locationOptions} projectsRef={engine.projectsRef}
         issues={issues} revalidate={false} onUpdateCell={updateCell} onDeleteRow={deleteRow} onPasteGrid={pasteGrid}
       />
 

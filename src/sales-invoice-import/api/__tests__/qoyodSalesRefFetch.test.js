@@ -5,6 +5,7 @@ import {
   buildLocationIdIndexFromApi,
   buildCustomersIndexFromApi,
   buildProjectsIndexFromApi,
+  buildTaxesIndexFromApi,
   fetchSalesReferencesFromApi,
 } from '../qoyodSalesRefFetch.js';
 
@@ -85,6 +86,23 @@ describe('buildProjectsIndexFromApi — [إضافة، غير مؤكَّد ميد
   });
 });
 
+describe('buildTaxesIndexFromApi — endpoint مؤكَّد (/taxes مستخدَم فعليًا بأداة رفع المنتجات)', () => {
+  it('يبني byLabel بصيغة "15%" (نفس صيغة قوائم القالب) من حقل rate', () => {
+    const idx = buildTaxesIndexFromApi([{ id: 1, name: 'ضريبة القيمة المضافة', rate: 15 }]);
+    expect(idx.byLabel.get('15%')).toEqual({ id: 1, rate: 15, label: '15%' });
+    expect(idx.labels).toEqual(['15%']);
+  });
+  it('يقبل percentage أو percent أو value كبديل لـrate (نفس فحص chooseTax الدفاعي)', () => {
+    expect(buildTaxesIndexFromApi([{ id: 1, percentage: 5 }]).byLabel.has('5%')).toBe(true);
+    expect(buildTaxesIndexFromApi([{ id: 2, percent: 8 }]).byLabel.has('8%')).toBe(true);
+    expect(buildTaxesIndexFromApi([{ id: 3, value: 0 }]).byLabel.has('0%')).toBe(true);
+  });
+  it('ضريبة بلا id أو بلا نسبة قابلة للتحويل لرقم تُتجاهَل', () => {
+    expect(buildTaxesIndexFromApi([{ name: 'بلا id', rate: 15 }]).byLabel.size).toBe(0);
+    expect(buildTaxesIndexFromApi([{ id: 1, rate: 'غير رقمي' }]).byLabel.size).toBe(0);
+  });
+});
+
 describe('fetchSalesReferencesFromApi', () => {
   it('يرمي خطأ واضح بلا مفتاح API', async () => {
     await expect(fetchSalesReferencesFromApi('')).rejects.toThrow(/مفتاح API/);
@@ -108,8 +126,9 @@ describe('fetchSalesReferencesFromApi', () => {
     expect(result.customersRef.byRef.get('205').name).toBe('nouf sss');
     expect(result.projectsRef.loaded).toBe(true);
     expect(result.projectsRef.byId.size).toBe(0); // 404 يُعامَل كـ"لا مشاريع"، لا خطأ يُفشل الجلب الكامل
+    expect(result.taxesRef.byLabel.size).toBe(0); // نفس المعاملة لـ/taxes (404 = بلا ضرائب معرَّفة)
     expect(result.locationIdByName.get('المركز الرئيسي')).toBe(1);
-    expect(result.counts).toEqual({ products: 1, customers: 1, projects: 0 });
+    expect(result.counts).toEqual({ products: 1, customers: 1, projects: 0, taxes: 0 });
   });
 
   it('[إضافة، غير مؤكَّد ميدانيًا] فشل جلب /projects لأي سبب آخر (500 مثلًا) لا يُفشل جلب المنتجات/العملاء', async () => {
