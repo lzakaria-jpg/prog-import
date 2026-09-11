@@ -42,6 +42,9 @@
     "wait-on": "^7.2.0",
     "wrangler": "^4.129.1"
   },
+  "overrides": {
+    "uuid": "^11.0.0"
+  },
   "build": {
     "appId": "com.qoyod.journal-import",
     "productName": "أدوات قيود المحاسبية",
