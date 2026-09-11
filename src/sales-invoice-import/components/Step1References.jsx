@@ -6,6 +6,19 @@ import WideStockMappingTable from './WideStockMappingTable.jsx';
 import ApiFetchPanel from './ApiFetchPanel.jsx'; // [إضافة] جلب اختياري عبر API — راجع تعليق رأس الملف
 import { COLUMNS, MAPPING_DEFS } from '../engine/constants.js';
 import { detectStockFormat } from '../engine/columnShape.js';
+import { downloadProductsRefFile, downloadStockRefFile, downloadCustomersRefFile } from '../io/referenceExport.js';
+
+// [إضافة] زر "تنزيل الملف" يظهر فقط تحت بطاقة جُلبت بياناتها عبر API (raw===null
+// هو نفس التمييز الذي تنتجه fetchSalesReferencesFromApi — لا وجود لملف مرفوع
+// يدويًا أصلاً بهذه الحالة). لا يظهر إطلاقًا على رفع يدوي (raw موجود دومًا هناك).
+function ApiRefDownloadButton({ onClick }) {
+  const { t } = useLanguage();
+  return (
+    <button type="button" className="qsv-btn ghost" style={{ marginTop: 8 }} onClick={onClick}>
+      ⬇️ {t({ ar: 'تنزيل الملف المجلوب', en: 'Download fetched file' })}
+    </button>
+  );
+}
 
 // نفس رسالة تنبيه القالب الأصلية (setCardLoaded + template-layout-warning) حرفيًا — الآن ثنائية
 // اللغة عبر t()؛ أسماء الأعمدة (COLUMNS[].name) تبقى كما يعرّفها المحرك (طبقة عمل مؤجَّلة).
@@ -46,7 +59,11 @@ function TemplateWarning({ template }) {
 
 export default function Step1References({ engine }) {
   const { t } = useLanguage();
-  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError } = engine;
+  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError, customerName } = engine;
+
+  // بادئة اسم الملف باسم العميل المحفوظ بلوحة API لو موجود (نفس الحقل المستخدم
+  // بـApiFetchPanel.jsx لحفظ المفتاح) — تجميلية بحتة، بلا أي أثر على البيانات.
+  const filenamePrefix = customerName?.trim() ? `${customerName.trim()}-` : '';
 
   const stockIsWide = stockRef.raw && detectStockFormat(stockRef.headers, stockRef.raw, template.dropdowns.G) === 'wide';
 
@@ -81,7 +98,11 @@ export default function Step1References({ engine }) {
             : (productsRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={productsRef.loaded}
           onFile={(f) => uploadReferenceFile('products', f)}
-        />
+        >
+          {productsRef.loaded && !productsRef.raw && (
+            <ApiRefDownloadButton onClick={() => downloadProductsRefFile(productsRef, `${filenamePrefix}منتجات.xlsx`, t)} />
+          )}
+        </UploadCard>
 
         <UploadCard
           id="card-stock" title={t({ ar: 'تقرير مواقع المنتجات', en: 'Product locations report' })} hint={t({ ar: 'لمعرفة الكمية المتوفرة من كل منتج في كل موقع.', en: 'To know the available quantity of each product at each location.' })}
@@ -94,7 +115,11 @@ export default function Step1References({ engine }) {
             : (stockRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={stockRef.loaded}
           onFile={(f) => uploadReferenceFile('stock', f)}
-        />
+        >
+          {stockRef.loaded && !stockRef.raw && (
+            <ApiRefDownloadButton onClick={() => downloadStockRefFile(stockRef, productsRef, `${filenamePrefix}مواقع-المنتجات.xlsx`, t)} />
+          )}
+        </UploadCard>
 
         <UploadCard
           id="card-customers" title={t({ ar: 'ملف العملاء', en: 'Customers file' })} hint={t({ ar: 'لمعرفة الأرقام المرجعية للعملاء وحالتهم.', en: "To know customers' reference numbers and their status." })}
@@ -104,7 +129,11 @@ export default function Step1References({ engine }) {
             : (customersRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={customersRef.loaded}
           onFile={(f) => uploadReferenceFile('customers', f)}
-        />
+        >
+          {customersRef.loaded && !customersRef.raw && (
+            <ApiRefDownloadButton onClick={() => downloadCustomersRefFile(customersRef, `${filenamePrefix}العملاء.xlsx`, t)} />
+          )}
+        </UploadCard>
       </div>
 
       <div id="mapping-area">
