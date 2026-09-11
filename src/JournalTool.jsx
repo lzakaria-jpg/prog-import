@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
+import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
@@ -962,19 +963,7 @@ export default function JournalTool() {
 
   const copyToClipboard = async () => {
     const text = buildPasteText(entries);
-    let success = false;
-    if (navigator.clipboard?.writeText) {
-      try { await navigator.clipboard.writeText(text); success = true; } catch { success = false; }
-    }
-    if (!success) {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        success = document.execCommand("copy");
-        document.body.removeChild(ta);
-      } catch { success = false; }
-    }
+    const success = await copyTextToClipboard(text);
     if (success) { setCopyStatus("copied"); setShowManualCopy(false); setTimeout(() => setCopyStatus(""), 3000); }
     else { setCopyStatus("failed"); setShowManualCopy(true); }
   };

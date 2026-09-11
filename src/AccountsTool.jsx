@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { normalizeCode, extractParentCode, fixWorksheetRange } from "./lib/excelCore";
 import { matchAccountType, level2ForType, rootDigitForLevel2 } from "./lib/accountsClassifier";
+import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { useTableVirtualization } from "./lib/useTableVirtualization";
 import { SafeInput } from "./lib/SafeInput";
 
@@ -367,19 +368,7 @@ export default function AccountsTool() {
 
   const copyToClipboard = async () => {
     const text = buildAccountsPasteText(proposedAccounts);
-    let success = false;
-    if (navigator.clipboard?.writeText) {
-      try { await navigator.clipboard.writeText(text); success = true; } catch { success = false; }
-    }
-    if (!success) {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        success = document.execCommand("copy");
-        document.body.removeChild(ta);
-      } catch { success = false; }
-    }
+    const success = await copyTextToClipboard(text);
     if (success) { setCopyStatus("copied"); setShowManualCopy(false); setTimeout(() => setCopyStatus(""), 3000); }
     else { setCopyStatus("failed"); setShowManualCopy(true); }
   };
