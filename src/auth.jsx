@@ -575,6 +575,28 @@ function isValidNewPasswordClient(pw) {
 
 const authFieldStyle = (hasError) => ({ width: "100%", padding: "14px 14px 14px 44px", borderRadius: 12, border: `2px solid ${hasError ? "#DC2626" : "#E2E8F0"}`, fontSize: 15, outline: "none", direction: "ltr", boxSizing: "border-box", background: "#F1F5F9", color: "#0F172A" });
 
+// حقلا "كلمة مرور جديدة" و"تأكيد كلمة المرور" — كانا مكررين حرفياً بين وضعي
+// set_initial وreset_token أدناه (نفس التصميم والسلوك تماماً، فقط سياق مختلف
+// يعرضهما).
+function NewPasswordFields({ t, newPassword, setNewPassword, confirmPassword, setConfirmPassword, resetMessages, submitting, error }) {
+  return (
+    <>
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
+        <input type="password" value={newPassword} onChange={(e) => { setNewPassword(e.target.value); resetMessages(); }}
+          placeholder={t({ ar: "كلمة مرور جديدة (8 رموز على الأقل)", en: "New password (min. 8 characters)" })}
+          autoComplete="new-password" autoFocus disabled={submitting} style={authFieldStyle(!!error)} />
+      </div>
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
+        <input type="password" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); resetMessages(); }}
+          placeholder={t({ ar: "تأكيد كلمة المرور", en: "Confirm password" })}
+          autoComplete="new-password" disabled={submitting} style={authFieldStyle(!!error)} />
+      </div>
+    </>
+  );
+}
+
 export function LoginScreen() {
   const { t } = useLanguage();
   const { setupAdmin, login, setInitialPassword, requestPasswordReset, resetPassword, adminEmail, loading, online, dbReady, isConfigured } = useAuth();
@@ -762,35 +784,13 @@ export function LoginScreen() {
           {mode === "set_initial" && !needsSetup && (
             <>
               <div style={{ padding: "10px 14px", borderRadius: 10, background: "#F1F5F9", marginBottom: 16, fontSize: 13, color: "#64748B", direction: "ltr", textAlign: "left" }}>{email}</div>
-              <div style={{ position: "relative", marginBottom: 16 }}>
-                <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
-                <input type="password" value={newPassword} onChange={(e) => { setNewPassword(e.target.value); resetMessages(); }}
-                  placeholder={t({ ar: "كلمة مرور جديدة (8 رموز على الأقل)", en: "New password (min. 8 characters)" })}
-                  autoComplete="new-password" autoFocus disabled={submitting} style={authFieldStyle(!!error)} />
-              </div>
-              <div style={{ position: "relative", marginBottom: 16 }}>
-                <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
-                <input type="password" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); resetMessages(); }}
-                  placeholder={t({ ar: "تأكيد كلمة المرور", en: "Confirm password" })}
-                  autoComplete="new-password" disabled={submitting} style={authFieldStyle(!!error)} />
-              </div>
+              <NewPasswordFields t={t} newPassword={newPassword} setNewPassword={setNewPassword} confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword} resetMessages={resetMessages} submitting={submitting} error={error} />
             </>
           )}
 
           {mode === "reset_token" && (
             <>
-              <div style={{ position: "relative", marginBottom: 16 }}>
-                <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
-                <input type="password" value={newPassword} onChange={(e) => { setNewPassword(e.target.value); resetMessages(); }}
-                  placeholder={t({ ar: "كلمة مرور جديدة (8 رموز على الأقل)", en: "New password (min. 8 characters)" })}
-                  autoComplete="new-password" autoFocus disabled={submitting} style={authFieldStyle(!!error)} />
-              </div>
-              <div style={{ position: "relative", marginBottom: 16 }}>
-                <Key size={18} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
-                <input type="password" value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); resetMessages(); }}
-                  placeholder={t({ ar: "تأكيد كلمة المرور", en: "Confirm password" })}
-                  autoComplete="new-password" disabled={submitting} style={authFieldStyle(!!error)} />
-              </div>
+              <NewPasswordFields t={t} newPassword={newPassword} setNewPassword={setNewPassword} confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword} resetMessages={resetMessages} submitting={submitting} error={error} />
             </>
           )}
 
