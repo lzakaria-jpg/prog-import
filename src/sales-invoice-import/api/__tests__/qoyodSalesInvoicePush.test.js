@@ -62,6 +62,7 @@ describe('buildSalesInvoicePayload', () => {
 
   describe('[إضافة، غير مؤكَّد ميدانيًا] مطابقة عمود المشروع (projectRef)', () => {
     const projectsIndex = {
+      loaded: true,
       byId: new Map([['9', { id: 9, name: 'مشروع الرياض' }]]),
       byName: new Map([['مشروعالرياض', [{ id: 9, name: 'مشروع الرياض' }]]]),
     };
@@ -74,6 +75,19 @@ describe('buildSalesInvoicePayload', () => {
 
     it('projectRef موجود لكن بلا projectsIndex أصلًا: يُتجاهَل بصمت، لا خطأ', () => {
       const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], { productsIndex, locationIdByName });
+      expect(built.ok).toBe(true);
+      expect(built.payload.invoice).not.toHaveProperty('project_id');
+    });
+
+    // [إضافة — إصلاح خطأ حقيقي 2026-09-11] projectsIndex.loaded===false (مثل
+    // EMPTY_REF قبل أي جلب فعلي) كان يُعامَل كـ"مشاريع محمَّلة فعليًا" لأن الفحص
+    // كان على وجود الكائن نفسه فقط — فيفشل بناء أي فاتورة فيها projectRef بخطأ
+    // "تعذّر مطابقة المشروع" رغم عدم جلب أي مشاريع أصلًا (sendInvoicesViaApi يمرّر
+    // projectsIndex دومًا، محمَّلًا أو لا).
+    it('projectsIndex.loaded===false (لم تُجلَب مشاريع فعليًا): يُتجاهَل بصمت، لا خطأ حتى لو الكائن موجود', () => {
+      const built = buildSalesInvoicePayload([makeRow({ projectRef: '9' })], {
+        productsIndex, locationIdByName, projectsIndex: { loaded: false },
+      });
       expect(built.ok).toBe(true);
       expect(built.payload.invoice).not.toHaveProperty('project_id');
     });
@@ -98,6 +112,7 @@ describe('buildSalesInvoicePayload', () => {
 
     it('اسم مطابق لأكثر من مشروع ⇒ خطأ يطلب استخدام الرقم', () => {
       const ambiguousIndex = {
+        loaded: true,
         byId: new Map(),
         byName: new Map([['مشروعمشترك', [{ id: 1, name: 'مشروع مشترك' }, { id: 2, name: 'مشروع مشترك' }]]]),
       };
@@ -162,7 +177,7 @@ describe('pushSalesInvoicesToQoyod', () => {
       productsIndex, locationIdByName, onEntry: (e) => entries.push(e),
     });
     expect(result).toMatchObject({ total: 1, sent: 1, failed: 0, stoppedEarly: false });
-    expect(entries).toEqual([{ ref: 'INV-1', status: 'success', id: 229, total: '115.0' }]);
+    expect(entries).toEqual([{ ref: 'INV-1', status: 'success', id: 229, total: '115.0', response: { id: 229, total: '115.0' } }]);
   });
 
   it('فشل فاتورة واحدة (رفض API) لا يوقف باقي الفواتير المستقلة', async () => {

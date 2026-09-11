@@ -36,6 +36,22 @@ describe("buildSendResultsReportRows", () => {
     });
   });
 
+  it("فاتورة ناجحة مع response من قيود: سبب الفشل يعرض تفاصيل الرد (رقم الفاتورة والبنود) بدل الفراغ", () => {
+    const rows = [makeRow({ id: 1, A: 'INV-RESP' })];
+    const response = {
+      id: 555,
+      status: 'Approved',
+      total: 115,
+      line_items: [{ product_id: 10, quantity: 2, unit_price: 50, tax_percent: 15, total: 115 }],
+    };
+    const { dataRows } = buildSendResultsReportRows(rows, [{ ref: 'INV-RESP', status: 'success', id: 555, response }], t);
+    const detail = dataRows[0].values[COLUMNS.length + 1];
+    expect(detail).toContain('555');
+    expect(detail).toContain('Approved');
+    expect(detail).toContain('product_id 10');
+    expect(detail).toContain('tax% 15');
+  });
+
   it("فاتورة بلا نتيجة إطلاقًا (لم تُرسَل — مُستبعدة أو أُوقف الإرسال قبلها): حالة 'لم تُرسَل' بلا حدود", () => {
     const rows = [makeRow({ id: 1, A: 'INV-SKIPPED' })];
     const { dataRows } = buildSendResultsReportRows(rows, [], t);

@@ -203,19 +203,28 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       }
     }
 
+    // [إصلاح] بلا قالب، الفئات الضريبية الحقيقية المجلوبة عبر API (refs.taxes.labels)
+    // تصير القائمة البديلة لمطابقة/استنتاج V — كانت هذي الحالة (بلا قالب) لا تطابق V
+    // بأي قائمة إطلاقًا (فقط تُطبَّع صيغتها)، فالقيمة المستوردة من ملف العميل الخام
+    // لا تُختار تلقائيًا بالقائمة المنسدلة الجديدة (GridCell.jsx) حتى لو تطابقت
+    // نسبتها فعليًا مع فئة حقيقية — لأن الصيغة النصية لم تكن تُطابَق حرفيًا بلا هذا.
+    const effectiveTaxList = refs.template && refs.template.loaded
+      ? refs.template.dropdowns.V
+      : (refs.taxes && refs.taxes.loaded ? refs.taxes.labels : null);
+
     // نسبة الضريبة: توحيد الصيغة عند وجود عمود صريح، وإلا استنتاجها من سعر الوحدة مقابل الإجمالي شامل الضريبة
     if(!isBlank(row.V)){
-      row.V = refs.template && refs.template.loaded
-        ? snapTaxCategory(normalizePercentValue(row.V), refs.template.dropdowns.V)
+      row.V = effectiveTaxList
+        ? snapTaxCategory(normalizePercentValue(row.V), effectiveTaxList)
         : normalizePercentValue(row.V);
-    } else if(refs.template && refs.template.loaded && !isNaN(grandTotalVal) && !isBlank(row.R) && !isNaN(qty) && qty>0 && row.S !== 'نعم'){
+    } else if(effectiveTaxList && !isNaN(grandTotalVal) && !isBlank(row.R) && !isNaN(qty) && qty>0 && row.S !== 'نعم'){
       // [إصلاح] الشرط row.S !== 'نعم' جديد: النسبة الضمنية (الإجمالي ÷ (كمية×سعر) − 1)
       // لا تحمل أي معلومة عن الضريبة حين يكون السعر شاملًا لها أصلًا — تصبح ≈ 0
       // فتُطابَق أقرب فئة صفرية/معفاة بالقالب، أي فاتورة شاملة 15% تُصدَّر "معفى"
       // وتُحتسب ضريبتها صفرًا (على 115.00 يعني نقص 15.00 ريال ضريبة، ويعبر التحقق
       // لأن "معفى" قيمة مشروعة بالقالب). نتركها فارغة ليطلبها التحقق صراحةً.
       const price = parseFloat(row.R);
-      const matched = deriveTaxRate({qty, price, grandTotalVal, taxList: refs.template.dropdowns.V});
+      const matched = deriveTaxRate({qty, price, grandTotalVal, taxList: effectiveTaxList});
       if(matched) row.V = matched;
     }
 
