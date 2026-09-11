@@ -1,6 +1,6 @@
-import { supabase } from "./supabase";
 import { buildSystemPrompt } from "./lib/aiSystemPrompt";
 import { callClaude, extractText } from "./lib/claudeProxy";
+import { getGeminiKey, saveGeminiKey } from "./lib/geminiKey";
 
 export const AI_AGENT_EMAIL = "ai-agent@system.local";
 export const AI_AGENT_NAME_AR = "مساعد قيود (ذكاء اصطناعي)";
@@ -11,29 +11,10 @@ export const AI_AGENT_NAME_EN = "Qoyod Assistant (AI)";
 // المدير src/auth.jsx (حقل إدخال/حفظ مفتاح Gemini). مسار المحادثة النصية العادية
 // (chatWithAgent/generateAIResponse أسفل) لم يعد يعتمد على مفتاح Gemini إطلاقاً بعد
 // التحويل لـClaude عبر claudeProxy.js (مفتاح خادم Anthropic، بلا أي إعداد مستخدم).
-export async function getGeminiKey() {
-  try {
-    const localKey = localStorage.getItem("gemini_api_key");
-    if (localKey) return localKey;
-    if (supabase && supabase.supabaseUrl && !supabase.supabaseUrl.includes("YOUR_")) {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "gemini_api_key").maybeSingle();
-      if (data?.value) return data.value;
-    }
-  } catch (e) {}
-  return null;
-}
-
-export async function saveGeminiKey(key) {
-  try {
-    localStorage.setItem("gemini_api_key", key);
-    if (supabase && supabase.supabaseUrl && !supabase.supabaseUrl.includes("YOUR_")) {
-      await supabase.from("app_settings").upsert({ key: "gemini_api_key", value: key }, { onConflict: "key" });
-    }
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
+// getGeminiKey/saveGeminiKey منقولتان لـlib/geminiKey.js (كانتا مكررتين حرفياً مع
+// aiService.js) ومُعاد تصديرهما هنا فقط — بلا أي تغيير بالسلوك ولا بمسارات الاستيراد
+// الحالية بأي ملف آخر.
+export { getGeminiKey, saveGeminiKey };
 
 export async function isAgentAvailable() {
   return true;

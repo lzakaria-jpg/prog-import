@@ -14,6 +14,11 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
+// يسجّل جدول ترميز Windows-1256 لملفات .xls القديمة — بدون هذا، xlsx>=0.20
+// لا يحمّله تلقائياً (لا بالمتصفح ولا بـNode)، وهو نفس الاستيراد الذي يسويه
+// main.jsx فعلياً بالتطبيق الحقيقي؛ الاختبارات هنا تحتاجه صراحة لأنها لا
+// تمر بـmain.jsx.
+import "../xlsxCodepage.js";
 import { readAndMapChartFile, buildOrganizedChart } from "../chartOrganizerAgent.js";
 import { buildRecords } from "../../MergeTool.jsx";
 

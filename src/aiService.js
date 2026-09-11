@@ -1,17 +1,10 @@
 import { supabase } from "./supabase";
 import { buildSystemPrompt, buildContentParts } from "./lib/aiSystemPrompt";
+// كانت نفس الدالة معرَّفة هنا حرفياً بنسخة مطابقة لـaiAgent.js — منقولة الآن
+// لـlib/geminiKey.js ومُعاد تصديرها هنا بلا أي تغيير بالسلوك.
+import { getGeminiKey } from "./lib/geminiKey";
 
-export async function getGeminiKey() {
-  try {
-    const localKey = localStorage.getItem("gemini_api_key");
-    if (localKey) return localKey;
-    if (supabase && supabase.supabaseUrl && !supabase.supabaseUrl.includes("YOUR_")) {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "gemini_api_key").maybeSingle();
-      if (data?.value) return data.value;
-    }
-  } catch (e) {}
-  return null;
-}
+export { getGeminiKey };
 
 // The AI analysis panel (src/AIPanel.jsx) was originally built against Claude, then the project
 // standardized on a single locally-stored Gemini key for all AI features. These Claude-named

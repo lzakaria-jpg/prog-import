@@ -16,6 +16,11 @@
 // الترميزات مُشترَك بين كل استيرادات "xlsx" داخل نفس التطبيق) — بلا أي تعديل على
 // أي من الملفات التي تقرأ ملفات إكسل فعلياً.
 import * as XLSX from "xlsx";
-import * as cptable from "xlsx/dist/cpexcel.full.mjs";
+import * as cpexcel from "xlsx/dist/cpexcel.full.mjs";
 
-XLSX.set_cptable(cptable);
+// بدءًا من xlsx@0.20.x، الوحدة تُصدّر ثلاثة أعضاء منفصلين على نفس المستوى:
+// cptable (جدول الترميزات مفهرَسًا برقم الترميز، مثل 1256)، utils (فيها
+// decode())، وversion — بينما set_cptable() الداخلية بمكتبة xlsx تتوقع كائنًا
+// واحدًا يجمع الاثنين معًا (أرقام الترميزات + utils.decode على نفس الكائن،
+// تمامًا كما كانت xlsx@0.18.x تُصدّره من قبل). فلازم دمجهما يدويًا هنا.
+XLSX.set_cptable({ ...cpexcel.cptable, utils: cpexcel.utils });
