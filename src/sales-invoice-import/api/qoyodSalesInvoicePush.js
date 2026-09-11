@@ -22,12 +22,27 @@
     line_items[].tax_id — [تصحيح 2026-09-11] الجملة السابقة هنا ادّعت عدم وجود
       أي endpoint لقائمة الفئات الضريبية — غير صحيح: GET /taxes موجود ومؤكَّد
       (مستخدَم فعليًا بأداة رفع المنتجات) وأكّده المستخدم بمثال طلب حقيقي يحمل
-      tax_id/tax_percentage صريحين. الآن: لو V (عمود عنصر البند) غير فارغة
-      ومطابقة لفئة ضريبية حقيقية من taxesIndex (مجلوبة عبر /taxes)، تُرسَل
-      tax_id صريحًا. غير مطابقة أو taxesIndex غائب = تُترَك كما كانت (بلا
-      إرسال) — قيود يطبّق حينها تلقائيًا ضريبة المنتج نفسه، وهذا مؤكَّد
-      بالاختبار الحي الأصلي (فاتورة #229: بلا أي حقل ضريبة، رجع "tax_percent":
-      "15.0" تلقائيًا من ضريبة المنتج) ولا يزال صحيحًا كسلوك افتراضي.
+      tax_id/tax_percentage صريحين. لو V (عمود عنصر البند) غير فارغة ومطابقة
+      لفئة ضريبية حقيقية من taxesIndex (مجلوبة عبر /taxes)، تُرسَل tax_id
+      صريحًا — [إصلاح 2026-09-11، بلاغ اختبار حي] المطابقة كانت نصية حرفية
+      بحتة (byLabel.get(norm(r.V)))، وأي فرق تنسيقي بسيط بين V المعروضة
+      وصيغة مفتاح الفهرس كان يُسقِط المطابقة بصمت، فلا يُرسَل tax_id إطلاقًا
+      وتُنشئ قيود الفاتورة بضريبة صفرية تلقائيًا بدل احترام الضريبة الحقيقية
+      المطلوبة (بالضبط ما أبلغ عنه المستخدم: "نسبة الضريبة تُكتب بدل معرّف
+      الضريبة الفعلي"، أي لا معرّف حقيقي يصل قيود أصلًا). الآن resolveTaxEntry
+      تجرّب مطابقة نصية أولًا ثم رقمية بالنسبة المئوية (تسامح 0.01)، وأي V غير
+      فارغة يتعذّر ربطها بفئة حقيقية رغم وجود فئات فعلية بالفهرس (byLabel غير
+      فارغ) تصبح خطأ حاجبًا صريحًا بدل إرسال الفاتورة بضريبة خاطئة/صفرية بصمت
+      — نفس فلسفة الموقع (G) والمشروع أدناه بالضبط. taxesIndex غائب أو فهرسه
+      فارغ فعلًا (لا فئات بمنشأة العميل) = تُترَك كما كانت (بلا فرض مطابقة).
+    line_items[].project_id — [تصحيح 2026-09-11، بلاغ اختبار حي + مثال طلب
+      حقيقي من المستخدم] الإصدار الأول وضع project_id على مستوى الفاتورة
+      (invoice.project_id) قياسًا على حقول أخرى مثل contact_id — خطأ: حمولة
+      إنشاء الفاتورة الحقيقية لا تحمل project_id إلا داخل كل line_item، فكانت
+      الفاتورة تُنشأ بنجاح تام (بلا أي خطأ) لكن بلا مشروع مرفق فعليًا، لأن قيود
+      يتجاهل حقلًا لا تقرؤه بهذا المستوى بصمت. الآن project_id على كل بند من
+      بنود نفس الفاتورة (نفس قيمة projectRef على مستوى الرأس، مُطبَّقة على كل
+      سطر — fillDownHeaderFields يضمن تطابقها بكل صفوف المجموعة أصلًا).
     طريقة الدفع (عمود H) — [قرار صريح من المستخدم 2026-09-10، لا يزال ساريًا]
       تُتجاهَل عمدًا هنا رغم وجود حقل payment_method فعليًا بحمولة إنشاء الفاتورة
       (اكتشاف 2026-09-11 من مثال طلب حقيقي من المستخدم) — ربط قيمة H النصية
@@ -40,6 +55,27 @@ import { fromDMY } from '../engine/dates.js';
 import { norm, normKey, isBlank } from '../engine/text.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأدوات API الأخرى بالمشروع
+
+// [إضافة] يطابق قيمة V (نص فئة ضريبية معروضة، مثل "15%") بسجل تلك الفئة الحقيقي
+// بـtaxesIndex.byLabel — مطابقة نصية حرفية أولًا (الحالة الشائعة، القيمة أتت أصلًا
+// من نفس قائمة taxesIndex.labels عبر snapTaxCategory/الاختيار من القائمة المنسدلة)،
+// وإلا مطابقة رقمية بالنسبة المئوية نفسها (تسامح 0.01) تحسبًا لأي فرق تنسيقي طفيف
+// (فاصلة عشرية زائدة، مسافة، إلخ) لم يمر فعليًا عبر snapTaxCategory. راجع تعليق الرأس
+// أعلاه لسبب الإصلاح.
+function resolveTaxEntry(vValue, taxesIndex) {
+  if (!taxesIndex || !taxesIndex.byLabel) return undefined;
+  const key = norm(vValue);
+  const exact = taxesIndex.byLabel.get(key);
+  if (exact) return exact;
+  const m = /(-?\d+(\.\d+)?)/.exec(key);
+  if (!m) return undefined;
+  const num = parseFloat(m[1]);
+  if (isNaN(num)) return undefined;
+  for (const entry of taxesIndex.byLabel.values()) {
+    if (Math.abs(entry.rate - num) < 0.01) return entry;
+  }
+  return undefined;
+}
 
 /**
  * يبني حمولة POST /invoices من صفوف مجموعة فاتورة واحدة (كما تُنتجها
@@ -64,6 +100,37 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
   const inventoryId = locationIdByName ? locationIdByName.get(locName) : undefined;
   if (inventoryId === undefined) return { ok: false, error: `تعذّر مطابقة الموقع "${locName}" بمعرّف مخزون حقيقي بقيود` };
 
+  // [إضافة] عمود "المشروع" (projectRef — خارج COL_KEYS، راجع constants.js
+  // AUX_FIELD_KEYWORDS._project) — يُطابَق برقم المشروع الحقيقي (byId) أولًا،
+  // وإلا بالاسم (byName). بلا قيمة أصلًا = لا مشروع لهذه الفاتورة (طبيعي، ليس
+  // خطأ). قيمة موجودة لكن غير مطابقة = خطأ صريح بدل إرسال فاتورة بمشروع خاطئ
+  // بصمت أو تجاهل المشروع بصمت — نفس فلسفة الموقع (G) أعلاه بالضبط.
+  // [إصلاح] الشرط كان يفحص وجود الكائن projectsIndex فقط — لكن refs.projects
+  // غير المحمَّل (EMPTY_REF = {loaded:false}) كائن صحيح (truthy) أيضًا بلا
+  // byId/byName، فكان أي صف فيه projectRef يفشل ببناء الفاتورة كاملةً (خطأ
+  // "تعذّر مطابقة المشروع") فور تمرير projectsIndex من الهوك دومًا (sendInvoicesViaApi
+  // يمرّره دائمًا)، حتى لو المستخدم لم يجلب مشاريع أصلًا. الآن نتحقق من .loaded
+  // صراحةً: بلا مشاريع محمَّلة فعليًا = تجاهل صامت (لا خطأ)، بنفس الفلسفة الموثَّقة.
+  // [إصلاح 2026-09-11] مُطابَق مرة واحدة هنا (نفس projectRef بكل صفوف المجموعة
+  // بعد fillDownHeaderFields) ويُطبَّق أدناه على كل بند (line_item) لا على الفاتورة
+  // نفسها — راجع تعليق الرأس "line_items[].project_id" لسبب النقل.
+  let matchedProjectId;
+  if (!isBlank(header.projectRef) && projectsIndex && projectsIndex.loaded) {
+    const typed = norm(header.projectRef);
+    let matched = projectsIndex.byId ? projectsIndex.byId.get(typed) : undefined;
+    if (!matched) {
+      const candidates = (projectsIndex.byName ? projectsIndex.byName.get(normKey(typed)) : undefined) || [];
+      if (candidates.length === 1) matched = candidates[0];
+      else if (candidates.length > 1) {
+        return { ok: false, error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم لهذه الفاتورة.` };
+      }
+    }
+    if (!matched) return { ok: false, error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
+    matchedProjectId = matched.id;
+  }
+
+  const hasRealTaxes = !!(taxesIndex && taxesIndex.byLabel && taxesIndex.byLabel.size > 0);
+
   const lineItems = [];
   for (let i = 0; i < rowsInGroup.length; i++) {
     const r = rowsInGroup[i];
@@ -85,14 +152,22 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
     if (!isBlank(r.O)) item.description = norm(r.O);
     if (!isBlank(r.T)) { item.discount = parseFloat(r.T); item.discount_type = 'percentage'; }
     else if (!isBlank(r.U)) { item.discount = parseFloat(r.U); item.discount_type = 'amount'; }
-    // [إضافة] فئة ضريبية حقيقية مُختارة صراحةً (V مطابقة لـtaxesIndex — راجع
-    // تعليق الرأس أعلاه) — غير مطابقة أو taxesIndex غائب = تُترَك كما كانت
-    // (بلا إرسال، قيود يطبّق ضريبة المنتج تلقائيًا). لا خطأ عند عدم المطابقة
-    // عمدًا (بخلاف الموقع/المنتج/المشروع) — V كانت اختيارية الأثر دومًا.
-    if (!isBlank(r.V) && taxesIndex && taxesIndex.byLabel) {
-      const tax = taxesIndex.byLabel.get(norm(r.V));
-      if (tax) item.tax_id = tax.id;
+    // [إصلاح 2026-09-11] فئة ضريبية حقيقية مُختارة صراحةً (V) — راجع resolveTaxEntry
+    // وتعليق الرأس أعلاه. فهرس ضرائب حقيقي محمَّل فعلًا (hasRealTaxes) وV غير فارغة
+    // لكن يتعذّر ربطها بأي فئة حقيقية = خطأ حاجب صريح الآن (كان يُتجاهَل بصمت فتُنشأ
+    // الفاتورة بضريبة صفرية تلقائية). بلا فهرس ضرائب حقيقي أصلًا = تُترَك كما كانت
+    // (بلا فرض مطابقة، لا بيانات حقيقية لفرضها).
+    if (!isBlank(r.V)) {
+      if (hasRealTaxes) {
+        const tax = resolveTaxEntry(r.V, taxesIndex);
+        if (!tax) return { ok: false, error: `تعذّر مطابقة فئة الضريبة "${norm(r.V)}" (كود المنتج "${sku}") بأي فئة ضريبية حقيقية بمنشأة العميل.` };
+        item.tax_id = tax.id;
+      } else if (taxesIndex && taxesIndex.byLabel) {
+        const tax = taxesIndex.byLabel.get(norm(r.V));
+        if (tax) item.tax_id = tax.id;
+      }
     }
+    if (matchedProjectId !== undefined) item.project_id = matchedProjectId;
     lineItems.push(item);
   }
 
@@ -108,31 +183,6 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
   if (!isBlank(header.A)) invoice.reference = norm(header.A);
   if (!isBlank(header.B)) invoice.description = norm(header.B);
 
-  // [إضافة] عمود "المشروع" (projectRef — خارج COL_KEYS، راجع constants.js
-  // AUX_FIELD_KEYWORDS._project) — يُطابَق برقم المشروع الحقيقي (byId) أولًا،
-  // وإلا بالاسم (byName). بلا قيمة أصلًا = لا مشروع لهذه الفاتورة (طبيعي، ليس
-  // خطأ). قيمة موجودة لكن غير مطابقة = خطأ صريح بدل إرسال فاتورة بمشروع خاطئ
-  // بصمت أو تجاهل المشروع بصمت — نفس فلسفة الموقع (G) أعلاه بالضبط.
-  // [إصلاح] الشرط كان يفحص وجود الكائن projectsIndex فقط — لكن refs.projects
-  // غير المحمَّل (EMPTY_REF = {loaded:false}) كائن صحيح (truthy) أيضًا بلا
-  // byId/byName، فكان أي صف فيه projectRef يفشل ببناء الفاتورة كاملةً (خطأ
-  // "تعذّر مطابقة المشروع") فور تمرير projectsIndex من الهوك دومًا (sendInvoicesViaApi
-  // يمرّره دائمًا)، حتى لو المستخدم لم يجلب مشاريع أصلًا. الآن نتحقق من .loaded
-  // صراحةً: بلا مشاريع محمَّلة فعليًا = تجاهل صامت (لا خطأ)، بنفس الفلسفة الموثَّقة.
-  if (!isBlank(header.projectRef) && projectsIndex && projectsIndex.loaded) {
-    const typed = norm(header.projectRef);
-    let matched = projectsIndex.byId ? projectsIndex.byId.get(typed) : undefined;
-    if (!matched) {
-      const candidates = (projectsIndex.byName ? projectsIndex.byName.get(normKey(typed)) : undefined) || [];
-      if (candidates.length === 1) matched = candidates[0];
-      else if (candidates.length > 1) {
-        return { ok: false, error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم لهذه الفاتورة.` };
-      }
-    }
-    if (!matched) return { ok: false, error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
-    invoice.project_id = matched.id;
-  }
-
   return { ok: true, payload: { invoice } };
 }
 
@@ -147,12 +197,16 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {object} opts
  * @param {object} opts.productsIndex نفس refs.products (يحتاج bySku مع id لكل سجل)
  * @param {Map}    opts.locationIdByName من qoyodSalesRefFetch.js
- * @param {object} [opts.projectsIndex] [إضافة، غير مؤكَّد ميدانيًا] نفس refs.projects
- *   (loaded/byId/byName) — بلا تمريره، أو loaded!==true (لم تُجلَب مشاريع فعليًا)،
- *   أي فاتورة فيها projectRef تُرسَل بلا project_id بصمت (لا خطأ)؛ بـloaded===true،
- *   projectRef غير المطابَق يصير خطأً حاجبًا لتلك الفاتورة.
- * @param {object} [opts.taxesIndex] نفس refs.taxes (byLabel) — بلا تمريره أو V غير
- *   مطابقة، لا tax_id يُرسَل (بلا خطأ — قيود يطبّق ضريبة المنتج تلقائيًا حينها).
+ * @param {object} [opts.projectsIndex] نفس refs.projects (loaded/byId/byName) — بلا
+ *   تمريره، أو loaded!==true (لم تُجلَب مشاريع فعليًا)، أي فاتورة فيها projectRef
+ *   تُرسَل بلا project_id بصمت (لا خطأ)؛ بـloaded===true، projectRef غير المطابَق
+ *   يصير خطأً حاجبًا لتلك الفاتورة. project_id يُرسَل على كل line_item (لا على
+ *   الفاتورة نفسها — مؤكَّد بمثال طلب حقيقي 2026-09-11، راجع تعليق رأس الملف).
+ * @param {object} [opts.taxesIndex] نفس refs.taxes (byLabel، غير فارغ = فئات ضريبية
+ *   حقيقية موجودة فعلًا بمنشأة العميل) — بلا تمريره أو byLabel فارغ، لا فرض مطابقة
+ *   (تُترَك كما كانت، قيود يطبّق ضريبة المنتج تلقائيًا). بفئات حقيقية موجودة، V غير
+ *   فارغة يتعذّر ربطها بأي فئة منها (resolveTaxEntry) تصير خطأً حاجبًا لتلك الفاتورة
+ *   — [إصلاح 2026-09-11] كانت تُتجاهَل بصمت فتُنشأ الفاتورة بضريبة صفرية تلقائيًا.
  * @param {'Draft'|'Approved'} [opts.status]
  * @param {Set<string>} [opts.forceDraftRefs] [إضافة] مراجع فواتير (row.A) تُرسَل
  *   دومًا كمسودة (Draft) بغض النظر عن opts.status — تُستخدَم من لوحة مراجعة نقص

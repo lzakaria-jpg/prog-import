@@ -29,3 +29,11 @@ export function normalizeNumericText(raw){
 
 export function isBlank(s){ return norm(s)===''; }
 export function round2(n){ return Math.round((Number(n)+Number.EPSILON)*100)/100; }
+
+// [إضافة] معرّف datalist ثابت ومطابق لموقع مخزون معيّن — يُستخدَم من RefDatalists.jsx
+// (يبني قائمة منتجات منفصلة لكل موقع حقيقي، بلاحقة الكمية المتوفرة) وGridCell.jsx (يختار
+// أيها يعرضه لعمود N حسب قيمة G بنفس الصف). دالة نقية مشتركة بالملفّين لضمان توليد نفس
+// المعرّف بالضبط لنفس اسم الموقع (encodeURIComponent يضمن معرّف HTML صالح لاسم عربي بمسافات).
+export function productDatalistIdForLocation(locName){
+  return 'dl-products-loc-' + encodeURIComponent(norm(locName));
+}
