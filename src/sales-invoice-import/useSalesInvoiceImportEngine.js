@@ -453,7 +453,11 @@ export default function useSalesInvoiceImportEngine() {
     setStep(n);
   }, [enterStep3, resetExport]);
 
-  const readyForStep2 = template.loaded;
+  // [إضافة] قالب قيود يصبح اختياريًا فقط عند جلب المرجعيات الثلاث (منتجات/مخزون/
+  // عملاء) فعليًا عبر API — apiFetchSummary لا يُعبَّأ إلا بعد نجاح
+  // fetchReferencesFromApi الكامل. الرفع اليدوي بلا قالب يبقى كما كان دومًا
+  // (غير كافٍ للمتابعة) — الاستثناء محصور بمسار API فقط كما طُلب بالتحديد.
+  const readyForStep2 = template.loaded || !!apiFetchSummary;
 
   return {
     step, goToStep, readyForStep2,

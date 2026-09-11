@@ -15,12 +15,24 @@ describe("runValidation — الحقول الإلزامية على مستوى ا
     const { list } = runValidation([validRow({})]);
     expect(list.filter(i => i.sev === 'err')).toEqual([]);
   });
-  it("N/P/R/S/V فارغة كل واحدة تولّد خطأ مستقل على نفس الحقل", () => {
+  it("N/P/R/S/V فارغة كل واحدة تولّد خطأ مستقل على نفس الحقل (بقالب مرفوع)", () => {
     const row = validRow({ N: '', P: '', R: '', S: '', V: '' });
-    const { byRow } = runValidation([row]);
+    const refs = { template: { loaded: true, dropdowns: { G: ['الرياض'], V: ['15%'], H: [] } } };
+    const { byRow } = runValidation([row], refs);
     ['N', 'P', 'R', 'S', 'V'].forEach(k => {
       expect(byRow[row.id][k].some(i => i.sev === 'err')).toBe(true);
     });
+  });
+  // [إضافة] بلا قالب مرفوع (مسار جلب المرجعيات عبر API — راجع تعليق رأس
+  // lineItemRequiredCols بـvalidation.js)، الضريبة% (V) لم تعد إلزامية — لا توجد
+  // فئات ضريبية حقيقية نتحقق مقابلها، والإرسال عبر API يتجاهلها عمدًا أصلًا.
+  it("V غير إلزامية بلا قالب مرفوع، بينما N/P/R/S تبقى إلزامية كما هي", () => {
+    const row = validRow({ N: '', P: '', R: '', S: '', V: '' });
+    const { byRow } = runValidation([row]); // بلا refs — يعني template.loaded=false
+    ['N', 'P', 'R', 'S'].forEach(k => {
+      expect(byRow[row.id][k].some(i => i.sev === 'err')).toBe(true);
+    });
+    expect(byRow[row.id].V).toBeUndefined();
   });
   it("مرجع الفاتورة (A) فارغ ⇒ خطأ حاجب مستقل", () => {
     const row = validRow({ A: '' });

@@ -38,10 +38,17 @@ export function runValidation(rows, refs = {}){
   // تجميع حسب مرجع الفاتورة (A) بالترتيب
   const groups = groupRowsByInvoiceRef(rows);
 
+  // [إضافة] عمود الضريبة% (V) إلزامي فقط لو فيه قالب قيود مرفوع — بلا قالب، لا
+  // توجد فئات ضريبية حقيقية نتحقق مقابلها أصلًا (dropdowns.V فارغة)، والمسار
+  // الوحيد الممكن بلا قالب هو الإرسال المباشر عبر API الذي يتجاهل V عمدًا أصلًا
+  // (قيود تطبّق ضريبة المنتج نفسه تلقائيًا — راجع تعليق رأس qoyodSalesInvoicePush.js).
+  // بقالب مرفوع، السلوك يبقى بلا أي تغيير (V إلزامي كما كان دومًا).
+  const lineItemRequiredCols = template.loaded ? ['N','P','R','S','V'] : ['N','P','R','S'];
+
   rows.forEach((row, idx)=>{
     const rn = idx+1;
     // إلزامي على مستوى البند
-    ['N','P','R','S','V'].forEach(k=>{
+    lineItemRequiredCols.forEach(k=>{
       if(isBlank(row[k])) addIssue(row.id,k,'err',`السطر ${rn}: حقل "${COLUMNS.find(c=>c.key===k).name}" إلزامي ولا يمكن تركه فارغًا.`);
     });
     if(isBlank(row.A)) addIssue(row.id,'A','err',`السطر ${rn}: "مرجع الفاتورة" إلزامي.`);
