@@ -113,7 +113,13 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
   // وإلا بالاسم (byName). بلا قيمة أصلًا = لا مشروع لهذه الفاتورة (طبيعي، ليس
   // خطأ). قيمة موجودة لكن غير مطابقة = خطأ صريح بدل إرسال فاتورة بمشروع خاطئ
   // بصمت أو تجاهل المشروع بصمت — نفس فلسفة الموقع (G) أعلاه بالضبط.
-  if (!isBlank(header.projectRef) && projectsIndex) {
+  // [إصلاح] الشرط كان يفحص وجود الكائن projectsIndex فقط — لكن refs.projects
+  // غير المحمَّل (EMPTY_REF = {loaded:false}) كائن صحيح (truthy) أيضًا بلا
+  // byId/byName، فكان أي صف فيه projectRef يفشل ببناء الفاتورة كاملةً (خطأ
+  // "تعذّر مطابقة المشروع") فور تمرير projectsIndex من الهوك دومًا (sendInvoicesViaApi
+  // يمرّره دائمًا)، حتى لو المستخدم لم يجلب مشاريع أصلًا. الآن نتحقق من .loaded
+  // صراحةً: بلا مشاريع محمَّلة فعليًا = تجاهل صامت (لا خطأ)، بنفس الفلسفة الموثَّقة.
+  if (!isBlank(header.projectRef) && projectsIndex && projectsIndex.loaded) {
     const typed = norm(header.projectRef);
     let matched = projectsIndex.byId ? projectsIndex.byId.get(typed) : undefined;
     if (!matched) {
@@ -142,8 +148,9 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {object} opts.productsIndex نفس refs.products (يحتاج bySku مع id لكل سجل)
  * @param {Map}    opts.locationIdByName من qoyodSalesRefFetch.js
  * @param {object} [opts.projectsIndex] [إضافة، غير مؤكَّد ميدانيًا] نفس refs.projects
- *   (byId/byName) — بلا تمريره، أي فاتورة فيها projectRef تُرسَل بلا project_id بصمت
- *   (لا خطأ)؛ بتمريره، projectRef غير المطابَق يصير خطأً حاجبًا لتلك الفاتورة.
+ *   (loaded/byId/byName) — بلا تمريره، أو loaded!==true (لم تُجلَب مشاريع فعليًا)،
+ *   أي فاتورة فيها projectRef تُرسَل بلا project_id بصمت (لا خطأ)؛ بـloaded===true،
+ *   projectRef غير المطابَق يصير خطأً حاجبًا لتلك الفاتورة.
  * @param {object} [opts.taxesIndex] نفس refs.taxes (byLabel) — بلا تمريره أو V غير
  *   مطابقة، لا tax_id يُرسَل (بلا خطأ — قيود يطبّق ضريبة المنتج تلقائيًا حينها).
  * @param {'Draft'|'Approved'} [opts.status]
@@ -186,7 +193,10 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
         const created = res && res.invoice;
         if (created && created.id) {
           sent++;
-          emit({ ref, status: 'success', id: created.id, total: created.total });
+          // [إضافة] response = رد قيود الكامل على الفاتورة (بما فيه line_items) —
+          // يُستخدَم بتقرير Excel لنتائج الإرسال (sendResultsReport.js) لعرض تفاصيل
+          // الفاتورة والمنتجات الفعلية المُنشأة، لا فقط id/total.
+          emit({ ref, status: 'success', id: created.id, total: created.total, response: created });
         } else {
           failed++;
           emit({ ref, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف فاتورة)' });

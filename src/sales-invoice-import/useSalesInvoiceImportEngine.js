@@ -120,8 +120,8 @@ export default function useSalesInvoiceImportEngine() {
   }, []);
 
   const refs = useMemo(() => ({
-    template, products: productsRef, customers: customersRef, stock: stockRef,
-  }), [template, productsRef, customersRef, stockRef]);
+    template, products: productsRef, customers: customersRef, stock: stockRef, taxes: taxesRef,
+  }), [template, productsRef, customersRef, stockRef, taxesRef]);
 
   // [إضافة] أسماء المواقع الحقيقية المجلوبة عبر API (نفس مفاتيح locationIdByName)
   // — تُستخدَم كقائمة منسدلة بديلة لعمود الموقع (G) بلا قالب مرفوع (GridCell.jsx).
@@ -338,12 +338,16 @@ export default function useSalesInvoiceImportEngine() {
   const enterStep3 = useCallback(() => {
     setRows((prev) => {
       const resolved = resolveNamesToRefs(prev, false, customersRef, productsRef).rows;
-      const snapped = snapTaxCategoriesInRows(resolved, template.dropdowns.V);
+      // [إصلاح] بلا قالب، template.dropdowns.V فارغة دومًا فـsnapTaxCategory لا
+      // يطابق أي شيء — الفئات الضريبية الحقيقية المجلوبة عبر API (taxesRef.labels)
+      // تصير القائمة البديلة، بنفس منطق GridCell.jsx وinvoiceImportMapping.js تمامًا.
+      const taxList = template.loaded ? template.dropdowns.V : (taxesRef.loaded ? taxesRef.labels : []);
+      const snapped = snapTaxCategoriesInRows(resolved, taxList);
       const filled = fillDownHeaderFields(snapped);
       setIssues(runValidation(filled, refs));
       return filled;
     });
-  }, [customersRef, productsRef, template, refs]);
+  }, [customersRef, productsRef, template, taxesRef, refs]);
 
   const missingLocationGroups = useMemo(() => {
     if (!template.loaded || !template.dropdowns.G.length) return [];
