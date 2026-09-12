@@ -488,11 +488,10 @@ export default function useSalesInvoiceImportEngine() {
     setStep(n);
   }, [enterStep3, resetExport]);
 
-  // [إضافة] قالب قيود يصبح اختياريًا فقط عند جلب المرجعيات الثلاث (منتجات/مخزون/
-  // عملاء) فعليًا عبر API — apiFetchSummary لا يُعبَّأ إلا بعد نجاح
-  // fetchReferencesFromApi الكامل. الرفع اليدوي بلا قالب يبقى كما كان دومًا
-  // (غير كافٍ للمتابعة) — الاستثناء محصور بمسار API فقط كما طُلب بالتحديد.
-  const readyForStep2 = template.loaded || !!apiFetchSummary;
+  // [تراجع 2026-09-12، طلب صريح من المستخدم] قالب قيود صار اختياريًا مؤقتًا عند
+  // الجلب عبر API — رجّعناه إلزاميًا دومًا كما كان أصلًا، حتى مع نجاح الجلب عبر
+  // API. apiFetchSummary لم يعد يُعفي من رفع القالب.
+  const readyForStep2 = template.loaded;
 
   return {
     step, goToStep, readyForStep2,
