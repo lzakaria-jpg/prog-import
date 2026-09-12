@@ -96,9 +96,16 @@ export async function countUserLogins(env, email) {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
-// إيميل المالك الحالي (صف users بـrole='owner' — فريد دومًا، مفروض بقيد فريد
-// بقاعدة البيانات). يُستخدَم فقط لتحديد مستلم إشعار تسجيل الدخول.
+// إيميل المالك الحالي — صف users بـrole='owner' أولًا (فريد دومًا، مفروض بقيد
+// فريد بقاعدة البيانات)، وإلا app_settings.admin_email احتياطيًا. [إضافة] هذا
+// الاحتياط ضروري فعليًا: users هو جدول ترحيل RBAC لاحق (database-schema-rbac-chat.sql)
+// قد لا يكون نُفِّذ على قاعدة كل عميل بعد أو لم يُدرَج له صف owner صحيح، بينما
+// app_settings.admin_email هو المصدر الأصلي الدائم لإيميل المدير (يُضبَط أول
+// إعداد للتطبيق — src/auth.jsx) ولا يعتمد على أي ترحيل إضافي. بلا هذا الاحتياط،
+// إشعار تسجيل الدخول (auth-login.js) يُتخطى بصمت كليًا لو users فارغ/غير مُرحَّل.
 export async function getOwnerEmail(env) {
   const rows = await restFetch(env, "users?role=eq.owner&select=email&limit=1");
-  return rows && rows[0] ? rows[0].email : null;
+  if (rows && rows[0] && rows[0].email) return rows[0].email;
+  const settingsRows = await restFetch(env, "app_settings?key=eq.admin_email&select=value&limit=1");
+  return settingsRows && settingsRows[0] ? settingsRows[0].value : null;
 }
