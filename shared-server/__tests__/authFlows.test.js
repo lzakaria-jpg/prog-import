@@ -19,6 +19,7 @@ function resetDb() {
     user_credentials: [],
     audit_log: [],
     user_activity: [],
+    app_settings: [],
   };
 }
 
@@ -206,6 +207,19 @@ describe("auth-login", () => {
       expect(await res.json()).toEqual({ ok: true });
       expect(db.user_activity.some((a) => a.user_email === "sara@qoyod.com" && a.action === "login")).toBe(true);
       expect(sentEmails.length).toBe(0);
+    });
+
+    // [إضافة] جدول users قد لا يحمل صف role='owner' فعليًا (ترحيل RBAC لم يُنفَّذ
+    // أو لم يُدرَج owner بعد) — app_settings.admin_email احتياط يضمن وصول الإشعار
+    // رغم ذلك، بدل تخطّيه بصمت كليًا.
+    it("بلا صف role='owner' بجدول users: يُستخدَم app_settings.admin_email احتياطيًا", async () => {
+      db.users = db.users.filter((u) => u.role !== "owner"); // محاكاة عدم ترحيل RBAC
+      db.app_settings.push({ key: "admin_email", value: "legacy-admin@qoyod.com" });
+      await callFn("../../functions/api/auth-set-initial-password.js", { email: "sara@qoyod.com", newPassword: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "correctPW1" });
+
+      expect(sentEmails.length).toBe(1);
+      expect(sentEmails[0].to).toEqual(["legacy-admin@qoyod.com"]);
     });
   });
 });
