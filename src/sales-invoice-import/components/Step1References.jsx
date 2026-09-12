@@ -59,12 +59,7 @@ function TemplateWarning({ template }) {
 
 export default function Step1References({ engine }) {
   const { t } = useLanguage();
-  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError, customerName, readyForStep2, apiFetchSummary } = engine;
-
-  // [إضافة] القالب يصبح اختياريًا بصريًا أيضًا (مو بس بالمتابعة) بمجرد نجاح جلب
-  // المرجعيات الثلاث عبر API — الضريبة تُطبَّق تلقائيًا من قيود عند الإرسال
-  // المباشر (V يُتجاهَل)، والموقع يُطابَق مباشرة مقابل المواقع الحقيقية المجلوبة.
-  const templateOptional = !!apiFetchSummary;
+  const { template, productsRef, stockRef, customersRef, uploadTemplate, uploadReferenceFile, confirmReferenceMapping, goToStep, uploadError, customerName, readyForStep2 } = engine;
 
   // بادئة اسم الملف باسم العميل المحفوظ بلوحة API لو موجود (نفس الحقل المستخدم
   // بـApiFetchPanel.jsx لحفظ المفتاح) — تجميلية بحتة، بلا أي أثر على البيانات.
@@ -75,9 +70,9 @@ export default function Step1References({ engine }) {
   return (
     <div className="qsv-panel">
       <h2>{t({ ar: 'الخطوة 1: رفع الملفات المرجعية', en: 'Step 1: Upload reference files' })}</h2>
-      <p className="qsv-hint">{templateOptional
-        ? t({ ar: 'بما إنك جلبت المرجعيات عبر API، قالب قيود صار اختياريًا — يمكنك المتابعة للخطوة التالية مباشرة بلا رفعه (الضريبة تُطبَّق تلقائيًا من قيود عند الإرسال عبر API).', en: "Since you fetched the references via API, the Qoyod template is now optional — you can proceed to the next step directly without uploading it (tax is applied automatically by Qoyod when sending via API)." })
-        : t({ ar: 'ارفع قالب قيود المحمَّل حديثًا (إلزامي)، وباقي الملفات (اختيارية لكن موصى بها بشدة لتحقق أدق).', en: "Upload a freshly downloaded Qoyod template (required), and the rest of the files (optional, but strongly recommended for more accurate validation)." })}</p>
+      {/* [تراجع 2026-09-12، طلب صريح من المستخدم] قالب قيود إلزامي دومًا — حتى مع
+          نجاح جلب المرجعيات عبر API (كان صار اختياريًا بتلك الحالة، رجّعناه كما كان). */}
+      <p className="qsv-hint">{t({ ar: 'ارفع قالب قيود المحمَّل حديثًا (إلزامي)، وباقي الملفات (اختيارية لكن موصى بها بشدة لتحقق أدق).', en: "Upload a freshly downloaded Qoyod template (required), and the rest of the files (optional, but strongly recommended for more accurate validation)." })}</p>
 
       {/* [إصلاح] رسالة خطأ رفع ظاهرة — كان فشل قراءة أي ملف يُبتلَع بصمت تمامًا */}
       {uploadError && <div className="qsv-note-box err" style={{ marginBottom: 10 }}>⛔ {uploadError}</div>}
@@ -86,7 +81,7 @@ export default function Step1References({ engine }) {
 
       <div className="qsv-grid4">
         <UploadCard
-          id="card-template" required={!templateOptional} title={t({ ar: 'قالب قيود (xlsx)', en: 'Qoyod template (xlsx)' })}
+          id="card-template" required title={t({ ar: 'قالب قيود (xlsx)', en: 'Qoyod template (xlsx)' })}
           hint={t({ ar: 'نزّله الآن من صفحة استيراد الفواتير في قيود، ثم ارفعه هنا فورًا (بدون تعديل).', en: "Download it now from Qoyod's invoice import page, then upload it here right away (without modifying it)." })}
           accept=".xlsx" status={templateStatus(template, t)} loaded={template.loaded}
           onFile={uploadTemplate}
