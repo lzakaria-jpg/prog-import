@@ -4,10 +4,59 @@
 // بهذا الملف إطلاقًا — يبقى كما هو بـsrc/auth.jsx.
 import { corsHeaders } from "../../shared-server/cors.js";
 import { hashPassword } from "../../shared-server/authCrypto.js";
-import { getUserRow, getCredentials, upsertCredentials, insertAuditLog } from "../../shared-server/supabaseAdmin.js";
+import {
+  getUserRow, getCredentials, upsertCredentials, insertAuditLog,
+  insertUserActivity, countUserLogins, getOwnerEmail,
+} from "../../shared-server/supabaseAdmin.js";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function formatRiyadhTime(date) {
+  try {
+    return date.toLocaleString("ar-SA", { timeZone: "Asia/Riyadh", dateStyle: "medium", timeStyle: "short" });
+  } catch (e) {
+    return date.toISOString();
+  }
+}
+
+// [إضافة] طلب صريح من المستخدم (المالك): إشعار بريدي له عند كل تسجيل دخول ناجح
+// لأي مستخدم آخر — يوضح الإيميل ووقت الدخول وعدد مرات دخوله الإجمالي. يُسجَّل
+// النشاط هنا بالسيرفر (بدل الاعتماد فقط على trackLogin بالمتصفح بـsrc/auth.jsx —
+// أُزيل استدعاؤها لمسار غير المالك تحديدًا لمنع ازدواج العدّ بجدول user_activity
+// نفسه)، فالعدّ هنا يطابق ما تعرضه لوحة "إدارة المستخدمين" حرفيًا. لا تأثير على
+// نتيجة تسجيل الدخول نفسها مهما حصل هنا (كل شيء داخل try/catch صامت) — نفس فلسفة
+// insertAuditLog: التتبّع/الإشعار لا يُفشل ولا يُبطئ العملية الأساسية بأي خطأ.
+// بلا RESEND_API_KEY/RESEND_FROM مُعدَّين، أو بلا مالك موجود بجدول users بعد، يُتخطى
+// إرسال البريد بصمت (نفس سلوك send-mention-email.js) — تسجيل النشاط بالجدول يبقى دومًا.
+async function notifyOwnerOfLogin(env, email) {
+  await insertUserActivity(env, email, "login");
+  const [count, ownerEmail] = await Promise.all([countUserLogins(env, email), getOwnerEmail(env)]);
+
+  const apiKey = env && env.RESEND_API_KEY;
+  const from = env && env.RESEND_FROM;
+  if (!ownerEmail || ownerEmail.toLowerCase() === email.toLowerCase() || !apiKey || !from) return;
+
+  const when = formatRiyadhTime(new Date());
+  const html = `
+    <div style="font-family: Tahoma, Arial, sans-serif; direction: rtl; text-align: right;">
+      <p>تسجيل دخول جديد إلى أدوات قيود المحاسبية:</p>
+      <ul>
+        <li><strong>المستخدم:</strong> ${escapeHtml(email)}</li>
+        <li><strong>الوقت:</strong> ${escapeHtml(when)}</li>
+        <li><strong>عدد مرات الدخول الإجمالي:</strong> ${count}</li>
+      </ul>
+    </div>`;
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ from, to: [ownerEmail], subject: `تسجيل دخول: ${email}`, html }),
+  });
+}
 
 export async function onRequestOptions(context) {
   return new Response(null, { status: 204, headers: corsHeaders(context.request) });
@@ -51,6 +100,7 @@ export async function onRequestPost(context) {
     const calculated = await hashPassword(password, creds.password_salt);
     if (calculated === creds.password_hash) {
       await upsertCredentials(context.env, email, { failed_login_attempts: 0, locked_until: null });
+      try { await notifyOwnerOfLogin(context.env, email); } catch (e) { /* لا يُفشل تسجيل الدخول أبدًا */ }
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
     }
 

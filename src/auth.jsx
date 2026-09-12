@@ -304,7 +304,10 @@ export function AuthProvider({ children }) {
       if (data.ok) {
         setCurrentUser(trimmed);
         saveSession(trimmed);
-        trackLogin(trimmed);
+        // [إصلاح 2026-09-12] trackLogin هنا كانت تُسجَّل مرتين لكل دخول فعلي: مرة هنا
+        // بالمتصفح، ومرة بالسيرفر (auth-login.js يسجّلها الآن بنفسه — insertUserActivity
+        // — ليحسب عدد مرات الدخول لإشعار المالك بدقة). أُزيلت من هنا فقط (لا تلمس مسار
+        // المالك أدناه، الذي لا يمر بـ/api/auth-login إطلاقًا فلا ازدواج فيه).
         return { ok: true, admin: false };
       }
       if (data.reason === "no_password_set") return { ok: false, reason: "no_password_set" };

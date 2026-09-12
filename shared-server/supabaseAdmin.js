@@ -70,3 +70,35 @@ export async function insertAuditLog(env, actorEmail, action, targetEmail, detai
     // سجل التدقيق لا يُفشل العملية الأساسية إن تعذّر الكتابة فيه
   }
 }
+
+// ─── جدول user_activity (نفس الجدول الذي تكتب فيه src/activityTracker.js
+//     عميليًّا لأنواع نشاط أخرى — login/logout/journal_import/...) ───
+// [إضافة] تسجيل دخول المستخدمين غير المالك يُكتَب هنا الآن من السيرفر (auth-login.js)
+// بدل الاعتماد فقط على trackLogin بالمتصفح — نفس السطر بالضبط (user_email/action
+// 'login') حتى يبقى عدّاد "إدارة المستخدمين" (getUserStats بـactivityTracker.js)
+// مصدرًا واحدًا صحيحًا بلا ازدواج عدّ. راجع تعليق auth-login.js لسبب النقل للسيرفر.
+export async function insertUserActivity(env, email, action, details) {
+  try {
+    await restFetch(env, "user_activity", {
+      method: "POST",
+      body: JSON.stringify({ user_email: email, action, details: details || {}, created_at: new Date().toISOString() }),
+    });
+  } catch (e) {
+    // نفس فلسفة سجل التدقيق أعلاه — تتبّع النشاط لا يُفشل تسجيل الدخول الفعلي
+  }
+}
+
+// عدد مرات دخول مستخدم معيّن (كل صفوف user_activity بـaction='login' لإيميله) —
+// نفس المصدر بالضبط الذي يحسب منه getUserStats بـactivityTracker.js، فالرقم
+// بإشعار الدخول (auth-login.js) يطابق دومًا ما يظهر بلوحة "إدارة المستخدمين".
+export async function countUserLogins(env, email) {
+  const rows = await restFetch(env, `user_activity?user_email=eq.${encodeURIComponent(email)}&action=eq.login&select=id`);
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+// إيميل المالك الحالي (صف users بـrole='owner' — فريد دومًا، مفروض بقيد فريد
+// بقاعدة البيانات). يُستخدَم فقط لتحديد مستلم إشعار تسجيل الدخول.
+export async function getOwnerEmail(env) {
+  const rows = await restFetch(env, "users?role=eq.owner&select=email&limit=1");
+  return rows && rows[0] ? rows[0].email : null;
+}

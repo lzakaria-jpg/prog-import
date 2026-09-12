@@ -18,6 +18,7 @@ function resetDb() {
     ],
     user_credentials: [],
     audit_log: [],
+    user_activity: [],
   };
 }
 
@@ -57,6 +58,10 @@ function installFakeFetch() {
       }
       if (options.method === "POST" && table.startsWith("audit_log")) {
         db.audit_log.push(JSON.parse(options.body));
+        return new Response(JSON.stringify([{}]), { status: 201 });
+      }
+      if (options.method === "POST" && table.startsWith("user_activity")) {
+        db.user_activity.push({ id: db.user_activity.length + 1, ...JSON.parse(options.body) });
         return new Response(JSON.stringify([{}]), { status: 201 });
       }
     }
@@ -156,6 +161,52 @@ describe("auth-login", () => {
     await callFn("../../functions/api/auth-set-initial-password.js", { email: "disabled@qoyod.com", newPassword: "x" }).catch(() => {});
     const rDisabled = await callFn("../../functions/api/auth-login.js", { email: "disabled@qoyod.com", password: "whatever1" });
     expect(rDisabled.json).toEqual({ ok: false, reason: "deactivated" });
+  });
+
+  // [إضافة] إشعار المالك بالبريد عند كل تسجيل دخول ناجح لمستخدم آخر — طلب صريح
+  // من المستخدم: يوضح الإيميل ووقت الدخول وعدد مرات الدخول الإجمالي.
+  describe("[إضافة] إشعار المالك بالبريد عند تسجيل الدخول", () => {
+    it("دخول ناجح يسجّل نشاط 'login' بجدول user_activity، ويرسل بريدًا للمالك بالإيميل والعدد", async () => {
+      await callFn("../../functions/api/auth-set-initial-password.js", { email: "sara@qoyod.com", newPassword: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "correctPW1" });
+
+      expect(db.user_activity.some((a) => a.user_email === "sara@qoyod.com" && a.action === "login")).toBe(true);
+      expect(sentEmails.length).toBe(1);
+      expect(sentEmails[0].to).toEqual(["owner@qoyod.com"]);
+      expect(sentEmails[0].html).toContain("sara@qoyod.com");
+      expect(sentEmails[0].html).toContain("الإجمالي:</strong> 1</li>"); // أول دخول لها = عدّاد 1
+    });
+
+    it("عدّاد الدخول يزيد مع كل دخول ناجح جديد لنفس المستخدم", async () => {
+      await callFn("../../functions/api/auth-set-initial-password.js", { email: "sara@qoyod.com", newPassword: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "correctPW1" });
+
+      expect(sentEmails.length).toBe(3);
+      expect(sentEmails[2].html).toContain("الإجمالي:</strong> 3</li>");
+    });
+
+    it("محاولة دخول فاشلة لا تُسجَّل نشاط دخول ولا ترسل بريدًا", async () => {
+      await callFn("../../functions/api/auth-set-initial-password.js", { email: "sara@qoyod.com", newPassword: "correctPW1" });
+      await callFn("../../functions/api/auth-login.js", { email: "sara@qoyod.com", password: "wrong" });
+
+      expect(db.user_activity.length).toBe(0);
+      expect(sentEmails.length).toBe(0);
+    });
+
+    it("بلا RESEND_API_KEY/RESEND_FROM: النشاط يُسجَّل بالجدول لكن بلا إرسال بريد، وتسجيل الدخول ينجح كالمعتاد", async () => {
+      await callFn("../../functions/api/auth-set-initial-password.js", { email: "sara@qoyod.com", newPassword: "correctPW1" });
+      const { onRequestPost } = await import("../../functions/api/auth-login.js");
+      const req = new Request("https://test.iqoyod.pages.dev/api/auth-login", {
+        method: "POST", headers: { Origin: "https://test.iqoyod.pages.dev", "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "sara@qoyod.com", password: "correctPW1" }),
+      });
+      const res = await onRequestPost({ request: req, env: { SUPABASE_SERVICE_ROLE_KEY: "test-service-key" } });
+      expect(await res.json()).toEqual({ ok: true });
+      expect(db.user_activity.some((a) => a.user_email === "sara@qoyod.com" && a.action === "login")).toBe(true);
+      expect(sentEmails.length).toBe(0);
+    });
   });
 });
 
