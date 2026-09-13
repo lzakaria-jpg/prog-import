@@ -1,0 +1,168 @@
+/*
+ ============================================================================
+  qoyodJournalRefFetch — جلب البيانات المرجعية لأداة استيراد القيود المحاسبية
+  (شجرة الحسابات + عملاء/موردين مرجعيين + مشاريع) مباشرة من منشأة العميل عبر
+  Qoyod REST API، بدل رفعها يدويًا.
+  ============================================================================
+  [إضافة] طلب صريح من المستخدم: "شجرة الحسابات عبر API تغني عن رفع الملف" —
+  بخلاف قرار سابق مماثل بأداة فواتير المبيعات (القالب هناك بقي إلزاميًا حتى مع
+  API)، هنا القرار الصريح هو العكس: نجاح الجلب يجعل شجرة الحسابات جاهزة تمامًا
+  بلا حاجة لرفع أي ملف — راجع JournalTool.jsx (chartAccounts تُملأ مباشرة من
+  buildChartAccountsFromApi، بنفس شكل مصفوفة parseChartFile بالضبط + id إضافي).
+
+  مصادر البيانات:
+    - GET /accounts   → مؤكَّد ميدانيًا (qoyodAccountSync.js/qoyodAccountPush.js،
+      أداة مطابقة شجرة الحسابات) — id, code, name_ar, name_en, description,
+      recieve_payments, type (enum إنجليزي Qoyod، لا يُترجَم لتصنيف عربي — نفس
+      قرار qoyodAccountsToFile1Records هناك، بلا تخمين).
+    - GET /customers  → مؤكَّد ميدانيًا (sales-invoice-import) — id, name, status.
+      "الرقم المرجعي" (CUS198 مثلاً) كما يظهر بواجهة قيود غير متاح بالـAPI
+      إطلاقًا (تحقّقنا سابقًا) — نستخدم id الحقيقي كمرجع، وهذا متوافق تمامًا مع
+      qoyodJournalEntryPush.js (يحتاج contact_id الحقيقي أصلاً).
+    - GET /vendors    → [غير مؤكَّد ميدانيًا] لا يوجد أي استخدام سابق فعلي لهذا
+      المسار بالمشروع كله (أداة استيراد فواتير المشتريات bill-import تعتمد ملف
+      موردين مرفوع يدويًا فقط) — افتراض قياسًا على تسمية /customers القياسية.
+      فشل جلبه (404 أو أي خطأ) يُعامَل كـ"لا موردون متاحون عبر API" فقط (فارغ)،
+      لا يُفشل باقي الجلب — يحتاج اختبارًا حيًا على منشأة فيها موردون فعليون.
+    - GET /projects   → [غير مؤكَّد ميدانيًا] نفس افتراض sales-invoice-import
+      (qoyodSalesRefFetch.js) حرفيًا — نفس المنطق، فشل جلبه فارغ فقط.
+
+  نفس فلسفة qoyodSalesRefFetch.js بالكامل: دوال بناء فهارس نقية قابلة للاختبار
+  المباشر (بلا شبكة)، ودالة تنسيق واحدة تُستدعى من JournalTool.jsx فقط.
+ ============================================================================
+*/
+import { fetchAll } from '../product-upload/io/network.js';
+import { normalizeCode } from './excelCore.js';
+
+/**
+ * يستنتج رمز الأب بالاقتطاع من اليمين — نفس أسلوب guessParentByCodeTruncation
+ * بـqoyodAccountSync.js حرفيًا (GET /accounts الفعلي لا يرسل parent_id/level
+ * إطلاقًا، فقط بنية ترقيم الرمز نفسها تدل على الهرمية) — منسوخة هنا بدل
+ * استيرادها لأنها غير مُصدَّرة هناك (دالة داخلية private بذلك الملف).
+ */
+function guessParentByCodeTruncation(code, codesSet) {
+  let current = String(code || '').trim();
+  while (current.length > 1) {
+    current = current.slice(0, -1);
+    if (codesSet.has(current)) return current;
+  }
+  return '';
+}
+
+/**
+ * يحوّل مصفوفة GET /accounts الخام إلى نفس شكل مصفوفة parseChartFile بالضبط
+ * (code, name, type, description, parentCode, canPay) + حقل id إضافي (لا يقرأه
+ * أي كود مطابقة/تحقق حالي — findSystemAccountCodes/buildParentInfo/validateEntryStructure
+ * كلها تقرأ code/name/parentCode فقط، فتعمل بلا أي تعديل عليها) يُستخدَم حصريًا
+ * لاحقًا من qoyodJournalEntryPush.js لبناء account_id الحقيقي بالإرسال.
+ * type يبقى فارغًا عمدًا (enum إنجليزي من Qoyod مثل "CurrentAsset"، لا نترجمه
+ * لتصنيف عربي — نفس قرار qoyodAccountsToFile1Records، لا تخمين).
+ */
+export function buildChartAccountsFromApi(apiAccounts) {
+  const list = (apiAccounts || []).filter((a) => a && a.code !== undefined && a.code !== null && String(a.code).trim() !== '');
+  const codesSet = new Set(list.map((a) => normalizeCode(a.code)));
+  return list.map((a) => {
+    const code = normalizeCode(a.code);
+    return {
+      code,
+      name: String(a.name_ar ?? '').trim() || String(a.name_en ?? '').trim(),
+      type: '',
+      description: String(a.description ?? '').trim(),
+      parentCode: guessParentByCodeTruncation(code, codesSet),
+      canPay: '',
+      id: a.id,
+    };
+  });
+}
+
+/**
+ * يحوّل مصفوفة عملاء/موردين خام (GET /customers أو /vendors) إلى نفس شكل
+ * parseNameRefFile بالضبط ([{name, ref}]) — يحل محل الملف المرجعي المرفوع
+ * يدويًا بشفافية كاملة أمام applyAutoContactRules (بلا أي تعديل عليها إطلاقًا).
+ * ref = String(id) الحقيقي بقيود (نفس منطق buildCustomersIndexFromApi
+ * بـsales-invoice-import) — هذا بالضبط ما يحتاجه qoyodJournalEntryPush.js
+ * لاحقًا لبناء contact_id الحقيقي، فيصير row.contact (بعد تطبيق applyAutoContactRules
+ * تلقائيًا) نفس contact_id الجاهز للإرسال بلا أي تحويل إضافي.
+ */
+export function buildNameRefListFromApi(apiContacts) {
+  const out = [];
+  (apiContacts || []).forEach((c) => {
+    const id = c?.id;
+    if (id === undefined || id === null) return;
+    const name = String(c?.name ?? '').trim();
+    if (!name) return;
+    out.push({ name, ref: String(id) });
+  });
+  return out;
+}
+
+/**
+ * فهرس مشاريع منشأة العميل — نسخة مطابقة تمامًا لـbuildProjectsIndexFromApi
+ * بـsales-invoice-import/api/qoyodSalesRefFetch.js (نفس شكل الحقول، نفس درجة
+ * عدم التأكد الميداني — راجع تعليقها هناك). منسوخة هنا (لا مستوردة) لتبقى
+ * أداة القيود مستقلة تمامًا عن مجلد sales-invoice-import.
+ */
+export function buildProjectsIndexFromApi(apiProjects) {
+  const byId = new Map();
+  const byName = new Map();
+  (apiProjects || []).forEach((p) => {
+    const id = p?.id;
+    if (id === undefined || id === null) return;
+    const name = String(p?.name ?? '').trim();
+    const rec = { id, name };
+    byId.set(String(id), rec);
+    if (name) {
+      const nk = name.toLowerCase();
+      if (!byName.has(nk)) byName.set(nk, []);
+      byName.get(nk).push(rec);
+    }
+  });
+  return { byId, byName };
+}
+
+/**
+ * الدالة المنسِّقة — تُستدعى من JournalTool.jsx فقط. تجلب /accounts (مطلوب)
+ * بالتوازي مع /customers (اختياري)، ثم /vendors و/projects (اختياريان، فشل كل
+ * منهما فارغ فقط بلا إيقاف الجلب). ترمي استثناءً برسالة عربية واضحة فقط لو فشل
+ * جلب /accounts نفسه (المورد الوحيد الذي بلا بديل يدوي في مسار API).
+ */
+export async function fetchJournalReferencesFromApi(apiKey) {
+  const key = (apiKey || '').trim();
+  if (!key) throw new Error('أدخل مفتاح API أولاً');
+
+  let apiAccounts;
+  try {
+    apiAccounts = await fetchAll('/accounts', key);
+  } catch (e) {
+    throw new Error(`تعذّر جلب شجرة الحسابات من قيود: ${e.message || String(e)}`);
+  }
+
+  let apiCustomers;
+  try {
+    apiCustomers = await fetchAll('/customers', key);
+  } catch (e) {
+    apiCustomers = [];
+  }
+
+  let apiVendors;
+  try {
+    apiVendors = await fetchAll('/vendors', key);
+  } catch (e) {
+    apiVendors = [];
+  }
+
+  let apiProjects;
+  try {
+    apiProjects = await fetchAll('/projects', key);
+  } catch (e) {
+    apiProjects = [];
+  }
+
+  return {
+    chartAccounts: buildChartAccountsFromApi(apiAccounts),
+    customersRefList: buildNameRefListFromApi(apiCustomers),
+    suppliersRefList: buildNameRefListFromApi(apiVendors),
+    projectsRef: { loaded: true, ...buildProjectsIndexFromApi(apiProjects) },
+    counts: { accounts: apiAccounts.length, customers: apiCustomers.length, vendors: apiVendors.length, projects: apiProjects.length },
+  };
+}
