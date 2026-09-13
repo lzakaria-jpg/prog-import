@@ -26,6 +26,14 @@ export function trackLogout(email) {
   return trackActivity(email, "logout");
 }
 
+// [إضافة] نبض دوري أثناء بقاء المستخدم مسجّلاً دخوله والتبويب مفتوحاً (راجع
+// useEffect بـauth.jsx) — يعطي حدًّا زمنيًا أدق لآخر لحظة نشاط فعلي بجلسة تنتهي
+// بإغلاق المتصفح مباشرة (بلا ضغط "تسجيل خروج" صريح) بدل ما تبقى مدتها مجهولة
+// تمامًا. يُستخدَم فقط بحساب مدة الجلسات (getUserSessions أدناه).
+export function trackHeartbeat(email) {
+  return trackActivity(email, "heartbeat");
+}
+
 export function trackJournalImport(email, details = {}) {
   return trackActivity(email, "journal_import", details);
 }
@@ -117,6 +125,59 @@ export async function getRecentActivity(limit = 50) {
 
     if (error || !data) return [];
     return data;
+  } catch (e) {
+    return [];
+  }
+}
+
+// ── جلسات مستخدم واحد (مدة كل جلسة دخول) ──────────────────────────────
+
+// [إضافة] يبني قائمة جلسات مستخدم من user_activity: كل 'login' يبدأ جلسة
+// جديدة، وأي نشاط لاحق (heartbeat/logout/journal_import/...) قبل 'login'
+// التالي يمدّد نهايتها المعروفة. 'logout' الصريح = نهاية دقيقة مؤكَّدة؛ أي
+// نشاط آخر (غالبًا heartbeat — راجع trackHeartbeat) = "آخر نشاط معروف"، حد
+// أدنى موثوق لمدة الجلسة لا وقت إغلاق فعلي مؤكَّد (لا طريقة مؤكَّدة 100% لمعرفة
+// لحظة إغلاق المتصفح فعليًا بلا خروج صريح). آخر جلسة بلا 'login' تالٍ بعدها
+// تُعتبر "لا تزال مفتوحة" (ongoing) إن كان آخر نشاط ضِمن ~ضِعف فترة النبض.
+export const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // مطابق للفاصل الفعلي بـauth.jsx
+
+// [إضافة] المنطق النقي (بلا أي استدعاء شبكة) — مُستخرَج من getUserSessions
+// عمداً ليكون قابلاً للاختبار مباشرة بصفوف مُلفَّقة، بلا الحاجة لمحاكاة
+// عميل supabase. rows: [{action, created_at}] لمستخدم واحد، مُرتَّبة تصاعدياً
+// بالوقت (نفس ما يرجعه استعلام getUserSessions أدناه بالضبط).
+export function buildSessionsFromActivityRows(rows, { now = Date.now() } = {}) {
+  if (!rows || !rows.length) return [];
+
+  const sessions = [];
+  let current = null;
+  for (const row of rows) {
+    if (row.action === "login") {
+      if (current) sessions.push(current);
+      current = { loginAt: row.created_at, endAt: row.created_at, endReason: "login_only" };
+    } else if (current) {
+      current.endAt = row.created_at;
+      current.endReason = row.action === "logout" ? "logout" : "activity";
+    }
+  }
+  if (current) sessions.push(current);
+
+  return sessions.reverse().map((s, i) => ({
+    ...s,
+    durationMinutes: Math.max(0, Math.round((new Date(s.endAt).getTime() - new Date(s.loginAt).getTime()) / 60000)),
+    ongoing: i === 0 && s.endReason !== "logout" && (now - new Date(s.endAt).getTime()) < HEARTBEAT_INTERVAL_MS * 2,
+  }));
+}
+
+export async function getUserSessions(email, limit = 500) {
+  try {
+    const { data, error } = await supabase
+      .from("user_activity")
+      .select("action, created_at")
+      .eq("user_email", email)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+    if (error || !data || !data.length) return [];
+    return buildSessionsFromActivityRows(data);
   } catch (e) {
     return [];
   }
