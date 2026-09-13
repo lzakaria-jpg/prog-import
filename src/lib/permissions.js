@@ -56,7 +56,18 @@ export const CHAT_PERMISSIONS = [
   { key: "chat.clear_chat", label: { ar: "تفريغ الشات بالكامل", en: "Clear entire chat" } },
 ];
 
-export const ALL_PERMISSION_KEYS = [...TOOL_PERMISSIONS, ...CHAT_PERMISSIONS].map((p) => p.key);
+/**
+ * [إضافة] صلاحيات إدارية دقيقة — منفصلة تمامًا عن دور "مدير مستخدمين كامل"
+ * (الذي يملك كل شيء: تعديل/حذف/تعطيل/صلاحيات الآخرين + الإحصائيات + سجل
+ * التدقيق). طلب صريح من المستخدم: مستخدم عادي (role='user') يُمنَح هذه
+ * الصلاحية وحدها يقدر يضيف مستخدمًا جديدًا فقط — بلا أي وصول لأي شيء آخر
+ * بلوحة الإدارة (لا قائمة المستخدمين، لا تعديل صلاحياتهم، لا الإحصائيات).
+ */
+export const MANAGEMENT_PERMISSIONS = [
+  { key: "manage.add_users", label: { ar: "إضافة مستخدم جديد فقط (بلا أي صلاحية إدارة أخرى)", en: "Add new users only (no other management access)" } },
+];
+
+export const ALL_PERMISSION_KEYS = [...TOOL_PERMISSIONS, ...CHAT_PERMISSIONS, ...MANAGEMENT_PERMISSIONS].map((p) => p.key);
 
 /** الصلاحيات الافتراضية المقترحة عند إنشاء مستخدم جديد — تبقى قابلة لإلغاء التحديد قبل الحفظ */
 export const DEFAULT_NEW_USER_PERMISSIONS = {
@@ -103,6 +114,18 @@ export function isOwner(user) {
 }
 
 /**
+ * [إضافة] هل يقدر هذا المستخدم يضيف مستخدمًا جديدًا؟ إمّا عبر الدور الكامل
+ * (owner/full_user_manager — يملك كل صلاحيات الإدارة أصلاً)، أو عبر الصلاحية
+ * الدقيقة manage.add_users وحدها (مستخدم عادي بلا أي صلاحية إدارة أخرى).
+ * ملاحظة: أوسع من canManageUsers عمدًا — استخدمها فقط لبوابة "إضافة مستخدم"
+ * تحديدًا، لا لأي إجراء إداري آخر (تعديل/حذف/تعطيل/صلاحيات/إحصائيات تبقى
+ * حصرًا لـcanManageUsers).
+ */
+export function canAddUsers(user) {
+  return canManageUsers(user) || can(user, "manage.add_users");
+}
+
+/**
  * هل يملك actingUser الحق في تعديل/حذف/تعطيل targetUser؟
  * القاعدة المطلقة: لا أحد — ولا حتى Full User Manager آخر — يمكنه المساس بالمالك إطلاقاً.
  * ولا يمكن لأي مستخدم ترقية نفسه أو تعديل صلاحياته عبر مسار الإدارة هذا (لا self-targeting).
@@ -123,7 +146,13 @@ export function clampGrantablePermissions(actingUser, requestedPermissions) {
   if (isOwner(actingUser)) return requestedPermissions;
   const clamped = {};
   for (const [key, value] of Object.entries(requestedPermissions || {})) {
-    if (value && !can(actingUser, key)) continue; // لا يملكها هو، فلا يمنحها
+    // [إضافة] manage.add_users حالة خاصة: full_user_manager يملك صلاحية إدارة
+    // المستخدمين كاملة أصلاً (canManageUsers)، وهذا يشمل ضمنيًا هذه الصلاحية
+    // الأضيق — بخلاف can() العام الذي يفحص فقط الخريطة المسطَّحة permissions،
+    // فيعتبره بلا هذه الصلاحية تحديدًا (لم تُضَف لصلاحياته الفردية أصلاً) ويمنع
+    // منحها لغيره خطأً رغم أنه يملك ما هو أوسع منها بكثير.
+    const granterHasIt = key === "manage.add_users" ? canAddUsers(actingUser) : can(actingUser, key);
+    if (value && !granterHasIt) continue; // لا يملكها هو، فلا يمنحها
     clamped[key] = value;
   }
   return clamped;

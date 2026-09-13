@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { MergeTool } from "./MergeTool";
 import JournalTool from "./JournalTool";
 import { LanguageProvider, useLanguage } from "./language";
-import { AuthProvider, useAuth, LoginScreen, AdminPanel, ChangePasswordModal } from "./auth";
+import { AuthProvider, useAuth, LoginScreen, AdminPanel, AddUsersOnlyPanel, ChangePasswordModal } from "./auth";
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
 import { NotificationBell } from "./lib/notifications.jsx";
@@ -180,7 +180,7 @@ function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("merge"));
   const { lang, dir, t } = useLanguage();
-  const { currentUser, isAdmin, isUserManager, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
+  const { currentUser, isAdmin, isUserManager, canAddUsers, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -214,6 +214,16 @@ function AppShell() {
           id: "manage-users",
           label: { ar: "إدارة المستخدمين", en: "Manage Users" },
           desc: { ar: "الأدوار والصلاحيات وسجل التدقيق", en: "Roles, permissions & audit log" },
+          icon: Users,
+          action: () => setShowAdmin(true),
+        });
+      } else if (canAddUsers) {
+        // [إضافة] مستخدم عادي مُنِح فقط manage.add_users — يفتح لوحة مصغَّرة
+        // (AddUsersOnlyPanel) بدل لوحة الإدارة الكاملة، لا وصول لأي شيء آخر.
+        items.push({
+          id: "manage-users",
+          label: { ar: "إضافة مستخدم", en: "Add User" },
+          desc: { ar: "إضافة مستخدم جديد فقط", en: "Add a new user only" },
           icon: Users,
           action: () => setShowAdmin(true),
         });
@@ -263,6 +273,7 @@ function AppShell() {
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
       {showAdmin && isUserManager && <AdminPanel />}
+      {showAdmin && !isUserManager && canAddUsers && <AddUsersOnlyPanel />}
       {showAISettings && canUseAI && <AISettings onClose={() => setShowAISettings(false)} />}
       {showChangePassword && !isAdmin && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
