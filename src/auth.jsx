@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 import { trackLogin, trackLogout, trackHeartbeat, getUserStats, getRecentActivity, getUserSessions } from "./activityTracker";
 import {
   ROLES, ROLE_LABELS, TOOL_PERMISSIONS, CHAT_PERMISSIONS, MANAGEMENT_PERMISSIONS, DEFAULT_NEW_USER_PERMISSIONS, LEGACY_FULL_ACCESS_PERMISSIONS,
-  can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions,
+  can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions, clampPermissionsForAddUsersOnly,
 } from "./lib/permissions";
 import { Shield, Mail, UserPlus, UserX, Users, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity, Lock, Eye, EyeOff, Key, ScrollText, Ban, Play, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -448,8 +448,15 @@ export function AuthProvider({ children }) {
     // المقيَّد. isUserManager فقط (full role) يقدر يحدد الدور فعليًا.
     const effectiveRole = isUserManager ? role : ROLES.USER;
     if (effectiveRole === ROLES.OWNER) return { ok: false, msg: { ar: "لا يمكن إنشاء أكثر من مالك واحد", en: "Only one owner can exist" } };
-    // Full User Manager لا يمنح صلاحية لا يملكها هو نفسه — سقف يمنع التصعيد غير المباشر
-    const grantedPermissions = clampGrantablePermissions(currentUserRecord, permissions);
+    // [تحديث، طلب صريح من المستخدم] من يملك فقط manage.add_users يقدر يمنح
+    // المستخدم الجديد أي صلاحية أداة محاسبية أو شات يختارها (بصرف النظر عمّا
+    // يملكه هو نفسه — clampPermissionsForAddUsersOnly، تستبعد أي صلاحية إدارية
+    // دومًا). Full User Manager/Owner: السلوك القديم كما هو تمامًا — لا يمنح
+    // صلاحية لا يملكها هو نفسه (clampGrantablePermissions، سقف يمنع التصعيد
+    // غير المباشر).
+    const grantedPermissions = isUserManager
+      ? clampGrantablePermissions(currentUserRecord, permissions)
+      : clampPermissionsForAddUsersOnly(permissions);
     try {
       const { error } = await supabase.from("users").insert({ email: trimmed, role: effectiveRole, permissions: grantedPermissions, active: true, created_by: currentUser });
       if (error) throw error;
@@ -1018,51 +1025,80 @@ export function AdminPanel() {
 // بدل إعادة استخدامه مع إخفاء أجزاء منه — أبسط وأضمن ألا يتسرّب أي خيار آخر
 // بالخطأ مستقبلاً لو تغيّر AdminPanel. يُفتَح من App.jsx فقط عندما !isUserManager
 // && canAddUsers (لو كان isUserManager فعليًا يُفتَح AdminPanel الكامل بدلاً منها).
+//
+// [تحديث، طلب صريح من المستخدم] يقدر يختار صلاحيات أدوات محاسبية/شات محدَّدة
+// للمستخدم الجديد وقت الإضافة (نفس خانات TOOL_PERMISSIONS/CHAT_PERMISSIONS —
+// لا MANAGEMENT_PERMISSIONS إطلاقًا، غير معروضة هنا نهائيًا) — createUser
+// (auth.jsx) يستخدم clampPermissionsForAddUsersOnly تلقائيًا لمن ليس
+// isUserManager، فتُستبعَد أي صلاحية إدارية مهما حصل حتى لو تلاعب أحد بالطلب
+// مباشرة (تحقق سيرفري/منطقي حقيقي، لا مجرد إخفاء بالواجهة).
 export function AddUsersOnlyPanel() {
   const { t } = useLanguage();
   const { setShowAdmin, createUser, online, dbReady } = useAuth();
   const [newUserEmail, setNewUserEmail] = useState("");
+  const [perms, setPerms] = useState(DEFAULT_NEW_USER_PERMISSIONS);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const toggle = (key) => setPerms((p) => ({ ...p, [key]: !p[key] }));
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setError(null); setSuccess(null);
     if (!newUserEmail.trim()) return;
     setSaving(true);
-    const res = await createUser(newUserEmail);
+    const res = await createUser(newUserEmail, { permissions: perms });
     setSaving(false);
     if (!res.ok) setError(t(res.msg));
-    else { setSuccess(t({ ar: "تمت إضافة المستخدم بنجاح", en: "User added successfully" })); setNewUserEmail(""); }
+    else { setSuccess(t({ ar: "تمت إضافة المستخدم بنجاح", en: "User added successfully" })); setNewUserEmail(""); setPerms(DEFAULT_NEW_USER_PERMISSIONS); }
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
-      <div style={{ width: 420, maxWidth: "95vw", background: "#FFFFFF", borderRadius: 20, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}>
-        <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ width: 480, maxWidth: "95vw", maxHeight: "88vh", background: "#FFFFFF", borderRadius: 20, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
+        <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <UserPlus size={20} color="#FFFFFF" />
             <h2 style={{ color: "#FFFFFF", fontSize: 18, fontWeight: 700, margin: 0 }}>{t({ ar: "إضافة مستخدم", en: "Add User" })}</h2>
           </div>
           <button onClick={() => setShowAdmin(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#FFFFFF", width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
-        <div style={{ padding: 24 }}>
+        <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
           <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 16px" }}>
-            {t({ ar: "تملك صلاحية إضافة مستخدمين جدد فقط — بصلاحيات الشات الأساسية الافتراضية.", en: "You only have permission to add new users — with default basic chat permissions." })}
+            {t({ ar: "تملك صلاحية إضافة مستخدمين جدد فقط — تقدر تحدد له صلاحيات الأدوات/الشات أدناه، بلا أي صلاحية إدارية.", en: "You only have permission to add new users — you can set their tool/chat permissions below, with no management access." })}
           </p>
-          <form onSubmit={handleCreateUser} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <form onSubmit={handleCreateUser}>
             <input
               type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)}
               placeholder={t({ ar: "بريد المستخدم الجديد", en: "New user's email" })} required
-              style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", direction: "ltr" }}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", direction: "ltr", boxSizing: "border-box", marginBottom: 16 }}
             />
-            <button type="submit" disabled={saving || !online || !dbReady} style={{ padding: "10px 16px", borderRadius: 8, background: "#12B886", color: "#FFF", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: (saving || !online || !dbReady) ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}>
+
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الأدوات", en: "Tool Permissions" })}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+              {TOOL_PERMISSIONS.map((p) => (
+                <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
+                </label>
+              ))}
+            </div>
+
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الشات", en: "Chat Permissions" })}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
+              {CHAT_PERMISSIONS.map((p) => (
+                <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
+                </label>
+              ))}
+            </div>
+
+            <button type="submit" disabled={saving || !online || !dbReady} style={{ width: "100%", padding: "10px", borderRadius: 8, background: "#12B886", color: "#FFF", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: (saving || !online || !dbReady) ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <UserPlus size={14} /> {saving ? t({ ar: "جارٍ الإضافة...", en: "Adding..." }) : t({ ar: "إضافة", en: "Add" })}
             </button>
           </form>
-          {error && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#FEE2E2", color: "#DC2626", fontSize: 12, marginBottom: 8 }}>⛔ {error}</div>}
-          {success && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#DCFCE7", color: "#15803D", fontSize: 12, marginBottom: 8 }}>✓ {success}</div>}
+          {error && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#FEE2E2", color: "#DC2626", fontSize: 12, marginTop: 12 }}>⛔ {error}</div>}
+          {success && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#DCFCE7", color: "#15803D", fontSize: 12, marginTop: 12 }}>✓ {success}</div>}
         </div>
       </div>
     </div>

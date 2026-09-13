@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ROLES, can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions } from "../permissions.js";
+import { ROLES, can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions, clampPermissionsForAddUsersOnly } from "../permissions.js";
 
 const owner = { email: "owner@x.com", role: ROLES.OWNER, permissions: {}, active: true };
 const manager = { email: "mgr@x.com", role: ROLES.FULL_USER_MANAGER, permissions: { "tool.chat": true }, active: true };
@@ -137,5 +137,31 @@ describe("clampGrantablePermissions — cannot grant what you don't have yoursel
   it("مستخدم عادي بلا manage.add_users إطلاقًا لا يقدر يمنحها", () => {
     const result = clampGrantablePermissions(user, { "manage.add_users": true });
     expect(result["manage.add_users"]).toBeUndefined();
+  });
+});
+
+// [إضافة] طلب صريح من المستخدم: من يملك manage.add_users فقط (بلا صلاحية
+// إدارة مستخدمين كاملة) يقدر يمنح المستخدم الجديد أي صلاحية أداة/شات يختارها
+// — بصرف النظر عمّا يملكه هو نفسه — لكن أبدًا أي صلاحية إدارية.
+describe("clampPermissionsForAddUsersOnly — تُستخدَم فقط بمسار createUser لمن ليس full_user_manager/owner", () => {
+  it("يسمح بأي صلاحية أداة أو شات مطلوبة، حتى لو المُنشئ (addUsersOnlyUser) لا يملكها هو نفسه", () => {
+    const result = clampPermissionsForAddUsersOnly({ "tool.journal": true, "tool.sales": true, "chat.send": true });
+    expect(result).toEqual({ "tool.journal": true, "tool.sales": true, "chat.send": true });
+  });
+
+  it("يستبعد manage.add_users دومًا مهما طُلب — يمنع إنشاء مستخدم يقدر بدوره يضيف مستخدمين", () => {
+    const result = clampPermissionsForAddUsersOnly({ "tool.chat": true, "manage.add_users": true });
+    expect(result).toEqual({ "tool.chat": true });
+    expect(result["manage.add_users"]).toBeUndefined();
+  });
+
+  it("يستبعد أي مفتاح غير معروف كليًا (دفاع إضافي ضد حقن مفاتيح تعسفية)", () => {
+    const result = clampPermissionsForAddUsersOnly({ "tool.chat": true, "some.unknown.key": true });
+    expect(result).toEqual({ "tool.chat": true });
+  });
+
+  it("بلا أي صلاحيات مطلوبة: كائن فارغ", () => {
+    expect(clampPermissionsForAddUsersOnly({})).toEqual({});
+    expect(clampPermissionsForAddUsersOnly(null)).toEqual({});
   });
 });

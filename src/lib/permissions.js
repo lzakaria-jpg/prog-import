@@ -162,3 +162,26 @@ export function clampGrantablePermissions(actingUser, requestedPermissions) {
 export function visibleTools(user) {
   return TOOL_PERMISSIONS.filter((t) => can(user, t.key)).map((t) => t.key);
 }
+
+const ADD_USER_GRANTABLE_KEYS = new Set([...TOOL_PERMISSIONS, ...CHAT_PERMISSIONS].map((p) => p.key));
+
+/**
+ * [إضافة] طلب صريح من المستخدم: من يملك manage.add_users فقط (لا صلاحية
+ * إدارة مستخدمين كاملة) يقدر يمنح المستخدم الجديد الذي ينشئه أي صلاحية أداة
+ * محاسبية أو شات (TOOL_PERMISSIONS/CHAT_PERMISSIONS) — بصرف النظر عمّا يملكه
+ * هو نفسه؛ قيد "لا تمنح ما لا تملك" الخاص بـclampGrantablePermissions لا
+ * ينطبق هنا عمدًا (هذا الشخص غالبًا بلا أي صلاحية أداة/شات شخصية أصلًا، ودوره
+ * فقط تجهيز حسابات موظفين جدد). لكن أي مفتاح إداري (MANAGEMENT_PERMISSIONS —
+ * أهمها manage.add_users نفسها) أو أي مفتاح غير معروف كليًا يُستبعَد دومًا
+ * بصرف النظر عمّا طُلب — يمنع تصعيد امتيازات خطير (إنشاء مستخدم يقدر بدوره
+ * يضيف مستخدمين آخرين أو يحصل على أي صلاحية إدارية). تُستخدَم حصرًا بمسار
+ * createUser عندما يكون المُنشئ ليس full_user_manager/owner — راجع auth.jsx.
+ */
+export function clampPermissionsForAddUsersOnly(requestedPermissions) {
+  const clamped = {};
+  for (const [key, value] of Object.entries(requestedPermissions || {})) {
+    if (!ADD_USER_GRANTABLE_KEYS.has(key)) continue; // يستبعد MANAGEMENT_PERMISSIONS وأي مفتاح غير معروف
+    clamped[key] = value;
+  }
+  return clamped;
+}
