@@ -3,8 +3,8 @@ import { useLanguage } from "./language";
 import { supabase } from "./supabase";
 import { trackLogin, trackLogout, trackHeartbeat, getUserStats, getRecentActivity, getUserSessions } from "./activityTracker";
 import {
-  ROLES, ROLE_LABELS, TOOL_PERMISSIONS, CHAT_PERMISSIONS, DEFAULT_NEW_USER_PERMISSIONS, LEGACY_FULL_ACCESS_PERMISSIONS,
-  can, canManageUsers, isOwner, canModifyUser, clampGrantablePermissions,
+  ROLES, ROLE_LABELS, TOOL_PERMISSIONS, CHAT_PERMISSIONS, MANAGEMENT_PERMISSIONS, DEFAULT_NEW_USER_PERMISSIONS, LEGACY_FULL_ACCESS_PERMISSIONS,
+  can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions,
 } from "./lib/permissions";
 import { Shield, Mail, UserPlus, UserX, Users, LogOut, Settings, AlertCircle, CheckCircle2, Trash2, Wifi, WifiOff, RefreshCw, Bot, BarChart3, Clock, Activity, Lock, Eye, EyeOff, Key, ScrollText, Ban, Play, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -233,6 +233,10 @@ export function AuthProvider({ children }) {
   }, [currentUser, users, isAdmin, whitelist]);
 
   const isUserManager = canManageUsers(currentUserRecord);
+  // [إضافة] أوسع من isUserManager عمدًا: تشمل مستخدمًا عاديًا مُنِح فقط
+  // manage.add_users (بلا أي وصول إداري آخر) — راجع تعليق canAddUsers
+  // بـpermissions.js وAddUsersOnlyPanel أدناه لتفاصيل التقييد الكامل.
+  const canAddUsersFlag = canAddUsers(currentUserRecord);
   const hasPermission = useCallback((key) => can(currentUserRecord, key), [currentUserRecord]);
 
   const logAudit = useCallback(async (action, targetEmail, details) => {
@@ -435,24 +439,29 @@ export function AuthProvider({ children }) {
   // وتُسجَّل في audit_log. الحماية الحقيقية من العبث بالمالك قائمة في الداتابيس
   // (trigger)، وهذه طبقة إضافية تمنع حتى محاولة الإرسال من الواجهة.
   const createUser = useCallback(async (email, { role = ROLES.USER, permissions = DEFAULT_NEW_USER_PERMISSIONS } = {}) => {
-    if (!isUserManager) return { ok: false, msg: { ar: "لا تملك صلاحية إدارة المستخدمين", en: "You do not have user-management permission" } };
+    if (!canAddUsersFlag) return { ok: false, msg: { ar: "لا تملك صلاحية إضافة مستخدمين", en: "You do not have permission to add users" } };
     const trimmed = (email || "").trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return { ok: false, msg: { ar: "إيميل غير صحيح", en: "Invalid email" } };
-    if (role === ROLES.OWNER) return { ok: false, msg: { ar: "لا يمكن إنشاء أكثر من مالك واحد", en: "Only one owner can exist" } };
+    // [إضافة، أمان] مستخدم يملك فقط manage.add_users (بلا صلاحية إدارة مستخدمين
+    // كاملة) لا يقدر يحدد دورًا غير 'user' إطلاقًا مهما طلب — يمنع تصعيد
+    // امتيازات خطير (إنشاء full_user_manager أو owner) عبر مسار "إضافة مستخدم"
+    // المقيَّد. isUserManager فقط (full role) يقدر يحدد الدور فعليًا.
+    const effectiveRole = isUserManager ? role : ROLES.USER;
+    if (effectiveRole === ROLES.OWNER) return { ok: false, msg: { ar: "لا يمكن إنشاء أكثر من مالك واحد", en: "Only one owner can exist" } };
     // Full User Manager لا يمنح صلاحية لا يملكها هو نفسه — سقف يمنع التصعيد غير المباشر
     const grantedPermissions = clampGrantablePermissions(currentUserRecord, permissions);
     try {
-      const { error } = await supabase.from("users").insert({ email: trimmed, role, permissions: grantedPermissions, active: true, created_by: currentUser });
+      const { error } = await supabase.from("users").insert({ email: trimmed, role: effectiveRole, permissions: grantedPermissions, active: true, created_by: currentUser });
       if (error) throw error;
       await supabase.from("allowed_users").upsert({ email: trimmed }, { onConflict: "email" });
-      await logAudit("create_user", trimmed, { role, permissions: grantedPermissions });
+      await logAudit("create_user", trimmed, { role: effectiveRole, permissions: grantedPermissions });
       await loadUsers();
       await loadWhitelist();
       return { ok: true };
     } catch (e) {
       return { ok: false, msg: { ar: "فشل الإنشاء — قد يكون البريد مستخدماً مسبقاً", en: "Failed to create — email may already exist" } };
     }
-  }, [isUserManager, currentUser, currentUserRecord, logAudit, loadUsers, loadWhitelist]);
+  }, [canAddUsersFlag, isUserManager, currentUser, currentUserRecord, logAudit, loadUsers, loadWhitelist]);
 
   const updateUserPermissions = useCallback(async (targetEmail, newPermissions) => {
     const target = users.find(u => u.email.toLowerCase() === targetEmail.toLowerCase());
@@ -573,7 +582,7 @@ export function AuthProvider({ children }) {
     login, setupAdmin, logout, addEmail, removeEmail, refreshWhitelist,
     setInitialPassword, requestPasswordReset, resetPassword, changePassword,
     // RBAC
-    users, usersTableReady, currentUserRecord, isUserManager, isOwnerUser: isOwner(currentUserRecord),
+    users, usersTableReady, currentUserRecord, isUserManager, canAddUsers: canAddUsersFlag, isOwnerUser: isOwner(currentUserRecord),
     hasPermission, createUser, updateUserPermissions, updateUserRole, setUserActive, deleteUser,
     changeOwnerEmail, getAuditLog, generateResetLinkForUser,
     selfServiceResetEnabled: SELF_SERVICE_RESET_ENABLED,
@@ -1002,6 +1011,64 @@ export function AdminPanel() {
   );
 }
 
+// [إضافة] لوحة مصغَّرة لمستخدم يملك فقط manage.add_users (بلا صلاحية إدارة
+// مستخدمين كاملة) — طلب صريح من المستخدم: يقدر يضيف مستخدمًا جديدًا فقط، بلا
+// أي وصول لقائمة المستخدمين الكاملة أو تعديل صلاحياتهم أو الإحصائيات أو سجل
+// التدقيق. عمداً مكوِّن منفصل تمامًا عن AdminPanel (لا تبويبات هنا إطلاقًا)
+// بدل إعادة استخدامه مع إخفاء أجزاء منه — أبسط وأضمن ألا يتسرّب أي خيار آخر
+// بالخطأ مستقبلاً لو تغيّر AdminPanel. يُفتَح من App.jsx فقط عندما !isUserManager
+// && canAddUsers (لو كان isUserManager فعليًا يُفتَح AdminPanel الكامل بدلاً منها).
+export function AddUsersOnlyPanel() {
+  const { t } = useLanguage();
+  const { setShowAdmin, createUser, online, dbReady } = useAuth();
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    setError(null); setSuccess(null);
+    if (!newUserEmail.trim()) return;
+    setSaving(true);
+    const res = await createUser(newUserEmail);
+    setSaving(false);
+    if (!res.ok) setError(t(res.msg));
+    else { setSuccess(t({ ar: "تمت إضافة المستخدم بنجاح", en: "User added successfully" })); setNewUserEmail(""); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+      <div style={{ width: 420, maxWidth: "95vw", background: "#FFFFFF", borderRadius: 20, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ background: "linear-gradient(135deg, #162560, #0F1A47)", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <UserPlus size={20} color="#FFFFFF" />
+            <h2 style={{ color: "#FFFFFF", fontSize: 18, fontWeight: 700, margin: 0 }}>{t({ ar: "إضافة مستخدم", en: "Add User" })}</h2>
+          </div>
+          <button onClick={() => setShowAdmin(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#FFFFFF", width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+        <div style={{ padding: 24 }}>
+          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 16px" }}>
+            {t({ ar: "تملك صلاحية إضافة مستخدمين جدد فقط — بصلاحيات الشات الأساسية الافتراضية.", en: "You only have permission to add new users — with default basic chat permissions." })}
+          </p>
+          <form onSubmit={handleCreateUser} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)}
+              placeholder={t({ ar: "بريد المستخدم الجديد", en: "New user's email" })} required
+              style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", direction: "ltr" }}
+            />
+            <button type="submit" disabled={saving || !online || !dbReady} style={{ padding: "10px 16px", borderRadius: 8, background: "#12B886", color: "#FFF", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: (saving || !online || !dbReady) ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}>
+              <UserPlus size={14} /> {saving ? t({ ar: "جارٍ الإضافة...", en: "Adding..." }) : t({ ar: "إضافة", en: "Add" })}
+            </button>
+          </form>
+          {error && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#FEE2E2", color: "#DC2626", fontSize: 12, marginBottom: 8 }}>⛔ {error}</div>}
+          {success && <div style={{ padding: "10px 12px", borderRadius: 8, background: "#DCFCE7", color: "#15803D", fontSize: 12, marginBottom: 8 }}>✓ {success}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TabBtn({ active, onClick, icon: Icon, label }) {
   const { t } = useLanguage();
   return (
@@ -1273,6 +1340,17 @@ function UserPermissionEditor({ t, user, updateUserPermissions, updateUserRole, 
       <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات الشات", en: "Chat Permissions" })}</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
         {CHAT_PERMISSIONS.map((p) => (
+          <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
+            <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
+          </label>
+        ))}
+      </div>
+
+      {/* [إضافة] صلاحية إدارية دقيقة — تعمل فقط لمن دوره "مستخدم" (Full User
+          Manager/Owner يملكون هذا وأكثر أصلاً عبر الدور نفسه، بلا حاجة لها). */}
+      <p style={{ fontSize: 12, fontWeight: 700, color: "#0284C7", margin: "0 0 8px" }}>{t({ ar: "صلاحيات إدارية دقيقة", en: "Fine-grained management permissions" })}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+        {MANAGEMENT_PERMISSIONS.map((p) => (
           <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#0F172A", cursor: "pointer" }}>
             <input type="checkbox" checked={!!perms[p.key]} onChange={() => toggle(p.key)} /> {t(p.label)}
           </label>

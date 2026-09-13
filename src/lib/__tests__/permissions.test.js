@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { ROLES, can, canManageUsers, isOwner, canModifyUser, clampGrantablePermissions } from "../permissions.js";
+import { ROLES, can, canManageUsers, canAddUsers, isOwner, canModifyUser, clampGrantablePermissions } from "../permissions.js";
 
 const owner = { email: "owner@x.com", role: ROLES.OWNER, permissions: {}, active: true };
 const manager = { email: "mgr@x.com", role: ROLES.FULL_USER_MANAGER, permissions: { "tool.chat": true }, active: true };
 const user = { email: "u@x.com", role: ROLES.USER, permissions: { "chat.send": true }, active: true };
 const disabledUser = { email: "d@x.com", role: ROLES.USER, permissions: { "chat.send": true }, active: false };
+const addUsersOnlyUser = { email: "adder@x.com", role: ROLES.USER, permissions: { "manage.add_users": true }, active: true };
 
 describe("can — the owner always has every permission, regardless of stored grants", () => {
   it("owner has any permission key even with an empty permissions object", () => {
@@ -51,6 +52,27 @@ describe("canManageUsers / isOwner", () => {
   });
 });
 
+// [إضافة] canAddUsers — طلب صريح من المستخدم: مستخدم عادي يُمنَح فقط
+// manage.add_users يقدر يضيف مستخدمًا جديدًا، بلا أي صلاحية إدارة أخرى.
+describe("canAddUsers", () => {
+  it("owner و full_user_manager يقدرون يضيفون مستخدمين عبر الدور نفسه (بلا حاجة للصلاحية الدقيقة)", () => {
+    expect(canAddUsers(owner)).toBe(true);
+    expect(canAddUsers(manager)).toBe(true);
+  });
+
+  it("مستخدم عادي يملك manage.add_users فقط يقدر يضيف مستخدمًا", () => {
+    expect(canAddUsers(addUsersOnlyUser)).toBe(true);
+  });
+
+  it("مستخدم عادي بلا manage.add_users لا يقدر يضيف مستخدمًا", () => {
+    expect(canAddUsers(user)).toBe(false);
+  });
+
+  it("مستخدم معطَّل يملك manage.add_users بالمخزون لا يقدر (نفس فلسفة can() العامة)", () => {
+    expect(canAddUsers({ ...addUsersOnlyUser, active: false })).toBe(false);
+  });
+});
+
 describe("canModifyUser — the absolute owner-protection rule", () => {
   it("no one — not even another full_user_manager or the owner themself — can modify the owner", () => {
     expect(canModifyUser(manager, owner)).toBe(false);
@@ -91,5 +113,29 @@ describe("clampGrantablePermissions — cannot grant what you don't have yoursel
   it("revoking a permission (false) is never blocked, even one the actor lacks", () => {
     const result = clampGrantablePermissions(manager, { "tool.journal": false });
     expect(result["tool.journal"]).toBe(false);
+  });
+
+  // [إضافة] manage.add_users حالة خاصة: full_user_manager يملكها ضمنيًا عبر
+  // canManageUsers (دوره كامل)، رغم أنها ليست بخريطة permissions المسطَّحة
+  // الخاصة به فعليًا — بخلاف can() العام الذي كان سيعتبره بلا هذه الصلاحية.
+  it("full_user_manager يقدر يمنح manage.add_users رغم عدم امتلاكها بخريطة permissions الخاصة به", () => {
+    const result = clampGrantablePermissions(manager, { "manage.add_users": true });
+    expect(result["manage.add_users"]).toBe(true);
+  });
+
+  // ملاحظة: clampGrantablePermissions وحدها لا تمثّل الحاجز الأمني الكامل —
+  // الحاجز الفعلي لمن يقدر يستدعي تعديل صلاحيات غيره أصلاً هو canModifyUser
+  // (يتطلب canManageUsers، أي دورًا كاملاً) بـauth.jsx؛ addUsersOnlyUser
+  // (مستخدم عادي) لن يصل هذه الدالة إطلاقًا بمسار الواجهة الحقيقي. هنا فقط
+  // تأكيد أن الدالة نفسها متسقة: يملك المفتاح فعليًا ⇒ يقدر ينشره، تمامًا
+  // كأي مفتاح صلاحية آخر.
+  it("من يملك manage.add_users فعليًا (عبر الصلاحية الدقيقة نفسها) يقدر ينشرها — نفس منطق أي مفتاح آخر", () => {
+    const result = clampGrantablePermissions(addUsersOnlyUser, { "manage.add_users": true });
+    expect(result["manage.add_users"]).toBe(true);
+  });
+
+  it("مستخدم عادي بلا manage.add_users إطلاقًا لا يقدر يمنحها", () => {
+    const result = clampGrantablePermissions(user, { "manage.add_users": true });
+    expect(result["manage.add_users"]).toBeUndefined();
   });
 });
