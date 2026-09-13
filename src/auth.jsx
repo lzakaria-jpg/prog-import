@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { useLanguage } from "./language";
 import { supabase } from "./supabase";
-import { trackLogin, trackLogout, getUserStats, getRecentActivity } from "./activityTracker";
+import { trackLogin, trackLogout, trackHeartbeat, getUserStats, getRecentActivity, getUserSessions } from "./activityTracker";
 import {
   ROLES, ROLE_LABELS, TOOL_PERMISSIONS, CHAT_PERMISSIONS, DEFAULT_NEW_USER_PERMISSIONS, LEGACY_FULL_ACCESS_PERMISSIONS,
   can, canManageUsers, isOwner, canModifyUser, clampGrantablePermissions,
@@ -23,14 +23,20 @@ const DEFAULT_ADMIN_HASH = "41b8952f2790c6419afdd5e6d7e9d5666fd2d4bc001d1d5ab58b
 // دومين Resend مستقبلاً.
 const SELF_SERVICE_RESET_ENABLED = false;
 
+// [إصلاح 2026-09-13، طلب صريح من المستخدم] كانت الجلسة بـlocalStorage — يبقى
+// المستخدم مسجَّل دخوله حتى لو أغلق المتصفح بالكامل وأعاد فتحه لاحقًا (يُستعاد
+// تلقائيًا بلا كلمة مرور، طالما نفس الجهاز). sessionStorage يُمسَح تلقائيًا
+// بمجرد إغلاق آخر تبويب/نافذة لذلك المتصفح (لا يُشارَك حتى بين تبويبين لنفس
+// الموقع فُتحا بشكل منفصل) — فأي إغلاق فعلي للمتصفح يفرض تسجيل دخول من جديد،
+// وتبقى الجلسة سارية فقط أثناء إعادة تحميل نفس التبويب/التنقل الداخلي بالتطبيق.
 function loadSession() {
-  try { return localStorage.getItem(SESSION_KEY); } catch { return null; }
+  try { return sessionStorage.getItem(SESSION_KEY); } catch { return null; }
 }
 function saveSession(data) {
-  localStorage.setItem(SESSION_KEY, data);
+  sessionStorage.setItem(SESSION_KEY, data);
 }
 function clearSession() {
-  localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
 }
 
 function generateSalt(length = 16) {
@@ -177,6 +183,20 @@ export function AuthProvider({ children }) {
     const row = users.find(u => u.email.toLowerCase() === currentUser.toLowerCase());
     if (row && row.active === false) { setCurrentUser(null); clearSession(); }
   }, [currentUser, users, usersTableReady]);
+
+  // [إضافة] نبض دوري كل 5 دقائق أثناء بقاء المستخدم مسجّلاً دخوله والتبويب
+  // ظاهرًا (visible) — يعطي حدًّا زمنيًا أدق لآخر نشاط فعلي بجلسة تنتهي بإغلاق
+  // المتصفح مباشرة (بلا "تسجيل خروج" صريح، وهو الغالب فعليًا)، تستخدمه
+  // getUserSessions بـactivityTracker.js لحساب مدة كل جلسة بلوحة الإحصائيات.
+  // يتوقف فورًا عند الخروج (تنظيف الـinterval بدالة العودة)، ولا يرسل من تبويب
+  // بالخلفية تفاديًا لتضخيم مدة الجلسات بلا داعٍ.
+  useEffect(() => {
+    if (!currentUser) return;
+    const HEARTBEAT_MS = 5 * 60 * 1000;
+    const send = () => { if (document.visibilityState === "visible") trackHeartbeat(currentUser); };
+    const id = setInterval(send, HEARTBEAT_MS);
+    return () => clearInterval(id);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!isConfigured()) { setDbReady(false); return; }
@@ -1350,8 +1370,56 @@ function UserPermissionEditor({ t, user, updateUserPermissions, updateUserRole, 
   );
 }
 
+// [إضافة] مدة جلسة واحدة كنص مقروء (بالساعات والدقائق) — durationMinutes من
+// getUserSessions بـactivityTracker.js.
+function formatSessionDuration(t, minutes) {
+  if (minutes < 1) return t({ ar: "أقل من دقيقة", en: "Less than a minute" });
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return t({ ar: `${m} د`, en: `${m}m` });
+  if (m === 0) return t({ ar: `${h} س`, en: `${h}h` });
+  return t({ ar: `${h} س ${m} د`, en: `${h}h ${m}m` });
+}
+
+// [إضافة] لوحة جلسات مستخدم واحد (تُحمَّل عند فتحها فقط) — طلب صريح من
+// المستخدم: مدة كل جلسة دخول لكل مستخدم، لا مجموع إجمالي فقط. logout الصريح
+// = مدة دقيقة مؤكَّدة؛ غيره (heartbeat عادةً) = "≈" (حد أدنى موثوق لا وقت
+// إغلاق فعلي مؤكَّد — راجع تعليق getUserSessions لسبب عدم إمكان الجزم 100%).
+function UserSessionsPanel({ t, email }) {
+  const [sessions, setSessions] = useState(null); // null = لم تُحمَّل بعد
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getUserSessions(email).then((s) => { if (!cancelled) { setSessions(s); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [email]);
+
+  if (loading) {
+    return <div style={{ fontSize: 11, color: "#94A3B8" }}>{t({ ar: "جاري تحميل الجلسات...", en: "Loading sessions..." })}</div>;
+  }
+  if (!sessions || sessions.length === 0) {
+    return <div style={{ fontSize: 11, color: "#94A3B8" }}>{t({ ar: "لا توجد جلسات مسجَّلة", en: "No sessions recorded" })}</div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflow: "auto" }}>
+      {sessions.map((s, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", fontSize: 11 }}>
+          <span style={{ color: "#0F172A", direction: "ltr", textAlign: "left" }}>{new Date(s.loginAt).toLocaleString()}</span>
+          <span style={{ color: s.endReason === "logout" ? "#15803D" : "#64748B", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+            {s.endReason !== "logout" && !s.ongoing && "≈ "}
+            {s.ongoing ? t({ ar: "متصل الآن", en: "Online now" }) : formatSessionDuration(t, s.durationMinutes)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── تبويب الإحصائيات ───────────────────────────────────────────────────
 function AnalyticsTab({ t, loadingStats, userStats, loadStats }) {
+  const [expandedEmail, setExpandedEmail] = useState(null);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -1374,7 +1442,10 @@ function AnalyticsTab({ t, loadingStats, userStats, loadStats }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {userStats.map((u) => (
             <div key={u.email} style={{ padding: 14, borderRadius: 12, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, cursor: "pointer" }}
+                onClick={() => setExpandedEmail(expandedEmail === u.email ? null : u.email)}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #162560, #0F1A47)", color: "#FFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
                     {u.email.charAt(0).toUpperCase()}
@@ -1386,6 +1457,7 @@ function AnalyticsTab({ t, loadingStats, userStats, loadStats }) {
                     </p>
                   </div>
                 </div>
+                {expandedEmail === u.email ? <ChevronUp size={16} color="#94A3B8" /> : <ChevronDown size={16} color="#94A3B8" />}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
                 <div style={{ padding: "6px 8px", borderRadius: 8, background: "#F1F5F9", textAlign: "center" }}>
@@ -1413,6 +1485,14 @@ function AnalyticsTab({ t, loadingStats, userStats, loadStats }) {
                   <p style={{ fontSize: 9, color: "#64748B", margin: 0 }}>{t({ ar: "أخطاء", en: "Errors" })}</p>
                 </div>
               </div>
+              {expandedEmail === u.email && (
+                <div style={{ marginTop: 10, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
+                  <p style={{ fontSize: 10, color: "#94A3B8", margin: "0 0 6px 0" }}>
+                    {t({ ar: "الجلسات (وقت الدخول ← المدة)", en: "Sessions (login time → duration)" })}
+                  </p>
+                  <UserSessionsPanel t={t} email={u.email} />
+                </div>
+              )}
             </div>
           ))}
         </div>
