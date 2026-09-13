@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useCallback, useEffect, memo } from "
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, XCircle, Loader2,
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
-  ChevronLeft, ChevronRight, Search, X,
+  ChevronLeft, ChevronRight, Search, X, Cloud, Send, Eye, EyeOff,
 } from "lucide-react";
 import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
@@ -11,6 +11,12 @@ import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
+// [إضافة] وضع API — جلب شجرة الحسابات/العملاء/الموردين/المشاريع من منشأة
+// العميل مباشرة، وإرسال القيود الجاهزة إليها — راجع تعليقات رأس الملفين.
+import { fetchJournalReferencesFromApi } from "./lib/qoyodJournalRefFetch";
+import { pushJournalEntriesToQoyod } from "./lib/qoyodJournalEntryPush";
+import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage";
+import { buildSendResultsReportBlob } from "./lib/journalSendResultsReport";
 
 const COLORS = {
   paper: "#F1F5F9", ink: "#0F172A", teal: "#12B886", tealLight: "#15803D",
@@ -329,6 +335,13 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
               <SafeInput value={entry.desc || ""} onChange={(e) => onUpdateMeta(entry.seq, "desc", e.target.value)}
                 className="flex-1 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
             </label>
+            {/* [إضافة] مشروع افتراضي لكل بنود القيد — أي سطر بعمود "مشروع" الخاص
+                به (بالجدول أدناه) يتجاوز هذا الافتراضي لذلك السطر تحديدًا فقط. */}
+            <label className="flex items-center gap-1">{t({ ar: "المشروع (افتراضي):", en: "Project (default):" })}
+              <SafeInput value={entry.project || ""} onChange={(e) => onUpdateMeta(entry.seq, "project", e.target.value)}
+                title={t({ ar: "رقم المشروع أو اسمه — يُطبَّق على كل بنود القيد إلا ما له مشروع خاص بعمود الجدول", en: "Project number or name — applied to all entry lines unless a line has its own project in the table column" })}
+                className="w-32 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
+            </label>
           </div>
           <table className="mb-3 w-full text-xs">
             <thead><tr style={{ color: "#64748B" }}>
@@ -337,6 +350,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
               <th className="pb-1 text-start font-medium">{t({ ar: "جهة اتصال/ضريبة/موظف", en: "Contact/Tax/Employee" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "مدين", en: "Debit" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "دائن", en: "Credit" })}</th>
+              <th className="pb-1 text-start font-medium">{t({ ar: "مشروع (خاص بالسطر)", en: "Project (line override)" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "تعليق", en: "Comment" })}</th>
             </tr></thead>
             <tbody>
@@ -365,6 +379,11 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                     <td className="py-1.5 pe-2">
                       <NumericCell value={r.credit} onCommit={(v) => onUpdateRow(entry.seq, r._rowIndex, "credit", v)}
                         className="w-20 rounded border px-1.5 py-1 font-mono text-start focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
+                    </td>
+                    <td className="py-1.5 pe-2">
+                      <SafeInput value={r.project || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "project", e.target.value)}
+                        title={t({ ar: "يتجاوز مشروع القيد الافتراضي لهذا السطر فقط — اتركه فارغًا لاستخدام الافتراضي", en: "Overrides the entry's default project for this line only — leave empty to use the default" })}
+                        className="w-24 rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5">
                       <SafeInput value={r.comment || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "comment", e.target.value)}
@@ -453,6 +472,73 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
   );
 });
 
+// [إضافة] نافذة نتائج الإرسال عبر API — تقدّم حي أثناء الإرسال، ثم ملخص
+// نجاح/فشل لكل قيد + زر تنزيل تقرير Excel كامل (journalSendResultsReport.js).
+function ApiSendResultsModal({ sending, progress, result, onClose, onDownloadReport, onStop }) {
+  const { t } = useLanguage();
+  return (
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+        <h3 className="mb-3 text-sm font-bold" style={{ color: COLORS.ink }}>
+          {t({ ar: "إرسال القيود عبر API", en: "Sending entries via API" })}
+        </h3>
+        {sending ? (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <Loader2 size={28} className="animate-spin" style={{ color: COLORS.teal }} />
+            <p className="text-xs" style={{ color: "#64748B" }}>
+              {t({ ar: `جارٍ الإرسال: ${progress.current} من ${progress.total}`, en: `Sending: ${progress.current} of ${progress.total}` })}
+            </p>
+            <button onClick={onStop} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+              {t({ ar: "إيقاف", en: "Stop" })}
+            </button>
+          </div>
+        ) : result ? (
+          <div>
+            {result.fatalError ? (
+              <div className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: COLORS.red, background: "rgba(220,38,38,0.08)", color: COLORS.red }}>
+                ⛔ {result.fatalError}
+              </div>
+            ) : (
+              <>
+                <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-md p-2" style={{ background: "#F1F5F9" }}>
+                    <p className="text-lg font-bold" style={{ color: COLORS.ink }}>{result.total}</p>
+                    <p style={{ color: "#64748B" }}>{t({ ar: "الإجمالي", en: "Total" })}</p>
+                  </div>
+                  <div className="rounded-md p-2" style={{ background: "rgba(21,128,61,0.1)" }}>
+                    <p className="text-lg font-bold" style={{ color: COLORS.green }}>{result.sent}</p>
+                    <p style={{ color: "#64748B" }}>{t({ ar: "نجح", en: "Sent" })}</p>
+                  </div>
+                  <div className="rounded-md p-2" style={{ background: result.failed > 0 ? "rgba(220,38,38,0.1)" : "#F1F5F9" }}>
+                    <p className="text-lg font-bold" style={{ color: result.failed > 0 ? COLORS.red : "#94A3B8" }}>{result.failed}</p>
+                    <p style={{ color: "#64748B" }}>{t({ ar: "فشل", en: "Failed" })}</p>
+                  </div>
+                </div>
+                <div className="mb-3 max-h-56 overflow-auto rounded-md border" style={{ borderColor: COLORS.line }}>
+                  {result.entries.map((e) => (
+                    <div key={e.seq} className="flex items-center justify-between gap-2 border-b px-2.5 py-1.5 text-xs last:border-b-0" style={{ borderColor: COLORS.line }}>
+                      <span>{t({ ar: "قيد", en: "Entry" })} #{e.seq}</span>
+                      <span style={{ color: e.status === "success" ? COLORS.green : COLORS.red }}>
+                        {e.status === "success" ? t({ ar: "نجح ✓", en: "Sent ✓" }) : (e.reason || t({ ar: "فشل", en: "Failed" }))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={onDownloadReport} className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-semibold" style={{ borderColor: COLORS.line, color: COLORS.tealLight }}>
+                  <Download size={13} /> {t({ ar: "تنزيل تقرير Excel كامل", en: "Download full Excel report" })}
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
+        <button onClick={onClose} disabled={sending} className="mt-1 w-full rounded-md px-4 py-2 text-xs font-semibold text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
+          {t({ ar: "إغلاق", en: "Close" })}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function JournalTool() {
   const { t, lang, dir } = useLanguage();
   const { currentUser } = useAuth();
@@ -512,6 +598,25 @@ export default function JournalTool() {
   const contactMatchWorkerRef = useRef(null);
   const contactMatchRequestIdRef = useRef(0);
   const [contactMatchBusy, setContactMatchBusy] = useState(false);
+
+  // [إضافة] وضع API — جلب شجرة الحسابات/العملاء/الموردين/المشاريع، وإرسال
+  // القيود الجاهزة. ميزة إضافية بحتة — لا تُعدِّل أي حالة أو منطق تحليل/مطابقة
+  // قائم؛ فقط تملأ نفس الحالات (chartAccounts/customersRefList/suppliersRefList)
+  // التي يملؤها الرفع اليدوي بالضبط، فيعمل كل شيء آخر بلا أي تغيير.
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [savedKeys, setSavedKeys] = useState(() => getSavedKeys());
+  const [apiFetchBusy, setApiFetchBusy] = useState(false);
+  const [apiFetchError, setApiFetchError] = useState("");
+  const [apiFetchSummary, setApiFetchSummary] = useState(null);
+  const [projectsRef, setProjectsRef] = useState({ loaded: false });
+  const [showApiPanel, setShowApiPanel] = useState(false);
+  const [apiSending, setApiSending] = useState(false);
+  const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
+  const [apiSendResult, setApiSendResult] = useState(null);
+  const [showApiSendModal, setShowApiSendModal] = useState(false);
+  const apiStoppedRef = useRef({ current: false });
 
   useEffect(() => {
     const handler = (e) => {
@@ -743,6 +848,53 @@ export default function JournalTool() {
     return filteredEntries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   }, [filteredEntries, page]);
 
+  // [إضافة] حفظ/استرجاع مفتاح API محليًا باسم العميل — نفس مفتاح localStorage
+  // المشترك مع أدوات أخرى بالمشروع (product-upload/io/keyStorage.js).
+  const saveApiKeyForCustomer = useCallback((key, name) => {
+    const trimmedKey = (key || "").trim();
+    const trimmedName = (name || "").trim();
+    if (!trimmedKey || !trimmedName) return { ok: false };
+    const next = { ...savedKeys, [trimmedName]: trimmedKey };
+    saveKeysToStorage(next);
+    setSavedKeys(next);
+    return { ok: true };
+  }, [savedKeys]);
+
+  const loadSavedApiKey = useCallback((name) => savedKeys[name] || "", [savedKeys]);
+
+  const removeSavedApiKey = useCallback((name) => {
+    const next = { ...savedKeys };
+    delete next[name];
+    saveKeysToStorage(next);
+    setSavedKeys(next);
+  }, [savedKeys]);
+
+  // [إضافة] جلب شجرة الحسابات + العملاء/الموردين المرجعيين + المشاريع من منشأة
+  // العميل عبر API — طلب صريح من المستخدم: يغني عن رفع ملف شجرة الحسابات كليًا
+  // (بخلاف قرار سابق مماثل بأداة فواتير المبيعات، هنا القرار الصريح هو العكس).
+  // يملأ نفس الحالات (chartAccounts/customersRefList/suppliersRefList) التي
+  // يملؤها الرفع اليدوي بالضبط — بلا أي تعديل على أي منطق تحليل/مطابقة قائم.
+  const handleFetchFromApi = async () => {
+    setApiFetchError(""); setApiFetchBusy(true); setApiFetchSummary(null);
+    try {
+      const result = await fetchJournalReferencesFromApi(apiKey);
+      suggestionCacheRef.current.clear();
+      setChartAccounts(result.chartAccounts);
+      setChartFileName(t({ ar: "جُلبت عبر API", en: "Fetched via API" }));
+      setCustomersRefList(result.customersRefList.length ? result.customersRefList : null);
+      setCustomersRefFileName(result.customersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
+      setSuppliersRefList(result.suppliersRefList.length ? result.suppliersRefList : null);
+      setSuppliersRefFileName(result.suppliersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
+      setProjectsRef(result.projectsRef);
+      setApiFetchSummary(result.counts);
+      setAuditVersion((version) => version + 1);
+    } catch (err) {
+      setApiFetchError(err.message || String(err));
+    } finally {
+      setApiFetchBusy(false);
+    }
+  };
+
   const handleChartUpload = async (file) => {
     setParseError(""); setChartFileName(file.name); setChartBusy(true);
     try {
@@ -961,6 +1113,39 @@ export default function JournalTool() {
     } finally { setDownloading(false); }
   };
 
+  // [إضافة] إرسال القيود السليمة (بلا أي ملاحظة مفتوحة) مباشرة عبر API — بعد
+  // اجتياز كل تحقق الأداة الحالي بلا أي تغيير عليه (نفس شرط "سليمة" المستخدم
+  // أصلاً بفلتر "سليمة"/"مشاكل" أعلاه). لا يُرسِل قيدًا واحدًا فيه أي ملاحظة
+  // مفتوحة، حتى تحذيرًا — القيود المحاسبية لا تحتمل "إرسال محفوف بالمخاطر" مثل
+  // فواتير المبيعات (نقص مخزون قابل للقبول كمسودة)؛ إما سليم 100% أو لا يُرسَل.
+  const sendableEntries = useMemo(
+    () => (entries || []).filter((e) => !(issuesBySeq[e.seq] || []).length),
+    [entries, issuesBySeq]
+  );
+
+  const handleSendViaApi = async () => {
+    if (!sendableEntries.length) return;
+    apiStoppedRef.current.current = false;
+    setApiSending(true);
+    setApiSendProgress({ current: 0, total: sendableEntries.length });
+    setApiSendResult(null);
+    setShowApiSendModal(true);
+    const result = await pushJournalEntriesToQoyod(sendableEntries, apiKey, {
+      chartMap, debtorsCodes, creditorsCodes, projectsIndex: projectsRef,
+      onProgress: (current, total) => setApiSendProgress({ current, total }),
+      stoppedRef: apiStoppedRef.current,
+    });
+    setApiSending(false);
+    setApiSendResult(result);
+    if (currentUser && result.sent > 0) trackJournalExport(currentUser, { entries_count: result.sent, via_api: true });
+  };
+
+  const handleDownloadSendResults = async () => {
+    if (!apiSendResult) return;
+    const blob = await buildSendResultsReportBlob(sendableEntries, apiSendResult.entries, t);
+    downloadBlob(blob, t({ ar: "نتائج_إرسال_القيود.xlsx", en: "journal_send_results.xlsx" }));
+  };
+
   const copyToClipboard = async () => {
     const text = buildPasteText(entries);
     const success = await copyTextToClipboard(text);
@@ -990,6 +1175,7 @@ export default function JournalTool() {
   ];
 
   return (
+    <>
     <div dir={dir} className="h-full w-full overflow-auto font-cairo" style={{ color: COLORS.ink }}>
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8">
         <div className="mb-6 flex items-center justify-between border-b pb-4" style={{ borderColor: COLORS.line }}>
@@ -1011,8 +1197,77 @@ export default function JournalTool() {
           </div>
         </div>
 
+        <div className="mb-6 overflow-hidden rounded-lg border" style={{ borderColor: COLORS.line }}>
+          <button type="button" onClick={() => setShowApiPanel((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-start text-sm font-semibold"
+            style={{ background: "#F0FDFA", color: COLORS.tealLight }}>
+            <span className="flex items-center gap-2"><Cloud size={16} /> {t({ ar: "جلب شجرة الحسابات والعملاء/الموردين والمشاريع عبر API (بديل عن رفع الملفات)", en: "Fetch chart of accounts, customers/vendors, and projects via API (alternative to uploading files)" })}</span>
+            {showApiPanel ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {showApiPanel && (
+            <div className="border-t px-4 py-3 text-xs" style={{ borderColor: COLORS.line }}>
+              <p className="mb-3" style={{ color: "#64748B" }}>
+                {t({
+                  ar: "اختياري — يغني عن رفع ملف شجرة الحسابات وملفي العملاء/الموردين المرجعيين يدويًا. ملف القيود المراد استيرادها يبقى دومًا يُرفَع يدويًا (لا بديل له).",
+                  en: "Optional — replaces the need to upload the chart of accounts file and the customers/vendors reference files manually. The journal entries file to import must still always be uploaded manually (no alternative for it).",
+                })}
+              </p>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1">
+                  <span style={{ color: "#64748B" }}>{t({ ar: "مفتاح API", en: "API key" })}</span>
+                  <div className="flex items-center gap-1">
+                    <SafeInput type={apiKeyVisible ? "text" : "password"} dir="ltr" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="API-KEY" disabled={apiFetchBusy}
+                      className="rounded border px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A", width: 200 }} />
+                    <button type="button" onClick={() => setApiKeyVisible((v) => !v)} className="rounded border p-1.5" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+                      {apiKeyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span style={{ color: "#64748B" }}>{t({ ar: "اسم العميل (للحفظ)", en: "Customer name (to save)" })}</span>
+                  <SafeInput value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t({ ar: "اسم العميل", en: "Customer name" })}
+                    className="rounded border px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A", width: 160 }} />
+                </label>
+                <button type="button" onClick={() => saveApiKeyForCustomer(apiKey, customerName)} disabled={apiFetchBusy}
+                  className="rounded border px-3 py-1.5 font-semibold" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+                  💾 {t({ ar: "حفظ", en: "Save" })}
+                </button>
+                <button type="button" onClick={handleFetchFromApi} disabled={apiFetchBusy || !apiKey.trim()}
+                  className="flex items-center gap-1.5 rounded-md px-4 py-1.5 font-semibold text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
+                  {apiFetchBusy ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
+                  {apiFetchBusy ? t({ ar: "جارٍ الجلب...", en: "Fetching..." }) : t({ ar: "جلب البيانات الآن", en: "Fetch now" })}
+                </button>
+              </div>
+              {Object.keys(savedKeys).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.keys(savedKeys).map((name) => (
+                    <div key={name} className="flex items-center gap-1 rounded-full border px-2 py-0.5" style={{ borderColor: COLORS.line }}>
+                      <span className="cursor-pointer" onClick={() => setApiKey(loadSavedApiKey(name))}>{name}</span>
+                      <span className="cursor-pointer" style={{ color: COLORS.red }} onClick={() => removeSavedApiKey(name)}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {apiFetchError && (
+                <div className="mt-3 rounded-md border px-3 py-2" style={{ borderColor: COLORS.red, background: "rgba(220,38,38,0.08)", color: COLORS.red }}>
+                  ⛔ {apiFetchError}
+                </div>
+              )}
+              {!apiFetchBusy && !apiFetchError && apiFetchSummary && (
+                <div className="mt-3 rounded-md border px-3 py-2" style={{ borderColor: COLORS.green, background: "rgba(21,128,61,0.08)", color: COLORS.green }}>
+                  ✅ {t({
+                    ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع.`,
+                    en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s).`,
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="mb-6 grid gap-4 sm:grid-cols-2">
-          <UploadCard title={{ ar: "شجرة الحسابات", en: "Chart of Accounts" }} subtitle={{ ar: "ملف الحسابات الخاص بالعميل", en: "Client's chart of accounts file" }} fileName={chartFileName} ok={!!chartAccounts} busy={chartBusy}
+          <UploadCard title={{ ar: "شجرة الحسابات", en: "Chart of Accounts" }} subtitle={{ ar: "ملف الحسابات الخاص بالعميل (أو جلبها عبر API أعلاه)", en: "Client's chart of accounts file (or fetch via API above)" }} fileName={chartFileName} ok={!!chartAccounts} busy={chartBusy}
             count={chartAccounts ? t({ ar: `${chartAccounts.length} حساب`, en: `${chartAccounts.length} accounts` }) : ""} onFile={handleChartUpload} />
           <UploadCard title={{ ar: "القيود المراد استيرادها", en: "Journal Entries to Import" }} subtitle={{ ar: "Excel، PDF، أو Word — أي ترتيب أعمدة", en: "Excel, PDF, or Word — any column order" }} fileName={entriesFileName} ok={!!entries} busy={entriesBusy}
             count={entries ? t({ ar: `${entries.length} قيد`, en: `${entries.length} entries` }) : ""} onFile={handleEntriesUpload} accept=".xlsx,.xls,.pdf,.docx" />
@@ -1232,6 +1487,16 @@ export default function JournalTool() {
                 <button onClick={copyToClipboard} className="btn-secondary flex items-center gap-2 rounded-md border px-5 py-2.5 text-sm font-semibold" style={{ borderColor: COLORS.green, color: COLORS.green }}>
                   <Copy size={16} /> {t({ ar: "نسخ البيانات", en: "Copy data" })}
                 </button>
+                {/* [إضافة] إرسال القيود السليمة مباشرة عبر API — يحتاج مفتاح API
+                    (لوحة الجلب أعلاه) وقيدًا سليمًا واحدًا على الأقل. */}
+                <button onClick={handleSendViaApi} disabled={apiSending || !apiKey.trim() || !sendableEntries.length}
+                  title={!apiKey.trim() ? t({ ar: "أدخل مفتاح API من اللوحة أعلاه أولاً", en: "Enter an API key from the panel above first" }) : ""}
+                  className="flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "#0284C7" }}>
+                  {apiSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                  {apiSending
+                    ? t({ ar: `جارٍ الإرسال (${apiSendProgress.current}/${apiSendProgress.total})...`, en: `Sending (${apiSendProgress.current}/${apiSendProgress.total})...` })
+                    : t({ ar: `إرسال ${sendableEntries.length} قيد سليم عبر API`, en: `Send ${sendableEntries.length} valid entries via API` })}
+                </button>
               </div>
               {copyStatus === "copied" && <span className="flex items-center gap-1 text-xs" style={{ color: COLORS.green }}><CheckCircle2 size={14} /> {t({ ar: "تم النسخ", en: "Copied" })}</span>}
               {showManualCopy && (
@@ -1246,5 +1511,16 @@ export default function JournalTool() {
         )}
       </div>
     </div>
+    {showApiSendModal && (
+      <ApiSendResultsModal
+        sending={apiSending}
+        progress={apiSendProgress}
+        result={apiSendResult}
+        onClose={() => setShowApiSendModal(false)}
+        onDownloadReport={handleDownloadSendResults}
+        onStop={() => { apiStoppedRef.current.current = true; }}
+      />
+    )}
+    </>
   );
 }
