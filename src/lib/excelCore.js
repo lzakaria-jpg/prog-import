@@ -942,6 +942,12 @@ function parseQoyodJournalReportSchema(rows) {
     const debit = parseAmount(row[2]);
     const credit = parseAmount(row[3]);
     const comment = row[4];
+    // [إصلاح خطأ حقيقي شهده المستخدم] تصدير "دفتر القيود" الأصلي من قيود يضيف
+    // عمودًا سادسًا "المشروع" (F) بعد "التعليقات" — كان يُهمَل بالكامل فتبقى خانة
+    // "مشروع (خاص بالسطر)" فارغة رغم أن الملف نفسه يحمل اسم المشروع صراحةً لكل
+    // سطر. يُقرأ الآن كأي عمود آخر بنفس الصف؛ ملفات أقدم بلا هذا العمود (row[5]
+    // غير معرَّف) تبقى بلا أي تغيير — project تُصبح سلسلة فارغة كالسابق تمامًا.
+    const project = row[5];
     const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
     const code = m2 ? normalizeCode(m2[1]) : normalizeCode(accountRaw);
     const accName = m2 ? m2[2].trim() : "";
@@ -970,6 +976,7 @@ function parseQoyodJournalReportSchema(rows) {
       // بلا أي مطابقة خاطئة واحدة (0 اختلاف عن أي مطابقة كانت تنجح أصلاً).
       detail: detailTrimmed,
       comment: finalComment,
+      project: (project && String(project).trim()) || "",
       _rowIndex: i,
     });
   }
