@@ -485,8 +485,10 @@ function AppShell() {
           {can(currentUserRecord, "tool.sales") && (
             <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool /></div>
           )}
+          {/* [إعادة تصميم] نفس معالجة أداة فواتير المبيعات أعلاه — showHeader مفعّل الآن
+              (بلا تمرير false) بعد أن صار رأس أداة المنتجات مطابقًا بصريًا لبقية الأدوات. */}
           {can(currentUserRecord, "tool.products") && (
-            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}><ProductUploadTool showHeader={false} /></div>
+            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}><ProductUploadTool /></div>
           )}
           {visibleNavItems.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#94A3B8", fontSize: 14, textAlign: "center" }}>

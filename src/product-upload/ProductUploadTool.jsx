@@ -34,9 +34,16 @@ export default function ProductUploadTool({ showHeader = true } = {}) {
   return (
     <div className="qpu-app" dir={dir}>
       {showHeader && (
-        <header className="qpu-topbar">
-          <h1>📦 {t({ ar: "أداة رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" })}</h1>
-          <p>{t({ ar: "ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.", en: "Uploads the customer's products directly to their Qoyod account via API key — missing categories and units are created automatically." })}</p>
+        // [إعادة تصميم] رأس بنفس تكوين رأس أداتي الشجرة والقيود (أيقونة كحلية + عنوان/عنوان فرعي)
+        // بدل الشريط المتدرّج السابق — بلا أي تأثير على منطق الأداة.
+        <header className="qpu-header">
+          <div className="qpu-header-left">
+            <div className="qpu-header-icon" aria-hidden="true">📦</div>
+            <div className="qpu-header-title">
+              <h1>{t({ ar: "أداة رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" })}</h1>
+              <p>{t({ ar: "ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.", en: "Uploads the customer's products directly to their Qoyod account via API key — missing categories and units are created automatically." })}</p>
+            </div>
+          </div>
         </header>
       )}
 
