@@ -1,4 +1,4 @@
-import React from "react";
+import React, { forwardRef, useEffect, useImperativeHandle } from "react";
 import { useLanguage } from "../language.jsx";
 import useProductUploadEngine from "./useProductUploadEngine.js";
 import ApiKeyCard from "./components/ApiKeyCard.jsx";
@@ -26,10 +26,18 @@ import "./styles/qoyod-product-upload.css";
  * @param {boolean} [showHeader] إظهار الشريط العلوي الداخلي؛ مرّر false عند
  *                                الدمج داخل تطبيق له شريطه الخاص (هذا ما
  *                                يستخدمه App.jsx فعلياً).
+ *
+ * [إضافة 2026-09-14] forwardRef + onNameChange/onBusyChange — دعم "التبويبات
+ * المتعددة داخل الأداة" (TabbedTool.jsx)، نفس نمط MergeTool/JournalTool —
+ * إضافتان اختياريتان بحتتان بلا قيمة افتراضية تُغيّر أي سلوك لو تُجوهلتا.
  */
-export default function ProductUploadTool({ showHeader = true } = {}) {
+const ProductUploadTool = forwardRef(function ProductUploadTool({ showHeader = true, onNameChange, onBusyChange } = {}, ref) {
   const { t, dir } = useLanguage();
   const eng = useProductUploadEngine();
+
+  useEffect(() => { onNameChange && onNameChange(eng.customerName); }, [eng.customerName, onNameChange]);
+  useEffect(() => { onBusyChange && onBusyChange(eng.uploading); }, [eng.uploading, onBusyChange]);
+  useImperativeHandle(ref, () => ({ requestStop: eng.stopUpload }), [eng.stopUpload]);
 
   return (
     <div className="qpu-app" dir={dir}>
@@ -57,4 +65,6 @@ export default function ProductUploadTool({ showHeader = true } = {}) {
       </div>
     </div>
   );
-}
+});
+
+export default ProductUploadTool;

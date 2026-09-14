@@ -60,6 +60,23 @@ export default function Step4Export({ eng }) {
         )}
         <Note note={eng.notes.export} />
         {showSendModal && <ApiSendResultsModal eng={eng} onClose={() => setShowSendModal(false)} />}
+        {/* [إضافة 2026-09-14] راجع نفس الإصلاح بباقي الأدوات — أيقونة عائمة
+            للرجوع للنافذة (أو مراقبة التقدّم) بعد تصغيرها بلا إبقاء الصفحة مفتوحة. */}
+        {!showSendModal && (eng.apiSending || eng.apiSendResult) && (
+          <div className="qbi-btn" style={{ position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 12px 32px rgba(15,23,42,.25)' }}>
+            <span style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowSendModal(true)}>
+              🚀 {eng.apiSending
+                ? t({ ar: `جارٍ الإرسال: ${eng.apiSendProgress.current}/${eng.apiSendProgress.total}`, en: `Sending: ${eng.apiSendProgress.current}/${eng.apiSendProgress.total}` })
+                : t({ ar: 'نتائج الإرسال', en: 'Send results' })}
+              {!eng.apiSending && eng.apiSendResult?.failed > 0 && (
+                <span style={{ background: 'var(--qbi-err)', color: '#fff', borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{eng.apiSendResult.failed}</span>
+              )}
+            </span>
+            {eng.apiSending && (
+              <button type="button" onClick={eng.stopApiSend} title={t({ ar: 'إيقاف الإرسال', en: 'Stop sending' })} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', opacity: 0.85 }}>✕</button>
+            )}
+          </div>
+        )}
 
         <div className={`qbi-msg ${eng.templateName ? 'info' : 'warn'}`}>
           {eng.templateName

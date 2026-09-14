@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useRef, useCallback, useEffect, memo } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect, memo, forwardRef, useImperativeHandle } from "react";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, XCircle, Loader2,
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
-  ChevronLeft, ChevronRight, Search, X, Cloud, Send, Eye, EyeOff,
+  ChevronLeft, ChevronRight, Search, X, Cloud, Send, Eye, EyeOff, StopCircle,
 } from "lucide-react";
 import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
@@ -478,6 +478,10 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
 
 // [إضافة] نافذة نتائج الإرسال عبر API — تقدّم حي أثناء الإرسال، ثم ملخص
 // نجاح/فشل لكل قيد + زر تنزيل تقرير Excel كامل (journalSendResultsReport.js).
+// [إضافة 2026-09-14] راجع نفس الإصلاح بـMergeTool.jsx (زر التصغير "−") — طلب
+// صريح من المستخدم بعد تجربة التبويبات: overlay ملء الشاشة لا يمكن إغلاقه
+// أثناء الإرسال كان يجبره على إبقاء الصفحة مفتوحة، رغم أن حلقة الإرسال
+// بالخطّاف مستقلة تمامًا عن ظهور النافذة (تستمر بالخلفية بلا أي تأثير).
 function ApiSendResultsModal({ sending, progress, result, onClose, onDownloadReport, onStop }) {
   const { t } = useLanguage();
   return (
@@ -492,9 +496,14 @@ function ApiSendResultsModal({ sending, progress, result, onClose, onDownloadRep
             <p className="text-xs" style={{ color: "#64748B" }}>
               {t({ ar: `جارٍ الإرسال: ${progress.current} من ${progress.total}`, en: `Sending: ${progress.current} of ${progress.total}` })}
             </p>
-            <button onClick={onStop} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: "#64748B" }}>
-              {t({ ar: "إيقاف", en: "Stop" })}
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} title={t({ ar: "تصغير — الإرسال يستمر بالخلفية", en: "Minimize — sending continues in the background" })} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+                − {t({ ar: "تصغير", en: "Minimize" })}
+              </button>
+              <button onClick={onStop} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: "#64748B" }}>
+                {t({ ar: "إيقاف", en: "Stop" })}
+              </button>
+            </div>
           </div>
         ) : result ? (
           <div>
@@ -543,7 +552,10 @@ function ApiSendResultsModal({ sending, progress, result, onClose, onDownloadRep
   );
 }
 
-export default function JournalTool() {
+// [إضافة 2026-09-14] forwardRef + onNameChange/onBusyChange — دعم "التبويبات
+// المتعددة داخل الأداة" (TabbedTool.jsx)، نفس نمط MergeTool.jsx بالضبط —
+// إضافتان اختياريتان بحتتان بلا قيمة افتراضية تُغيّر أي سلوك لو تُجوهلتا.
+const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange } = {}, ref) {
   const { t, lang, dir } = useLanguage();
   const { currentUser } = useAuth();
   const [chartAccounts, setChartAccounts] = useState(null);
@@ -621,6 +633,12 @@ export default function JournalTool() {
   const [apiSendResult, setApiSendResult] = useState(null);
   const [showApiSendModal, setShowApiSendModal] = useState(false);
   const apiStoppedRef = useRef({ current: false });
+
+  // [إضافة 2026-09-14] راجع تعليق forwardRef أعلى الملف — تبليغ الغلاف (لو
+  // موجود) باسم العميل وحالة الانشغال، وإتاحة إيقاف قسري عند إغلاق التبويب.
+  useEffect(() => { onNameChange && onNameChange(customerName); }, [customerName, onNameChange]);
+  useEffect(() => { onBusyChange && onBusyChange(apiSending); }, [apiSending, onBusyChange]);
+  useImperativeHandle(ref, () => ({ requestStop: () => { apiStoppedRef.current.current = true; } }), []);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1525,6 +1543,25 @@ export default function JournalTool() {
         onStop={() => { apiStoppedRef.current.current = true; }}
       />
     )}
+    {/* [إضافة 2026-09-14] راجع نفس الإصلاح بـMergeTool.jsx — أيقونة عائمة تُتيح
+        الرجوع للنافذة (أو الاطلاع على التقدّم أثناء الإرسال) بعد تصغيرها، بلا
+        حاجة لإبقاء النافذة الكاملة مفتوحة أثناء التنقل بين التبويبات/الأدوات. */}
+    {!showApiSendModal && (apiSending || apiSendResult) && (
+      <div className="fixed bottom-5 left-5 z-[55] flex items-center gap-1.5 rounded-full py-2 pl-2 pr-4 text-xs font-semibold text-white shadow-2xl" style={{ background: COLORS.ink }}>
+        <button onClick={() => setShowApiSendModal(true)} title={t({ ar: "فتح نافذة نتائج الإرسال", en: "Open the send results window" })} className="flex items-center gap-2 hover:opacity-90">
+          {apiSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          {apiSending
+            ? t({ ar: `جارٍ الإرسال: ${apiSendProgress.current}/${apiSendProgress.total}`, en: `Sending: ${apiSendProgress.current}/${apiSendProgress.total}` })
+            : t({ ar: "نتائج الإرسال", en: "Send results" })}
+          {!apiSending && apiSendResult?.failed > 0 && (<span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold">{apiSendResult.failed}</span>)}
+        </button>
+        {apiSending && (
+          <button onClick={() => { apiStoppedRef.current.current = true; }} title={t({ ar: "إيقاف الإرسال", en: "Stop sending" })} className="flex items-center rounded-full p-1.5 text-white/80 hover:bg-white/15 hover:text-white"><StopCircle size={14} /></button>
+        )}
+      </div>
+    )}
     </>
   );
-}
+});
+
+export default JournalTool;

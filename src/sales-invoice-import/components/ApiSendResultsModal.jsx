@@ -49,7 +49,15 @@ export default function ApiSendResultsModal({ engine, onClose }) {
         {apiSendBusy && (
           <div className="qsv-send-progress">
             <span>{t({ ar: `جارٍ الإرسال: ${apiSendProgress.current} من ${apiSendProgress.total}`, en: `Sending: ${apiSendProgress.current} of ${apiSendProgress.total}` })}</span>
-            <button type="button" className="qsv-btn danger" onClick={stopApiSend}>{t({ ar: 'إيقاف', en: 'Stop' })}</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {/* [إضافة 2026-09-14] راجع نفس الإصلاح بـMergeTool.jsx/JournalTool.jsx —
+                  تصغير أثناء الإرسال بدل إجبار المستخدم على إبقاء الصفحة مفتوحة؛
+                  الإرسال نفسه (بالهوك) يستمر بالخلفية بلا أي تأثير. */}
+              <button type="button" className="qsv-btn ghost" onClick={onClose} title={t({ ar: 'تصغير — الإرسال يستمر بالخلفية', en: 'Minimize — sending continues in the background' })}>
+                − {t({ ar: 'تصغير', en: 'Minimize' })}
+              </button>
+              <button type="button" className="qsv-btn danger" onClick={stopApiSend}>{t({ ar: 'إيقاف', en: 'Stop' })}</button>
+            </div>
           </div>
         )}
 
