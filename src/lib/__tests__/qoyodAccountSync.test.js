@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   mapAccountTypeToQoyod,
   mapRowToQoyodType,
+  mapRowToQoyodAccountKind,
   buildQoyodAccountPayload,
   buildQoyodDuplicateIndex,
   checkAccountDuplicate,
@@ -9,6 +10,7 @@ import {
   QOYOD_TYPE_BY_LEVEL2,
   QOYOD_TYPE_BY_LEVEL1_ROOT,
   ALL_QOYOD_ACCOUNT_TYPES,
+  QOYOD_BRANCH_KIND_BY_LEVEL2,
 } from "../qoyodAccountSync.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2, compareTrees } from "../../MergeTool.jsx";
 
@@ -70,30 +72,41 @@ describe("buildQoyodAccountPayload — بناء حمولة POST /accounts", () =
     payCollect: "No",
   };
 
-  it("يبني الحمولة كاملة بالشكل الصحيح لصف سليم", () => {
+  it("يبني الحمولة كاملة بالشكل الصحيح لصف سليم (الحقول القديمة المثبتة ميدانياً + الحقول الرسمية الجديدة معاً)", () => {
     const result = buildQoyodAccountPayload(validRow);
     expect(result.ok).toBe(true);
     expect(result.payload).toEqual({
       account: {
+        // القديمة — بلا أي تغيير
         name_en: "Test Fixed Asset",
         name_ar: "أصل ثابت اختباري",
         code: "120105",
         description: "وصف تجريبي",
         recieve_payments: "false",
         type: "FixedAsset",
+        // [إضافة 2026-09-14] الجديدة حسب مواصفة OpenAPI الرسمية
+        en_name: "Test Fixed Asset",
+        ar_name: "أصل ثابت اختباري",
+        account_kind: "property_plant_and_equipment",
+        parent_kind: "assets",
+        branch_kind: "fixed_assets",
+        receive_payments: false,
       },
     });
   });
 
-  it("يستخدم دومًا اسم الحقل الفعلي recieve_payments (بالتهجئة الناقصة) — مؤكد ميدانيًا مع Qoyod الحقيقي", () => {
+  it("يستخدم دومًا اسم الحقل الفعلي recieve_payments (بالتهجئة الناقصة) القديم — مؤكد ميدانيًا مع Qoyod الحقيقي — بجانب receive_payments الرسمي الجديد (الاثنان معاً، لا تعارض)", () => {
     const result = buildQoyodAccountPayload(validRow);
     expect(result.payload.account).toHaveProperty("recieve_payments");
-    expect(result.payload.account).not.toHaveProperty("receive_payments");
+    // [إضافة 2026-09-14] receive_payments (تهجئة صحيحة، boolean) هو الحقل
+    // الرسمي بمواصفة OpenAPI — يُرسَل الآن أيضاً بجانب القديم عمداً.
+    expect(result.payload.account).toHaveProperty("receive_payments");
   });
 
-  it("payCollect='Yes' يصبح recieve_payments:'true'", () => {
+  it("payCollect='Yes' يصبح recieve_payments:'true' (قديم) وreceive_payments:true (جديد)", () => {
     const result = buildQoyodAccountPayload({ ...validRow, payCollect: "Yes" });
     expect(result.payload.account.recieve_payments).toBe("true");
+    expect(result.payload.account.receive_payments).toBe(true);
   });
 
   it("يرفض صف بلا رمز، بلا اسم إنجليزي، أو بلا اسم عربي، مع رسالة واضحة", () => {
@@ -169,6 +182,56 @@ describe("mapRowToQoyodType — استنتاج نوع Qoyod حسب مستوى ا
     expect(mapRowToQoyodType({ type: "", level2Category: "" })).toBeNull();
     expect(mapRowToQoyodType({})).toBeNull();
     expect(mapRowToQoyodType(null)).toBeNull();
+  });
+});
+
+// [إضافة 2026-09-14] mapRowToQoyodAccountKind — نظير مواصفة OpenAPI الرسمية
+describe("mapRowToQoyodAccountKind — استنتاج account_kind/parent_kind/branch_kind الرسمية", () => {
+  it("تغطية كاملة: كل نوع من الـ59 نوعًا الفعلي بـLEVEL3_MAP يُحوَّل لثلاثية صالحة", () => {
+    const allLevel3Types = Object.values(LEVEL3_MAP).flat();
+    expect(allLevel3Types.length).toBe(59);
+    allLevel3Types.forEach((type) => {
+      const level2 = TYPE_TO_LEVEL2[type];
+      const result = mapRowToQoyodAccountKind({ level: 3, type, level2Category: level2 });
+      expect(result, `النوع "${type}" (مستوى2: ${level2}) لازم يتحوّل لثلاثية صالحة`).toBeTruthy();
+      expect(result.branchKind).toBe(QOYOD_BRANCH_KIND_BY_LEVEL2[level2]);
+      expect(["assets", "liability", "equity", "revenue", "expense"]).toContain(result.parentKind);
+      expect(result.accountKind).toBeTruthy();
+    });
+  });
+
+  it("مطابقات مباشرة مؤكَّدة (اسم الحقل الرسمي مطابق تماماً لمعنى نوع الأداة)", () => {
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "المدينون", level2Category: "الأصول المتداولة" }))
+      .toEqual({ accountKind: "accounts_receivable", parentKind: "assets", branchKind: "current_assets" });
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "حساب البنك", level2Category: "الأصول المتداولة" }))
+      .toEqual({ accountKind: "bank_account", parentKind: "assets", branchKind: "current_assets" });
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "عهد نقدية", level2Category: "الأصول المتداولة" }))
+      .toEqual({ accountKind: "petty_cash", parentKind: "assets", branchKind: "current_assets" });
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "الدائنون", level2Category: "الالتزامات المتداولة" }))
+      .toEqual({ accountKind: "accounts_payable", parentKind: "liability", branchKind: "current_liability" });
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "المبيعات", level2Category: "المبيعات" }))
+      .toEqual({ accountKind: "sales", parentKind: "revenue", branchKind: "sales" });
+    expect(mapRowToQoyodAccountKind({ level: 3, type: "تكلفة المبيعات", level2Category: "التكلفة المباشرة" }))
+      .toEqual({ accountKind: "cost_of_sales", parentKind: "expense", branchKind: "direct_cost" });
+  });
+
+  it("مستوى2 (فئته بحقل type نفسه): يُستخدم account_kind الافتراضي لتلك الفئة", () => {
+    const result = mapRowToQoyodAccountKind({ level: 2, type: "الأصول غير المتداولة", level2Category: "" });
+    expect(result).toEqual({ accountKind: "other_fixed_assets", parentKind: "assets", branchKind: "fixed_assets" });
+  });
+
+  it("مستوى1 (الإيرادات/المصاريف فقط): ثلاثية عامة صحيحة الفرع", () => {
+    expect(mapRowToQoyodAccountKind({ level: 1, type: "الايرادات" }))
+      .toEqual({ accountKind: "other_revenue", parentKind: "revenue", branchKind: "non_operative_revenue" });
+    expect(mapRowToQoyodAccountKind({ level: 1, type: "المصاريف" }))
+      .toEqual({ accountKind: "other_operational_cost", parentKind: "expense", branchKind: "operational_cost" });
+    expect(mapRowToQoyodAccountKind({ level: 1, type: "الاصول" })).toBeNull();
+  });
+
+  it("يرجّع null بأمان لصف بلا فئة معروفة، بلا رمي استثناء", () => {
+    expect(mapRowToQoyodAccountKind({ type: "غير موجود", level2Category: "غير موجود" })).toBeNull();
+    expect(mapRowToQoyodAccountKind({})).toBeNull();
+    expect(mapRowToQoyodAccountKind(null)).toBeNull();
   });
 });
 

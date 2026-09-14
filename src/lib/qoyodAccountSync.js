@@ -118,6 +118,230 @@ export function mapRowToQoyodType(row) {
   return mapAccountTypeToQoyod(row?.type, row?.level2Category);
 }
 
+// ============================================================================
+// [إضافة 2026-09-14] مواصفة Qoyod API الرسمية (OpenAPI v2) — طبقة ثانية إضافية
+// ============================================================================
+// طلب صريح من المستخدم (2026-09-14): "القديم شغال طبيعي، بس التحديث مهم" —
+// مواصفة OpenAPI الرسمية توثّق حمولة POST /accounts مختلفة تماماً عن الشكل
+// القديم المثبت ميدانياً أعلاه: en_name/ar_name (لا name_en/name_ar)،
+// account_kind (مطلوب، ~40 قيمة دقيقة)، parent_kind (مطلوب، 5 قيم)، branch_kind
+// (مطلوب، 12 قيمة) — راجع AccountInput بملف الـYAML الرسمي، سطر 8874.
+//
+// القرار الهندسي: الحقول الجديدة تُضاف *بجانب* الحقول القديمة (لا تستبدلها) —
+// راجع buildQoyodAccountPayload تحت. هذا يحترم طلب المستخدم الصريح بعدم المساس
+// بآلية العمل الصحيحة المثبتة ميدانياً: لو قيود لسا يعتمد الحقول القديمة فقط،
+// تستمر الأداة تعمل بالضبط كما كانت (صفر تغيير سلوك)؛ ولو صار يتطلب/يفضّل
+// الحقول الجديدة، فهي مُرسَلة بالفعل وصحيحة معه.
+//
+// دليل ثقة عالٍ (لا تخمين اعتباطي) لربط parent_kind/branch_kind بتصنيف الأداة
+// الداخلي: قيم branch_kind الاثنتا عشرة الرسمية تطابق حرفياً (تطابق 1:1 كامل،
+// بلا زيادة ولا نقصان) فئات المستوى2 الاثنتي عشرة المعتمدة أصلاً بهذه الأداة
+// (LEVEL2_TO_LEVEL1 بـMergeTool.jsx) — وكذلك قيم parent_kind الخمس تطابق جذور
+// المستوى1 الخمسة تماماً. هذا شبه مؤكَّد أن قيود بنى enum هذه الحمولة على نفس
+// شجرة الحسابات المعيارية التي بُنيت عليها هذه الأداة أصلاً، لا تصنيف مختلف.
+//
+// أما account_kind (الأدق، 40 قيمة موزّعة على الفروع الـ12) فبعض خلاياها غير
+// مؤكَّدة 100% (لا مثال رسمي محدد لكل قيمة) — كل خلية "[تقدير]" أدناه هي أفضل
+// مطابقة ممكنة ضمن نفس الفرع الصحيح (لا تُخرِج الحساب أبداً من فرعه الصحيح،
+// فقط قد لا تكون الوسم الأدق الممكن لو توفّر بديل أدق مستقبلاً) — راجعها.
+// ============================================================================
+
+// parent_kind يُشتَق حصراً من branch_kind (علاقة ثابتة لا لبس فيها، مؤكَّدة من
+// نص التوثيق: "type_of_account auto-set based on parent_kind") — لا حاجة
+// لجدول منفصل من level1، ولا لاستيراد من MergeTool.jsx (طبقة مستقلة نقية).
+const QOYOD_PARENT_KIND_BY_BRANCH = {
+  current_assets: "assets",
+  fixed_assets: "assets",
+  current_liability: "liability",
+  non_current_liability: "liability",
+  issued_capital: "equity",
+  other_equity: "equity",
+  retained_earnings: "equity",
+  sales: "revenue",
+  non_operative_revenue: "revenue",
+  direct_cost: "expense",
+  operational_cost: "expense",
+  non_operational_expense: "expense",
+};
+
+// branch_kind من فئة المستوى2 — مطابقة 1:1 مباشرة (راجع تعليق "دليل ثقة عالٍ" أعلاه).
+export const QOYOD_BRANCH_KIND_BY_LEVEL2 = {
+  "الأصول المتداولة": "current_assets",
+  "الأصول غير المتداولة": "fixed_assets",
+  "الالتزامات المتداولة": "current_liability",
+  "الالتزامات غير المتداولة": "non_current_liability",
+  "رأس المال المصدر": "issued_capital",
+  "حقوق الملاك الأخرى": "other_equity",
+  "الأرباح المبقاة": "retained_earnings",
+  "المبيعات": "sales",
+  "الإيرادات الأخرى": "non_operative_revenue",
+  "التكلفة المباشرة": "direct_cost",
+  "تكاليف تشغيلية": "operational_cost",
+  "تكاليف غير تشغيلية": "non_operational_expense",
+};
+
+// account_kind الافتراضي لكل فئة مستوى2 (يُستخدم لحساب "عقدة مستوى2" نفسها -
+// حين ينشئ المستخدم حساباً يمثّل الفئة كاملة لا نوعاً فرعياً محدداً - وكـfallback
+// أخير لأي نوع مستوى3 غير مغطى بالجدول التالي).
+export const QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2 = {
+  "الأصول المتداولة": "other_current_assets",
+  "الأصول غير المتداولة": "other_fixed_assets",
+  "الالتزامات المتداولة": "other_current_liability",
+  "الالتزامات غير المتداولة": "other_non_current_liabilities",
+  "رأس المال المصدر": "registered_capital",
+  "حقوق الملاك الأخرى": "other_equity",
+  "الأرباح المبقاة": "retained_earnings",
+  "المبيعات": "sales",
+  "الإيرادات الأخرى": "other_revenue",
+  "التكلفة المباشرة": "other_direct_cost",
+  "تكاليف تشغيلية": "other_operational_cost",
+  // [تقدير] لا يوجد account_kind عام مخصص لهذا الفرع بالمواصفة الرسمية (الفرع
+  // نفسه - non_operational_expense - يحوي عملياً "taxes" فقط من ضمن كل القيم
+  // الأربعين). يُستخدم لأي نوع هنا بلا مطابقة أدق (الزكاة/الفوائد/ترجمة العملات).
+  "تكاليف غير تشغيلية": "taxes",
+};
+
+// account_kind لكل نوع مستوى3 (59 نوعاً) — مطابقة مباشرة حيث توجد قيمة رسمية
+// بنفس المعنى تماماً (أغلبها)، و[تقدير] موثَّق صراحة حيث لا توجد قيمة مخصصة
+// فاستُخدمت أقرب قيمة عامة **ضمن نفس الفرع الصحيح** (لا تُخرج الحساب من فرعه
+// أبداً - فقط الوسم الدقيق قد لا يكون الأمثل). راجع كل خلية "[تقدير]" بدقة.
+export const QOYOD_ACCOUNT_KIND_BY_LEVEL3 = {
+  // ── الأصول المتداولة (current_assets) ──
+  "المدينون": "accounts_receivable",
+  "حساب البنك": "bank_account",
+  "سلف موظفين": "employees_advances",
+  "المخزون": "inventory",
+  "النقدية ومافي حكمها": "non_bank_cash_and_equivalents",
+  "أصول متداولة أخرى": "other_current_assets",
+  "عهد نقدية": "petty_cash", // [تحسين عن الشكل القديم] Cash العام سابقاً ← الآن قيمة مخصصة فعلياً
+  "مصروفات مقدمة": "prepaid_expenses_and_others",
+  "مخزون قطع غيار أصول": "other_current_assets", // [تقدير] لا "inventory" مخصص لقطع غيار أصول (ليست للبيع)
+
+  // ── الأصول غير المتداولة (fixed_assets) ──
+  "أصول غير ملموسة": "intangible_assets",
+  "أصول غير متداولة أخرى": "other_fixed_assets",
+  "عقارات وآلات ومعدات": "property_plant_and_equipment",
+  "استثمارات بشركة تابعة": "other_fixed_assets", // [تقدير] لا "investments" مخصص
+  "مشاريع تحت التنفيذ": "property_plant_and_equipment", // [تقدير] أقرب للأصول الثابتة تحت الإنشاء
+
+  // ── الالتزامات المتداولة (current_liability) ──
+  "الدائنون": "accounts_payable",
+  "مصاريف مستحقة": "accrued_expenses",
+  "الرواتب والمبالغ المستحقة للموظفين": "accrued_salaries_and_amounts_owed_to_employees",
+  "مجمع الاستهلاك": "accumulated_depreciation",
+  // [تقدير] accumulated_amortization موثَّقة بترتيب المواصفة ضمن مجموعة
+  // تكاليف تشغيلية لا هذا الفرع (current_liability) — لتفادي تعارض محتمل بين
+  // account_kind وbranch_kind (فرع "مجمع الإطفاء" الصحيح هنا حسب تصنيف الأداة
+  // نفسها) استُخدمت فئة عامة بدل قيمة قد تخالف الفرع. راجعها لو عندك تأكيد.
+  "مجمع الإطفاء": "other_current_liability",
+  "مخصص الديون المشكوك في تحصيلها": "allowance_for_doubtful_accounts",
+  "التزامات متداولة أخرى": "other_current_liability",
+  "مخصصات": "provisions",
+  "قروض قصيرة الأجل": "short_term_borrowings",
+  "الضرائب المستحقة": "taxes_payable",
+  "الإيرادات المقدمة": "unearned_revenues",
+  "الزكاة المستحقة": "other_current_liability", // [تقدير] لا "zakat_payable" مخصص
+  // [تقدير] قيمة "vat" الرسمية موثَّقة بترتيب المواصفة قرب مجموعة المبيعات
+  // لا هذا الفرع — وحسابات ضريبة القيمة المضافة غالباً محميّة/مُدارة نظامياً
+  // بمنصات كثيرة، فتفادياً لأي تعارض استُخدمت taxes_payable الآمنة بنفس الفرع.
+  "ضريبة القيمة المضافة المستحقة": "taxes_payable",
+  "فوائد مستحقة": "other_current_liability", // [تقدير] لا "accrued_interest" مخصص
+  "الجزء المتداول من التزامات طويلة أجل": "other_current_liability", // [تقدير]
+
+  // ── الالتزامات غير المتداولة (non_current_liability) ──
+  "قروض طويلة الأجل": "long_term_borrowings",
+  "التزامات غير متداولة أخرى": "other_non_current_liabilities",
+  "مخصص مكافأة نهاية الخدمة": "end_of_service_benefits",
+  "ضمان حسن التنفيذ": "other_non_current_liabilities", // [تقدير]
+
+  // ── رأس المال المصدر (issued_capital) ──
+  "رأس المال": "registered_capital",
+  "رأس المال الإضافي المدفوع": "additional_paid_in_capital",
+
+  // ── حقوق الملاك الأخرى (other_equity) ──
+  "حقوق ملكية أخرى": "other_equity",
+  // [تقدير] "employees_equity" الرسمية موثَّقة ضمن مجموعة رأس المال المصدر
+  // (issued_capital) بترتيب المواصفة لا هذا الفرع — نفس منطق تفادي التعارض أعلاه.
+  "حقوق الموظفين": "other_equity",
+  "الاحتياطيات": "reserves",
+
+  // ── الأرباح المبقاة (retained_earnings) ──
+  "الأرباح المبقاة (أو الخسائر)": "retained_earnings",
+  "توزيع الأرباح": "retained_earnings", // [تقدير] لا قيمة مخصصة لتوزيعات الأرباح تحديداً
+
+  // ── المبيعات (sales) ──
+  "المبيعات": "sales",
+
+  // ── الإيرادات الأخرى (non_operative_revenue) ──
+  "إيرادات أخرى": "other_revenue",
+  "مكاسب/خسائر بيع أصول": "other_revenue", // [تقدير]
+  "مكاسب/خسائر بيع أصول غير ملموسة": "other_revenue", // [تقدير]
+
+  // ── التكلفة المباشرة (direct_cost) ──
+  "تكلفة المبيعات": "cost_of_sales",
+  "تكاليف مباشرة أخرى": "other_direct_cost",
+
+  // ── تكاليف تشغيلية (operational_cost) ──
+  "الرواتب": "salaries",
+  "مكافآت وحوافز": "employee_incentives_and_benefits",
+  "مصاريف عمومية وإدارية": "general_and_administrative",
+  "مصاريف تسويقية": "marketing",
+  "تكاليف تشغيلية أخرى": "other_operational_cost",
+  "مصاريف الاستهلاك": "depreciation",
+  "مصاريف الإطفاء": "amortization",
+  "مصاريف تقنية واستشارية": "technical_and_consulting_expenses",
+  "مصاريف البحث والتطوير": "other_operational_cost", // [تقدير] لا "R&D" مخصصة
+
+  // ── تكاليف غير تشغيلية (non_operational_expense) ──
+  // [تقدير للأربعة] هذا الفرع بأكمله لا يحوي بمواصفة قيود الرسمية سوى قيمة
+  // "taxes" الوحيدة (تأكَّد بفحص كل القيم الأربعين) — لا قيمة مخصصة للزكاة أو
+  // الفوائد أو ترجمة العملات إطلاقاً. الأربعة تُرسَل بنفس account_kind="taxes"،
+  // لكن هذا لا يخرجها من فرعها الصحيح (branch_kind يبقى دقيقاً) — الوسم فقط أعم
+  // مما هو مثالي. إن أضاف قيود قيماً أدق مستقبلاً، حدّث هذا الجدول.
+  "الضرائب": "taxes",
+  "الزكاة": "taxes",
+  "مصروف فوائد": "taxes",
+  "ترجمة عملات أجنبية": "taxes",
+};
+
+// حسابات جذر مستوى1 (الإيرادات/المصاريف بلا فئة مستوى2 - نفس حالات
+// QOYOD_TYPE_BY_LEVEL1_ROOT أعلاه) — تُستخدم فروع عامة تمثّل كل الفئة، بنفس
+// القيم الافتراضية المستخدمة أصلاً لفئتي "الإيرادات الأخرى"/"تكاليف تشغيلية"
+// (QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2) تفادياً لازدواج مصدر الحقيقة.
+const QOYOD_LEVEL1_ROOT_TRIPLE = {
+  "الايرادات": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["الإيرادات الأخرى"], branchKind: "non_operative_revenue" },
+  "المصاريف": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["تكاليف تشغيلية"], branchKind: "operational_cost" },
+};
+
+/**
+ * [إضافة 2026-09-14] نظير مواصفة OpenAPI الرسمية لـmapRowToQoyodType أعلاه —
+ * يرجّع {accountKind, parentKind, branchKind} أو null لو تعذّر الاستنتاج (نفس
+ * منطق مستويات الصف بالضبط: مستوى1 جذر إيرادات/مصاريف، مستوى2 يحمل فئته بحقل
+ * type نفسه، مستوى3 فأعمق يستخدم level2Category). دالة نقية، قابلة للاختبار
+ * المباشر، لا تُغيّر أي شيء بمنطق الأب/الابن أو الترقيم أو استيراد/تصدير إكسل.
+ */
+export function mapRowToQoyodAccountKind(row) {
+  const level = Number(row?.level);
+
+  if (level === 1) {
+    const t = QOYOD_LEVEL1_ROOT_TRIPLE[row?.type];
+    if (!t) return null;
+    return { accountKind: t.accountKind, parentKind: QOYOD_PARENT_KIND_BY_BRANCH[t.branchKind], branchKind: t.branchKind };
+  }
+
+  const level2Category = level === 2 ? (row?.type || "") : (row?.level2Category || "");
+  const level3Type = level === 2 ? "" : (row?.type || "");
+
+  const branchKind = QOYOD_BRANCH_KIND_BY_LEVEL2[level2Category];
+  if (!branchKind) return null;
+
+  const accountKind = (level3Type && QOYOD_ACCOUNT_KIND_BY_LEVEL3[level3Type])
+    || QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2[level2Category];
+  if (!accountKind) return null;
+
+  return { accountKind, parentKind: QOYOD_PARENT_KIND_BY_BRANCH[branchKind], branchKind };
+}
+
 /**
  * يبني حمولة POST /accounts من صف الأداة الداخلي (شكل results/activeNewRows
  * بـMergeTool.jsx: code, nameAr, nameEn, level2Category, type, desc,
@@ -133,22 +357,42 @@ export function buildQoyodAccountPayload(row) {
   if (!nameAr) return { ok: false, error: "الاسم العربي فارغ (مطلوب من Qoyod)" };
 
   const qoyodType = mapRowToQoyodType(row);
-  if (!qoyodType) {
+  // [إضافة 2026-09-14] الحقول الثلاثة الرسمية الجديدة (account_kind/parent_kind/
+  // branch_kind) — راجع تعليق "مواصفة Qoyod API الرسمية" أعلاه لمصدر الثقة بها.
+  const qoyodKind = mapRowToQoyodAccountKind(row);
+  if (!qoyodType || !qoyodKind) {
     return { ok: false, error: `تعذّر تحديد نوع الحساب المطابق بقيود لـ"${row?.type || row?.level2Category || "—"}"` };
   }
+
+  const payCollectYes = row?.payCollect === "Yes";
 
   return {
     ok: true,
     payload: {
       account: {
+        // ===== الحقول القديمة — مثبتة ميدانياً (إنشاء حساب حقيقي id 52،
+        // 2026-09-09) — بلا أي تغيير، بالضبط كما كانت. =====
         name_en: nameEn,
         name_ar: nameAr,
         code,
         description: String(row?.desc ?? "").trim() || undefined,
         // [مؤكد ميدانيًا 2026-09-09] "recieve_payments" هو الاسم الفعلي
         // المقبول من Qoyod (بالتهجئة الناقصة) — لا تصحّحه لـ"receive_payments".
-        recieve_payments: row?.payCollect === "Yes" ? "true" : "false",
+        recieve_payments: payCollectYes ? "true" : "false",
         type: qoyodType,
+
+        // ===== [إضافة 2026-09-14] الحقول الرسمية حسب مواصفة OpenAPI v2 —
+        // تُرسَل معاً مع القديمة أعلاه بلا حذفها (طبقة توافق مزدوجة، قرار
+        // المستخدم الصريح: "القديم شغال طبيعي بس التحديث مهم"). en_name/ar_name
+        // بنفس قيم name_en/name_ar تماماً (على الأغلب alias لنفس الحقل بقيود -
+        // AccountResponse يوثّق "name_en: mapped from en_name" صراحة)، فلا
+        // تعارض بإرسال الاثنين معاً بنفس القيمة. =====
+        en_name: nameEn,
+        ar_name: nameAr,
+        account_kind: qoyodKind.accountKind,
+        parent_kind: qoyodKind.parentKind,
+        branch_kind: qoyodKind.branchKind,
+        receive_payments: payCollectYes,
       },
     },
   };
