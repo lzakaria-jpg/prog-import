@@ -20,16 +20,53 @@ describe('getAll', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('يجمع كل الصفحات حتى صفحة أقصر من الحد فتتوقف', async () => {
+  // [إصلاح خطأ حقيقي 2026-09-14] العتبة صارت مرتبطة بـPER_PAGE الفعلي (100،
+  // المُرسَل صراحة بالطلب الآن) لا رقم 15 اعتباطي — صفحة أولى ممتلئة (100 عنصر)
+  // ثم صفحة أقصر تعني فعليًا "توقفت الصفحات". راجع أيضًا اختبار "[الخطأ
+  // الحقيقي] مورد لا يُرقِّم إطلاقًا" تحت لسيناريو البلاغ الميداني الفعلي.
+  it('يجمع كل الصفحات حتى صفحة أقصر من PER_PAGE فتتوقف', async () => {
     let call = 0;
     global.fetch = vi.fn().mockImplementation(async () => {
       call++;
-      if (call === 1) return mockResponse(200, { vendors: Array.from({ length: 15 }, (_, i) => ({ id: i })) });
+      if (call === 1) return mockResponse(200, { vendors: Array.from({ length: 100 }, (_, i) => ({ id: i })) });
       return mockResponse(200, { vendors: [{ id: 100 }] });
     });
     const result = await getAll('vendors', { apiKey: 'KEY' });
-    expect(result).toHaveLength(16);
+    expect(result).toHaveLength(101);
     expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  // [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: "الاداة لا تجلب
+  // البيانات نهائي" — زر "جلب بيانات المنشأة" يعلّق للأبد. السبب المؤكَّد من
+  // مواصفة Qoyod الرسمية: GET /vendors (وغيرها: accounts بلا per_page، inventories،
+  // product_unit_types، taxes) لا تُرقِّم إطلاقاً — ترجع نفس القائمة الكاملة
+  // كل مرة بصرف النظر عن رقم الصفحة المطلوبة. بدون الإصلاح، كانت الحلقة تُعيد
+  // جلب نفس القائمة (قد تكون كبيرة) 60 مرة متتالية (arr.length لا يقل أبداً عن
+  // العتبة) — تعليق طويل يبدو "لا يجلب شيئًا". يجب التوقف من أول تكرار (page=2
+  // يُرجع نفس أول عنصر بالضبط) بلا أي تكرار بالنتيجة.
+  it('[الخطأ الحقيقي] مورد لا يُرقِّم إطلاقًا وقائمته الكاملة أطول من PER_PAGE — يتوقف من أول تكرار بلا حلقة تُعيد الجلب 60 مرة', async () => {
+    // 150 عنصر: أطول من PER_PAGE(100) فلا يتوقف بشرط "أقصر من الحد" وحده —
+    // بالضبط الحالة الحقيقية المبلَّغة (منشأة عميل فيها أكثر من 100 مورّد/حساب).
+    const fullList = Array.from({ length: 150 }, (_, i) => ({ id: i, name: `Vendor ${i}` }));
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { vendors: fullList }));
+    const result = await getAll('vendors', { apiKey: 'KEY' });
+    expect(result).toHaveLength(150); // لا تكرار — لا 300 أو أكثر
+    expect(global.fetch).toHaveBeenCalledTimes(2); // صفحة أولى + صفحة ثانية تكتشف التطابق فتتوقف فورًا
+  });
+
+  it('[الخطأ الحقيقي] مورد لا يُرقِّم وقائمته أقصر من PER_PAGE — يتوقف من أول طلب فقط (بلا حاجة لكشف التكرار)', async () => {
+    const fullList = Array.from({ length: 40 }, (_, i) => ({ id: i, name: `Vendor ${i}` }));
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { vendors: fullList }));
+    const result = await getAll('vendors', { apiKey: 'KEY' });
+    expect(result).toHaveLength(40);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('يرسل per_page صراحة دومًا — يُفعِّل ترقيم /accounts الفعلي (Qoyod: "only applied when both page and per_page are provided")', async () => {
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { accounts: [] }));
+    await getAll('accounts', { apiKey: 'KEY' });
+    const calledUrl = global.fetch.mock.calls[0][0];
+    expect(calledUrl).toContain('per_page=100');
   });
 
   it('خطأ حقيقي (401 مثلاً) لا يُعامَل كقائمة فارغة — يُرمى كما هو', async () => {

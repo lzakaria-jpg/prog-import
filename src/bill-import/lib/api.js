@@ -22,11 +22,33 @@ export const DEFAULT_BASE = '/api/qoyod-proxy';
 const url = (base, proxy, path) =>
   (proxy ? proxy.replace(/\/$/, '') + '/' : '') + base.replace(/\/$/, '') + path;
 
+// [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: "الاداة لا تجلب
+// البيانات نهائي"، زر "جلب بيانات المنشأة" يعلّق على "جاري الجلب…" للأبد رغم
+// تأكيد وجود منتجات/موردين/مشتريات فعلياً بمنشأة العميل. السبب المؤكَّد من
+// مواصفة Qoyod الرسمية (OpenAPI): عدة موارد هنا **لا تدعم الترقيم (pagination)
+// إطلاقاً**، أو تتطلبه بشرط صريح لم يكن مُحقَّقاً:
+//   - GET /vendors: بلا أي معامل page/per_page موثَّق إطلاقاً — يرجع كل
+//     الموردين دفعة واحدة دومًا بصرف النظر عن قيمة page المرسلة.
+//   - GET /accounts: "Pagination is optional (only applied when both page and
+//     per_page are provided)" — إرسال page بمفرده (كما كان هنا) يُبطل الترقيم
+//     كليًا فيرجع كل الحسابات دفعة واحدة أيضًا.
+//   - GET /inventories، GET /product_unit_types، GET /taxes: بلا ترقيم إطلاقاً
+//     ("No pagination" صراحة لـproduct_unit_types).
+// بدون per_page، كان PER_PAGE أدناه غير مُرسَل، فأي مورد من هذه (وأغلب منشآت
+// العملاء الحقيقية فيها أكثر من 15 مورّد/حساب) يُرجع نفس القائمة الكاملة كل
+// مرة — فيظل شرط التوقف القديم (arr.length < 15) لا يتحقق أبدًا، وتُعاد نفس
+// القائمة الكاملة (قد تكون آلاف السطور) 60 مرة متتالية بلا داعٍ — تعليق طويل
+// يبدو للمستخدم "لا يجلب شيئًا نهائيًا". الإصلاح: إرسال per_page صريحًا دومًا
+// (يُفعِّل ترقيم /accounts فعليًا)، + كشف إضافي (نفس أول عنصر بصفحتين متتاليتين
+// = هذا المورد لا يُرقِّم حقًا) يوقف الحلقة فورًا بعد أول طلب لأي مورد من هذه،
+// بدل الانتظار حتى نهاية الـ60 محاولة.
 /** جلب مورد بكل صفحاته */
 export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey }) {
   const out = [];
+  const PER_PAGE = 100;
+  let prevFirstId;
   for (let page = 1; page <= 60; page++) {
-    const res = await fetch(url(base, proxy, `/${resource}?page=${page}`), {
+    const res = await fetch(url(base, proxy, `/${resource}?page=${page}&per_page=${PER_PAGE}`), {
       headers: { 'API-KEY': apiKey, Accept: 'application/json' }
     });
     // [إصلاح خطأ حقيقي شهده المستخدم] Qoyod API يُرجع 404 ("We found nothing")
@@ -40,8 +62,13 @@ export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey
     if (!res.ok) throw new Error(`${resource}: ${res.status} ${res.statusText}`);
     const j = await res.json();
     const arr = Array.isArray(j) ? j : j[resource] || Object.values(j).find(Array.isArray) || [];
+    if (arr.length === 0) break;
+    // مورد لا يُرقِّم فعليًا (راجع التعليق أعلاه) — الصفحة الثانية تُرجع نفس
+    // العنصر الأول بالضبط كالأولى؛ نتوقف فورًا بلا إضافة تكرار.
+    if (page > 1 && arr[0] && arr[0].id !== undefined && arr[0].id === prevFirstId) break;
+    prevFirstId = arr[0] && arr[0].id;
     for (const item of arr) out.push(item); // بلا out.push(...arr) — يتجنب "Maximum call stack size exceeded" لو صفحة واحدة كانت كبيرة جداً
-    if (arr.length === 0 || arr.length < 15) break;
+    if (arr.length < PER_PAGE) break;
   }
   return out;
 }
