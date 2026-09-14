@@ -17,10 +17,18 @@ const FAILED_ROW_BORDER = { top: THICK_RED, bottom: THICK_RED, left: THICK_RED, 
 function formatSuccessResponseForReport(response, t) {
   if (!response || typeof response !== 'object') return '';
   const lines = [];
-  if (response.id !== undefined) lines.push(t({ ar: `رقم القيد بقيود: ${response.id}`, en: `Qoyod entry #: ${response.id}` }));
+  if (response.id !== undefined && response.id !== null) lines.push(t({ ar: `رقم القيد بقيود: ${response.id}`, en: `Qoyod entry #: ${response.id}` }));
   if (response.total_debit !== undefined) lines.push(t({ ar: `إجمالي المدين: ${response.total_debit}`, en: `Total debit: ${response.total_debit}` }));
   if (response.total_credit !== undefined) lines.push(t({ ar: `إجمالي الدائن: ${response.total_credit}`, en: `Total credit: ${response.total_credit}` }));
-  if (!lines.length) { try { return JSON.stringify(response); } catch { return ''; } }
+  if (!lines.length) {
+    // [إضافة 2026-09-14] رد ناجح (2xx) بلا تفاصيل قيد صريحة بالرد الفوري —
+    // متوقَّع الآن (راجع تعليق qoyodJournalEntryPush.js: معالجة قيود غير
+    // متزامنة على الأرجح لدفعات القيود الكبيرة) — رسالة واضحة بدل فراغ/"null".
+    return t({
+      ar: 'تم الإرسال بنجاح (200) — لم يُرجع قيود تفاصيل القيد بالرد الفوري؛ تحقق من رقمه مباشرة من واجهة قيود عند الحاجة.',
+      en: 'Sent successfully (200) — Qoyod did not return entry details in the immediate response; check its number directly from the Qoyod UI if needed.',
+    });
+  }
   return lines.join('\n');
 }
 

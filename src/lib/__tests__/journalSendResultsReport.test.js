@@ -28,6 +28,17 @@ describe("buildSendResultsReportRows (journal)", () => {
     expect(dataRows[0].values[4]).toContain("100.00");
   });
 
+  // [إصلاح خطأ حقيقي 2026-09-14] رد 200 ناجح بلا id (معالجة غير متزامنة محتملة
+  // من قيود لدفعات كبيرة، راجع qoyodJournalEntryPush.js) — تفاصيل واضحة بدل
+  // "null" أو خانة فارغة مضلِّلة.
+  it("قيد ناجح بـresponse بلا id/مدين/دائن (رد فارغ): رسالة واضحة بدل فراغ أو 'null'", () => {
+    const { dataRows } = buildSendResultsReportRows([makeEntry({ seq: "1" })], [{ seq: "1", status: "success", id: null, response: {} }], t);
+    expect(dataRows[0].values[3]).toBe("نجح");
+    expect(dataRows[0].values[4]).not.toBe("");
+    expect(dataRows[0].values[4]).not.toContain("null");
+    expect(dataRows[0].isFailed).toBe(false);
+  });
+
   it("قيد فاشل: حالة فشل، التفاصيل = سبب الفشل، isFailed=true", () => {
     const { dataRows } = buildSendResultsReportRows([makeEntry({ seq: "2" })], [{ seq: "2", status: "error", reason: "تعذّر تحديد معرّف الحساب" }], t);
     expect(dataRows[0].isFailed).toBe(true);
