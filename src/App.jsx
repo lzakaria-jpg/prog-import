@@ -6,6 +6,8 @@ import { AuthProvider, useAuth, LoginScreen, AdminPanel, AddUsersOnlyPanel, Chan
 import { AISettings } from "./AIPanel";
 import { ChatPanel, ChatToggle } from "./chat";
 import { NotificationBell } from "./lib/notifications.jsx";
+import { ToastHost } from "./lib/toast.jsx";
+import TabbedTool from "./lib/TabbedTool.jsx";
 import { Watermark } from "./Watermark";
 import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
@@ -472,8 +474,14 @@ function AppShell() {
               <JournalTool />
             </div>
           )}
+          {/* [إضافة 2026-09-14] أول أداة تجرِّب "التبويبات المتعددة" (طلب صريح
+              من المستخدم: عدة شجرات حسابات لعدة عملاء بنفس الوقت، بلا توقف
+              أي عملية إرسال جارية عند التنقل بين التبويبات أو حتى الخروج
+              لأداة أخرى) — راجع تعليق رأس TabbedTool.jsx للآلية الكاملة. */}
           {can(currentUserRecord, "tool.merge") && (
-            <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
+            <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={MergeTool} toolKey="merge" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
           )}
           {/* [إعادة تصميم] نفس معالجة أداتي فواتير المبيعات/رفع المنتجات — showHeader
               مفعّل الآن (بلا تمرير false) بعد أن صار رأس أداة فواتير المشتريات مطابقًا
@@ -503,6 +511,9 @@ function AppShell() {
 
       {/* Notifications */}
       <NotificationBell currentUser={currentUser} isRTL={dir === "rtl"} />
+      {/* [إضافة 2026-09-14] إشعارات عائمة عامة — "انتهت العملية بتبويب فلان"
+          لعمليات إرسال/رفع تنتهي بتبويب غير ظاهر حالياً (TabbedTool.jsx) */}
+      <ToastHost isRTL={dir === "rtl"} />
 
       {/* Chat — يتطلب صلاحية tool.chat على الأقل؛ عرض القناة العامة نفسها
           مُتحكَّم فيه داخل ChatPanel بصلاحية chat.view_public المنفصلة */}
