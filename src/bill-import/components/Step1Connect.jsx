@@ -23,21 +23,14 @@ export default function Step1Connect({ eng }) {
           {t({ ar: 'المفتاح يُولَّد من إعدادات المنشأة، ويُرسل في ترويسة', en: "The key is generated from the account's settings, and is sent in the" })} <span className="mono">API-KEY</span> {t({ ar: 'ترويسة.', en: 'header.' })}
           {' '}{t({ ar: 'يبقى في ذاكرة المتصفح ولا يُخزَّن ولا يُرسل لأي طرف ثالث.', en: "It stays in the browser's memory and is never stored or sent to any third party." })}
         </p>
-        <div className="qbi-grid2">
-          <label className="f">
-            <span>{t({ ar: 'مفتاح الواجهة (API Key)', en: 'API key' })}</span>
-            <SafeInput type="password" value={eng.apiKey}
-              onChange={(e) => eng.setApiKey(e.target.value)} placeholder={t({ ar: 'الصق المفتاح هنا', en: 'Paste the key here' })} />
-          </label>
-          <label className="f">
-            <span>{t({ ar: 'عنوان الواجهة', en: 'API base URL' })}</span>
-            <SafeInput type="text" className="mono" value={eng.baseUrl} onChange={(e) => eng.setBaseUrl(e.target.value)} />
-          </label>
-        </div>
+        {/* [إصلاح] حقلا "عنوان الواجهة"/"وسيط CORS" حُذفا من الواجهة الافتراضية —
+            الاتصال يمر الآن تلقائياً عبر وكيل الخادم المشترك بالمشروع
+            (functions/api/qoyod-proxy، راجع تعليق رأس lib/api.js) بلا أي حاجة
+            لإعداد يدوي، بنفس بساطة أدوات رفع المنتجات/فواتير المبيعات تماماً. */}
         <label className="f">
-          <span>{t({ ar: 'وسيط CORS (اختياري — يُسبق العنوان عند تشغيل الأداة من المتصفح مباشرة)', en: 'CORS proxy (optional — prefixed to the URL when the tool runs directly in the browser)' })}</span>
-          <SafeInput type="text" className="mono" value={eng.proxy}
-            onChange={(e) => eng.setProxy(e.target.value)} placeholder="http://localhost:8080/" />
+          <span>{t({ ar: 'مفتاح الواجهة (API Key)', en: 'API key' })}</span>
+          <SafeInput type="password" value={eng.apiKey}
+            onChange={(e) => eng.setApiKey(e.target.value)} placeholder={t({ ar: 'الصق المفتاح هنا', en: 'Paste the key here' })} />
         </label>
 
         {/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط بقية أدوات API بالمشروع

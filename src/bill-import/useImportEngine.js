@@ -99,10 +99,13 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
           : t({ ar: 'تم جلب بيانات المنشأة.', en: "Fetched the account's data." }));
       if (cat.products.length && cat.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) {
+      // [إصلاح] الرسالة القديمة كانت تفترض دومًا سبب CORS وتحيل لحقل "وسيط"
+      // محذوف الآن (الاتصال يمر تلقائيًا عبر وكيل الخادم المشترك — راجع تعليق
+      // رأس lib/api.js) — تُعرض رسالة الخطأ الحقيقية فقط، مع بديل الرفع اليدوي.
       note('api', 'err',
         t({
-          ar: `تعذّر الاتصال: ${e.message}. المتصفح يمنع الاتصال المباشر بواجهة قيود غالباً (CORS) — استخدم وسيطاً محلياً أو ارفع القوائم يدوياً.`,
-          en: `Connection failed: ${e.message}. The browser usually blocks a direct connection to the Qoyod API (CORS) — use a local proxy or upload the lists manually.`,
+          ar: `تعذّر الاتصال: ${e.message}. تأكد من صحة مفتاح API، أو ارفع القوائم يدوياً كبديل.`,
+          en: `Connection failed: ${e.message}. Make sure the API key is correct, or upload the lists manually instead.`,
         }));
       onError && onError(e);
     } finally { setBusy(false); }
