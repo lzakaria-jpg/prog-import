@@ -29,6 +29,14 @@ export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey
     const res = await fetch(url(base, proxy, `/${resource}?page=${page}`), {
       headers: { 'API-KEY': apiKey, Accept: 'application/json' }
     });
+    // [إصلاح خطأ حقيقي شهده المستخدم] Qoyod API يُرجع 404 ("We found nothing")
+    // عند قائمة فارغة (منشأة بلا منتجات/موردين مثلاً) بدل [] — نفس السلوك
+    // الموثَّق والمُصلَح فعلياً بـproduct-upload/io/network.js (fetchAll) —
+    // كان يُرمى هنا كخطأ قاطع فيوقف "جلب بيانات المنشأة" بالكامل حتى لو
+    // مورد واحد فقط فارغ فعلياً (مثال حقيقي: موردون موجودون لكن بلا منتجات
+    // بعد بمنشأة اختبارية). الآن 404 = قائمة فارغة، وأي خطأ آخر (401/500...)
+    // يُرمى كالمعتاد.
+    if (res.status === 404) break;
     if (!res.ok) throw new Error(`${resource}: ${res.status} ${res.statusText}`);
     const j = await res.json();
     const arr = Array.isArray(j) ? j : j[resource] || Object.values(j).find(Array.isArray) || [];
