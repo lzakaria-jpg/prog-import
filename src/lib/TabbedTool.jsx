@@ -1,27 +1,32 @@
 /*
  ============================================================================
-  TabbedTool.jsx — يحوّل أي أداة أحادية النسخة (MergeTool أول تجربة، ثم باقي
-  الأدوات لاحقًا) إلى أداة متعددة التبويبات: كل تبويب = نسخة مستقلة بالكامل
-  من الأداة (حالتها الداخلية الكاملة) لعميل مختلف — طلب صريح من المستخدم
-  (2026-09-14): "من الممكن ان يقوم المستخدم بانشاء اكثر من شجرة حسابات
-  لعميلين او ثلاثة الى عدد غير محدود".
+  TabbedTool.jsx — يحوّل أي أداة أحادية النسخة إلى أداة متعددة التبويبات: كل
+  تبويب = نسخة مستقلة بالكامل من الأداة (حالتها الداخلية الكاملة) لعميل مختلف.
   ============================================================================
-  المبدأ الأساسي: كل تبويب مُركَّب (mounted) دائمًا طالما موجودًا بالقائمة —
-  يُخفى بـdisplay:none لا يُفك تركيبه. هذا نفس الأسلوب المُثبَت أصلاً بـApp.jsx
-  للتنقل بين الأدوات نفسها (راجع تعليقها هناك) — الآن يُطبَّق مستوى أعمق، داخل
-  الأداة الواحدة. النتيجة: عملية شبكة طويلة (إرسال/رفع) بتبويب معيّن لا تتوقف
-  أبدًا سواء انتقل المستخدم لتبويب آخر بنفس الأداة أو لأداة أخرى بالكامل من
-  القائمة الجانبية — بالضبط طلب المستخدم الصريح: "التنقل ما يوقف عمل اي اداة".
+  المبدأ الأساسي: كل تبويب مُركَّب (mounted) دائمًا طالما موجودًا — يُخفى
+  بـdisplay:none لا يُفك تركيبه، فأي عملية شبكة طويلة (إرسال/رفع) لا تتوقف عند
+  التنقل بين التبويبات أو لأداة أخرى.
 
-  عدم استمرار عبر تحديث الصفحة (F5) — قرار صريح من المستخدم (بدون رفريش
-  يكفي) — كل الحالة بالذاكرة فقط (useState عادي)، بلا أي تخزين محلي.
+  [تحسين أداء جوهري 2026-09-14] بلاغ ميداني: "بطء وتعليق عند التنقل/التصفية/
+  البحث... النظام لازم يبقى سريع مع الملفات الكبيرة ومع كل المستخدمين". السبب
+  الأول: النسخة السابقة كانت تمرّر onNameChange/onBusyChange/ref **جديدة
+  (inline) لكل تبويب في كل رندر**، وكل أداة ثقيلة غير مغلَّفة بـmemo — فأي
+  تغيير بشريط التبويبات (تبديل تبويب، تحديث اسم/حالة انشغال) كان يُعيد رندر
+  **كل** نسخ الأدوات المُركَّبة (قد تكون عدة تبويبات × عدة أدوات، كلها ثقيلة)
+  دفعةً واحدة على الخيط الرئيسي — تعليق واضح.
 
-  لا يُعدِّل أي شيء من منطق الأداة الملفوفة (Component) — فقط يستقبل الآن
-  onNameChange/onBusyChange اختياريين (إضافة بحتة، بلا قيمة افتراضية تكسر شيئًا
-  لو تُجوهلا)، وref اختياري لدعم requestStop عند إغلاق تبويب مشغول.
+  الإصلاح: (١) كل تبويب يُغلَّف بـTabPane مُذكَّر (React.memo) حدًّا فاصلاً؛
+  (٢) دوال كل تبويب (onNameChange/onBusyChange/setRef) ثابتة الهوية مدى حياة
+  التبويب (تُنشأ مرة واحدة وتنادي أحدث المعالجات عبر ref)، (٣) style التبديل
+  (display) على الحاوية الخارجية فقط لا داخل TabPane. النتيجة: تبديل التبويب
+  وتحديث الشريط أصبحا O(١) — لا يُعاد رندر أي أداة ثقيلة إطلاقًا؛ كل أداة
+  تُعاد رندرتها فقط من حالتها الداخلية هي (كما لو كانت وحيدة بلا تبويبات).
+
+  عدم استمرار عبر تحديث الصفحة (F5) — قرار صريح من المستخدم — كل الحالة
+  بالذاكرة فقط.
  ============================================================================
 */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X, Loader2 } from "lucide-react";
 import { useLanguage } from "../language.jsx";
 import { showToast } from "./toast.jsx";
@@ -30,6 +35,21 @@ let tabSeq = 0;
 function makeTab(label) {
   return { id: `t${Date.now()}_${++tabSeq}`, label: label || null };
 }
+
+// [تحسين أداء] حدّ فاصل مُذكَّر: طالما Component/componentProps/api ثابتة الهوية
+// (وهي كذلك بالتصميم أدناه)، لا يُعاد رندر هذا المكوّن أبدًا عند إعادة رندر
+// TabbedTool (تبديل تبويب/تحديث شريط) — فتظل الأداة الثقيلة بداخله ساكنة تمامًا
+// ولا تُعاد رندرتها إلا من حالتها الداخلية هي. هذا هو مربط الأداء كله.
+const TabPane = memo(function TabPane({ Component, componentProps, api }) {
+  return (
+    <Component
+      {...componentProps}
+      ref={api.setRef}
+      onNameChange={api.onNameChange}
+      onBusyChange={api.onBusyChange}
+    />
+  );
+});
 
 export default function TabbedTool({ Component, toolKey, defaultTabLabel, componentProps }) {
   const { t, dir } = useLanguage();
@@ -54,11 +74,8 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
   const handleBusyChange = useCallback((id, isBusy) => {
     setBusyIds((prev) => {
       const wasBusy = prev.has(id);
-      // [إضافة] إشعار عائم عند انتهاء عملية كانت شغالة بتبويب غير ظاهر حاليًا —
-      // "غير ظاهر" يشمل: تبويب آخر بنفس الأداة نشط، أو المستخدم انتقل بالكامل
-      // لأداة أخرى بالقائمة الجانبية (لا يمكن معرفة ذلك من هنا بيقين، فنفترض
-      // "غير ظاهر" لأي تبويب ليس النشط حاليًا داخل هذه الأداة — أبسط وأأمن من
-      // إخفاء الإشعار خطأً).
+      // إشعار عائم عند انتهاء عملية كانت شغالة بتبويب غير ظاهر حاليًا (تبويب آخر
+      // نشط بنفس الأداة، أو المستخدم انتقل بالكامل لأداة أخرى بالقائمة الجانبية).
       if (wasBusy && !isBusy && id !== activeIdRef.current) {
         showToast({
           kind: "success",
@@ -70,6 +87,28 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
       return next;
     });
   }, [t, tabTitle]);
+
+  // [تحسين أداء] المعالجات أعلاه تتغيّر هويتها (handleBusyChange يعتمد tabTitle
+  // الذي يتغيّر مع labels) — فلا نمرّرها مباشرة للتبويبات. بدلًا: نحفظ أحدثها
+  // بـref، ودوال كل تبويب الثابتة تنادي أحدث نسخة عبره. فتبقى دوال التبويب
+  // ثابتة الهوية للأبد مع استدعائها دومًا للمنطق الأحدث.
+  const nameHandlerRef = useRef(handleNameChange);
+  const busyHandlerRef = useRef(handleBusyChange);
+  nameHandlerRef.current = handleNameChange;
+  busyHandlerRef.current = handleBusyChange;
+
+  // كائن دوال ثابت لكل تبويب (يُنشأ مرة واحدة، يُخزَّن بـref، يُنظَّف عند الإغلاق).
+  const paneApiRef = useRef({});
+  const getPaneApi = useCallback((id) => {
+    if (!paneApiRef.current[id]) {
+      paneApiRef.current[id] = {
+        setRef: (r) => { refs.current[id] = r; },
+        onNameChange: (name) => nameHandlerRef.current(id, name),
+        onBusyChange: (isBusy) => busyHandlerRef.current(id, isBusy),
+      };
+    }
+    return paneApiRef.current[id];
+  }, []);
 
   const addTab = () => {
     const tab = makeTab();
@@ -90,6 +129,7 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
     setLabels((prev) => { const { [id]: _drop, ...rest } = prev; return rest; });
     setBusyIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     delete refs.current[id];
+    delete paneApiRef.current[id];
   }, []);
 
   const requestClose = (id) => {
@@ -103,7 +143,7 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
     if (!id) return;
     // [حماية] إيقاف فعلي للعملية الجارية قبل الإزالة — لولا هذا تستمر حلقة
     // الإرسال (fetch) تعمل "يتيمة" بالخلفية رغم إغلاق التبويب ظاهريًا (الـpromise
-    // لا يرتبط بدورة حياة React) فتستمر بإنشاء حسابات فعلية بمنشأة العميل دون
+    // لا يرتبط بدورة حياة React) فتستمر بإنشاء بيانات فعلية بمنشأة العميل دون
     // أن يرى المستخدم أي تقدّم أو نتيجة — خطر حقيقي على بيانات محاسبية حقيقية.
     refs.current[id]?.requestStop?.();
     doRemove(id);
@@ -151,13 +191,10 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
 
       <div style={{ flex: 1, minHeight: 0 }}>
         {tabs.map((tb) => (
+          // [تحسين أداء] style التبديل (display) على هذه الحاوية الخارجية فقط —
+          // تغيّره عند تبديل التبويب لا يمسّ TabPane المُذكَّر بداخله إطلاقًا.
           <div key={tb.id} style={{ display: tb.id === activeId ? "block" : "none", height: "100%" }}>
-            <Component
-              {...componentProps}
-              ref={(r) => { refs.current[tb.id] = r; }}
-              onNameChange={(name) => handleNameChange(tb.id, name)}
-              onBusyChange={(isBusy) => handleBusyChange(tb.id, isBusy)}
-            />
+            <TabPane Component={Component} componentProps={componentProps} api={getPaneApi(tb.id)} />
           </div>
         ))}
       </div>
