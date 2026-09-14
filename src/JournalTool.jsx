@@ -599,7 +599,16 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   const [resolvedIds, setResolvedIds] = useState({});
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("all");
+  // [تحسين أداء 2026-09-14] searchInput = ما يكتبه المستخدم فورًا (يحدّث الحقل
+  // بلا تأخير)؛ searchQuery = القيمة المؤجَّلة (debounce 200ms) التي تُشغِّل
+  // التصفية الفعلية. لولا هذا، كل ضغطة زر كانت تُعيد تصفية كل القيود وإعادة
+  // رندر القائمة فورًا — بطء واضح بملف كبير. نفس نمط MergeTool المُثبَت.
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => { setSearchQuery(searchInput); setPage(0); }, 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
   // [إصلاح أقوى] autoComplete="off" وحده لا يكفي — Chrome يتجاوزه فعلياً لحقول يظنها معلومات
   // اتصال (إيميل محفوظ)، بدليل تكرار نفس البلاغ. الحل المضمون عملياً: يبدأ الحقل readOnly
   // (فمتصفحات Chrome لا تعبّي حقلاً كذلك تلقائياً)، ويُزال القيد فور تركيز المستخدم عليه
@@ -847,6 +856,22 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     return out;
   }, [entries, structuralIssuesBySeq, resolvedIds]);
 
+  // [تحسين أداء 2026-09-14] نص البحث لكل قيد يُبنى مرة واحدة فقط عند تغيّر
+  // entries (لا في كل ضغطة بحث). سابقًا كانت التصفية تُعيد بناء سلسلة نصية
+  // كاملة لكل قيد (تشمل كل بنوده) في كل حرف يُكتب — O(قيود × بنود) لكل ضغطة،
+  // بطء شديد بملف كبير. الآن كل ضغطة = فحص substring جاهز فقط.
+  const entrySearchText = useMemo(() => {
+    const map = new Map();
+    (entries || []).forEach((e) => {
+      const text = [
+        e.date, e.desc, e.seq,
+        ...(e.rows || []).map((r) => [r.code, r.name, r.comment, r.debit, r.credit].join(" ")),
+      ].join(" ").toLowerCase();
+      map.set(e.seq, text);
+    });
+    return map;
+  }, [entries]);
+
   const filteredEntries = useMemo(() => {
     if (!entries) return [];
     let result = entries;
@@ -854,16 +879,10 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     else if (filter === "error") result = result.filter((e) => (issuesBySeq[e.seq] || []).length > 0);
     const q = searchQuery.trim().toLowerCase();
     if (q) {
-      result = result.filter((e) => {
-        const text = [
-          e.date, e.desc, e.seq,
-          ...(e.rows || []).map((r) => [r.code, r.name, r.comment, r.debit, r.credit].join(" ")),
-        ].join(" ").toLowerCase();
-        return text.includes(q);
-      });
+      result = result.filter((e) => (entrySearchText.get(e.seq) || "").includes(q));
     }
     return result;
-  }, [entries, filter, issuesBySeq, searchQuery]);
+  }, [entries, filter, issuesBySeq, searchQuery, entrySearchText]);
 
   const totalPages = Math.ceil(filteredEntries.length / PAGE_SIZE);
   const pagedEntries = useMemo(() => {
@@ -1421,12 +1440,12 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
                   autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
                   data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                   readOnly={!searchUnlocked} onFocus={() => setSearchUnlocked(true)}
-                  value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+                  value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
                   placeholder={t({ ar: "بحث بالرمز، اسم الحساب، التاريخ، التعليق...", en: "Search by code, account name, date, comment..." })}
                   className="w-full rounded-lg border border-[#E2E8F0] bg-[#F1F5F9] py-2 pe-3 ps-9 text-xs text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   style={{ direction: dir }} />
-                {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setPage(0); }} className="absolute end-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#64748B]">
+                {searchInput && (
+                  <button onClick={() => { setSearchInput(""); setSearchQuery(""); setPage(0); }} className="absolute end-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#64748B]">
                     <X size={14} />
                   </button>
                 )}
