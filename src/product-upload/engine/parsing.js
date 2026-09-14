@@ -247,7 +247,15 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
     payload.selling_price = 1;
   }
   if (selectedTaxId) payload.tax_id = selectedTaxId;
-  payload.tax_inclusive = taxInclusive;
+  // [إصلاح خطأ حقيقي] "tax_inclusive" ليس حقلاً موجوداً إطلاقاً بمواصفة Qoyod
+  // الرسمية (ProductInput) — لا بأي endpoint آخر بكل الملف (تأكَّد بالبحث
+  // الكامل). الحقلان الحقيقيان منفصلان لكل سعر على حدة: is_buying_price_inclusive
+  // وis_selling_price_inclusive. المفتاح المُرسَل سابقاً كان يُتجاهَل بصمت من
+  // قيود (حقل غير معروف بالـparams)، فتبديلة المستخدم "شامل الضريبة" بالواجهة
+  // لم يكن لها أي أثر فعلي على أي منتج رُفع منذ إنشاء الأداة. الآن يُطبَّق نفس
+  // اختيار المستخدم على الحقلين الرسميين معاً (سعر الشراء وسعر البيع).
+  payload.is_buying_price_inclusive = taxInclusive;
+  payload.is_selling_price_inclusive = taxInclusive;
   return payload;
 }
 

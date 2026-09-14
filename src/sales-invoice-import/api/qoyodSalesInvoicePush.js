@@ -158,7 +158,13 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
       is_inclusive: norm(r.S) === 'نعم',
     };
     if (!isBlank(r.O)) item.description = norm(r.O);
-    if (!isBlank(r.T)) { item.discount = parseFloat(r.T); item.discount_type = 'percentage'; }
+    // [إصلاح خطأ حقيقي] discount_type="percentage" ليست قيمة مقبولة أبداً —
+    // مواصفة Qoyod الرسمية (OpenAPI) تحصر enum خصم البند بـ"0"/"1"/"percent"/
+    // "amount" حرفياً فقط (لا "percentage" بلاحقة -age) — أي بند بخصم نسبة
+    // مئوية كان سيُرفَض بـ422 من قيود (قيمة enum غير صالحة)، فرع "amount" فقط
+    // كان صحيحاً مصادفةً. لم يكن هذا مشمولاً بالاختبار الحي الموثَّق أعلاه
+    // (الذي غطّى tax_id/tax_percentage فقط، لا حقول الخصم).
+    if (!isBlank(r.T)) { item.discount = parseFloat(r.T); item.discount_type = 'percent'; }
     else if (!isBlank(r.U)) { item.discount = parseFloat(r.U); item.discount_type = 'amount'; }
     // [إصلاح 2026-09-11] فئة ضريبية حقيقية مُختارة صراحةً (V) — راجع resolveTaxEntry
     // وتعليق الرأس أعلاه. فهرس ضرائب حقيقي محمَّل فعلًا (hasRealTaxes) وV غير فارغة

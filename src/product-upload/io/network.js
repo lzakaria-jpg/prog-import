@@ -68,7 +68,17 @@ export async function fetchAll(path, apiKey) {
       if (e.message && e.message.includes("404")) break;
       throw e;
     }
-    const items = res[Object.keys(res)[0]] || [];
+    // [إصلاح خطأ حقيقي] GET /projects تحديداً يرجع مصفوفة خام بلا مفتاح جذر
+    // (مؤكَّد حرفياً من توثيق Qoyod الرسمي: "Response is a raw array (no root
+    // key)") — بخلاف كل مورد آخر مستخدَم بالمشروع (مُغلَّف دومًا بمفتاح جذر:
+    // products/customers/vendors/accounts...). الاستخراج القديم `res[Object.keys(res)[0]]`
+    // كان يفترض دومًا رداً مُغلَّفاً، فمع مصفوفة خام Object.keys(res)[0] يُصبح
+    // "0" (أول فهرس مصفوفة كسلسلة نصية) وres["0"] عنصرها الأول فقط (كائن مشروع
+    // واحد لا مصفوفة) — items.length غير معرَّف فيُكسَر الحلقة فورًا بمصفوفة
+    // فارغة، فتظل المشاريع فارغة دومًا بصمت مهما وُجد بمنشأة العميل فعلياً
+    // (يشمل أداتي استيراد القيود وفواتير المبيعات، كلتاهما تجلبان /projects
+    // عبر fetchAll نفسها). الآن مصفوفة خام تُستخدَم مباشرة كما هي.
+    const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
     if (!items.length) break;
     all.push(...items);
     if (items.length < 100) break;

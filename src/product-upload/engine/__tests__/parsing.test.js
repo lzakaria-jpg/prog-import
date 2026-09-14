@@ -231,8 +231,12 @@ describe("buildProductPayload", () => {
       name_en: "منتج", name_ar: "منتج", sku: "S1",
       product_unit_type_id: 5, category_id: 7, sales_account_id: 1, expense_account_id: 2,
       buying_price: 1, track_quantity: true, purchase_item: true, sale_item: true,
-      selling_price: 1, tax_id: 9, tax_inclusive: true,
+      selling_price: 1, tax_id: 9,
+      is_buying_price_inclusive: true, is_selling_price_inclusive: true,
     });
+    // [الخطأ الحقيقي المُصلَح] "tax_inclusive" ليس حقلاً حقيقياً بمواصفة Qoyod —
+    // لا يجب إرساله إطلاقاً بعد الآن (كان يُتجاهَل بصمت من قيود سابقاً).
+    expect(payload).not.toHaveProperty("tax_inclusive");
   });
   it("لا يضيف selling_price لمنتج غير مخزون أو غير قابل للبيع", () => {
     const p = { name: "منتج", sku: "", is_inventory: false, is_sellable: true, cost: "" };

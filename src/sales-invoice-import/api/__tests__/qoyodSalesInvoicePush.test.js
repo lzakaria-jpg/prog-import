@@ -159,9 +159,12 @@ describe('buildSalesInvoicePayload', () => {
     expect(built.payload.invoice.due_date).toBe('2026-09-15');
   });
 
-  it('نسبة الخصم (T) تُرسَل كـdiscount/discount_type=percentage', () => {
+  it('نسبة الخصم (T) تُرسَل كـdiscount/discount_type=percent', () => {
     const built = buildSalesInvoicePayload([makeRow({ T: '10' })], { productsIndex, locationIdByName });
-    expect(built.payload.invoice.line_items[0]).toMatchObject({ discount: 10, discount_type: 'percentage' });
+    // [إصلاح خطأ حقيقي] enum discount_type الرسمي بمواصفة Qoyod (OpenAPI) هو
+    // "0"/"1"/"percent"/"amount" حرفيًا فقط — لا "percentage" (بلاحقة -age)، كانت
+    // ستُرفَض 422 بأي بند خصم نسبة مئوية فعلي.
+    expect(built.payload.invoice.line_items[0]).toMatchObject({ discount: 10, discount_type: 'percent' });
   });
 
   it('قيمة الخصم (U) تُرسَل كـdiscount/discount_type=amount', () => {
