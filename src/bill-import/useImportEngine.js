@@ -12,8 +12,11 @@ import { autoMap } from './lib/mapping.js';
 import { validateAll, rowErr, rowWarn, groupsOf, groupSubtotal, spreadDocDisc, tplHasDocDisc } from './lib/validation.js';
 import { invoiceGroups, exportInvoices, errorReportBlob, saveBlob, stamp, layout } from './lib/exporter.js';
 import { num, truthy, norm } from './lib/text.js';
+import { pushBillsToQoyod } from './lib/billsPush.js';
+import { buildSendResultsReportBlob } from './lib/billsSendResultsReport.js';
+import { getSavedKeys, saveKeysToStorage } from '../product-upload/io/keyStorage.js';
 
-const EMPTY_CATALOG = { products: [], vendors: [], taxes: [], units: [], locations: [] };
+const EMPTY_CATALOG = { products: [], vendors: [], taxes: [], units: [], locations: [], accounts: [], inventoriesFull: [] };
 
 export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = DEFAULT_BASE, corsProxy = '', onExport, onError } = {}) {
   const { t } = useLanguage();
@@ -27,6 +30,11 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
   const [notes, setNotes] = useState({});           // رسائل الشاشات
 
   const [catalog, setCatalog] = useState(EMPTY_CATALOG);
+  // [إضافة] مصدر catalog الحالي — 'api' فقط يعني أن vendors/products/taxes تحمل
+  // معرّفات (id) حقيقية بقيود (لا null)، وهو الشرط الوحيد لإتاحة "الإرسال عبر
+  // API" (billsPush.js) لاحقاً؛ 'manual' (رفع قوائم يدوية) يُبقي id=null دوماً
+  // فيبقى تصدير الملف اليدوي متاحاً كالمعتاد لكن الإرسال المباشر معطَّلاً.
+  const [catalogSource, setCatalogSource] = useState(null);
   const [tpl, setTpl] = useState(null);
   const templateFile = useRef(null);
 
@@ -41,6 +49,37 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
   const [rows, setRows] = useState([]);
   const [tick, setTick] = useState(0);              // لإعادة الرسم بعد تعديل مباشر
 
+  // [إضافة] حفظ مفتاح API باسم العميل — نفس تخزين localStorage المشترك أصلاً
+  // بين أدوات أخرى بالمشروع (keyStorage.js، مفتاح "qoyod_keys") — يظهر أيضاً
+  // بتلك الأدوات والعكس.
+  const [customerName, setCustomerName] = useState('');
+  const [savedKeys, setSavedKeysState] = useState(() => getSavedKeys());
+  const saveApiKeyForCustomer = useCallback(() => {
+    const name = customerName.trim();
+    if (!name || !apiKey.trim()) return;
+    const next = { ...savedKeys, [name]: apiKey.trim() };
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+  }, [customerName, apiKey, savedKeys]);
+  const loadSavedApiKey = useCallback((name) => {
+    if (savedKeys[name]) { setApiKey(savedKeys[name]); setCustomerName(name); }
+  }, [savedKeys]);
+  const removeSavedApiKey = useCallback((name) => {
+    const next = { ...savedKeys };
+    delete next[name];
+    saveKeysToStorage(next);
+    setSavedKeysState(next);
+  }, [savedKeys]);
+
+  // [إضافة] إرسال الفواتير السليمة مباشرة عبر API (POST /bills، billsPush.js)
+  // — بديل/بجانب تنزيل ملف الاستيراد اليدوي (doExport). متاح فقط لو catalogSource
+  // === 'api' (كل المعرّفات الحقيقية اللازمة — مورد/منتج/ضريبة/موقع — متوفرة
+  // فعلياً فقط حين catalog مصدرها الاتصال المباشر، لا رفع قوائم يدوية).
+  const [apiSending, setApiSending] = useState(false);
+  const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
+  const [apiSendResult, setApiSendResult] = useState(null);
+  const apiStoppedRef = useRef({ current: false });
+
   const note = useCallback((k, kind, text) => setNotes((n) => ({ ...n, [k]: text ? { kind, text } : null })), []);
   const fail = useCallback((k, e) => { note(k, 'err', e.message || String(e)); onError && onError(e); }, [note, onError]);
 
@@ -51,6 +90,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
     try {
       const cat = await fetchCatalog({ base: baseUrl, proxy, apiKey: apiKey.trim() }, tpl);
       setCatalog(cat);
+      setCatalogSource('api');
       const warns = (cat.warnings || []);
       // نعرض ما لم يُجلَب فعلًا بدل رسالة نجاح مطلقة تخفي قوائم مُلفَّقة
       note('api', warns.length ? 'warn' : 'ok',
@@ -131,6 +171,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
       if (!next.taxes.length) return note('manual', 'err', t({ ar: 'ارفع القالب المعتمد، أو عرّف ضريبة واحدة بصيغة «الاسم = النسبة».', en: 'Upload the approved template, or define one tax in the form "name = rate".' }));
       if (!next.locations.length) return note('manual', 'err', t({ ar: 'ارفع القالب المعتمد، أو أدخل اسم موقع واحد على الأقل.', en: 'Upload the approved template, or enter at least one location name.' }));
       setCatalog(next);
+      setCatalogSource('manual');
       note('manual', 'ok', t({ ar: 'تم اعتماد القوائم المرفوعة.', en: 'The uploaded lists were adopted.' }));
       if (next.products.length && next.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) { fail('manual', e); }
@@ -263,14 +304,45 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
     onExport && onExport({ kind, filename, blob, invoices: gs.map((g) => g.ref), usedTemplate });
   }, [groups, rows, tpl, note, onExport, t]);
 
+  // فواتير سليمة 100% فقط (بلا أي خطأ مانع) — نفس شرط تفعيل "تحميل الفواتير
+  // الصحيحة فقط" الحالي بالضبط (kind==='valid' بـdoExport أعلاه).
+  const sendableGroups = useMemo(() => groups.filter((g) => !g.bad), [groups]);
+  const canSendViaApi = catalogSource === 'api';
+
+  const pushViaApi = useCallback(async () => {
+    if (!sendableGroups.length) return;
+    apiStoppedRef.current.current = false;
+    setApiSending(true);
+    setApiSendProgress({ current: 0, total: sendableGroups.length });
+    setApiSendResult(null);
+    const result = await pushBillsToQoyod(sendableGroups, apiKey, {
+      catalog, baseUrl, proxy,
+      onProgress: (current, total) => setApiSendProgress({ current, total }),
+      stoppedRef: apiStoppedRef.current,
+    });
+    setApiSending(false);
+    setApiSendResult(result);
+  }, [sendableGroups, apiKey, catalog, baseUrl, proxy]);
+
+  const stopApiSend = useCallback(() => { apiStoppedRef.current.current = true; }, []);
+
+  const downloadApiSendResults = useCallback(async () => {
+    if (!apiSendResult) return;
+    const blob = await buildSendResultsReportBlob(sendableGroups, apiSendResult.entries, t);
+    saveBlob(blob, `qoyod-bills-send-results-${stamp()}.xlsx`);
+  }, [apiSendResult, sendableGroups, t]);
+
   return {
     // حالة
-    step, maxStep, busy, notes, catalog, tpl, templateName: templateFile.current?.name || '',
+    step, maxStep, busy, notes, catalog, catalogSource, tpl, templateName: templateFile.current?.name || '',
     wb, sheetName, aoa, headerRow, headers, map, rows, groups, totalBasis,
     apiKey, baseUrl, proxy,
+    customerName, savedKeys,
+    apiSending, apiSendProgress, apiSendResult,
     // مشتقات
     layoutCols: layout(tpl),
     hasDocDisc: tplHasDocDisc(tpl),
+    sendableGroups, canSendViaApi,
     stats: {
       bad: rows.filter(rowErr).length,
       warn: rows.filter(rowWarn).length,
@@ -279,11 +351,12 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
       badInvoices: groups.filter((g) => g.bad).length
     },
     // أفعال
-    setStep, setApiKey, setBaseUrl, setProxy, setTotalBasis,
+    setStep, setApiKey, setBaseUrl, setProxy, setTotalBasis, setCustomerName,
     connect, loadTemplate, loadManualLists,
+    saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,
     loadClientFile, changeSheet, changeHeaderRow, assign, ignoreColumn, runMatch,
     revalidate, updateRow, setVendorFor, setProductFor, setGroupLocation, setGroupDocDisc, spreadDiscount,
-    doExport,
+    doExport, pushViaApi, stopApiSend, downloadApiSendResults,
     helpers: { rowErr, rowWarn, groupsOf, groupSubtotal }
   };
 }

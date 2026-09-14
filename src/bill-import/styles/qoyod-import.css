@@ -1,82 +1,108 @@
-/* qoyod-import.css — كل تنسيقات الأداة مسبوقة بـ .qbi حتى لا تتعارض مع تنسيقات التطبيق المضيف */
+/* [إعادة تصميم] هوية أداة "مُجهِّز فواتير المشتريات" أُعيد بناؤها بالكامل لتطابق
+   هوية أداتي "تحليل الشجرة واستيرادها" (MergeTool.jsx) و"القيود" (JournalTool.jsx)
+   بصريًا — نفس لوحة الألوان الكحلية الرسمية (tailwind.config.js → theme.colors.qoyod)،
+   نفس خط Cairo (محمَّل عالميًا عبر index.css، متاح هنا بلا أي استيراد إضافي)، نفس
+   درجة انحناء الزوايا الخفيفة والظلال اللطيفة المستخدَمة بالأداتين — نفس المعالجة
+   المطبَّقة سابقًا على sales-invoice-import وproduct-upload (راجع
+   qoyod-sales-import.css/qoyod-product-upload.css لنفس النمط بالضبط). كل أسماء
+   الأصناف (.qbi-*) بقيت كما هي حرفيًا — إعادة تصميم بصري بحت، بلا أي تغيير على
+   منطق عمل الأداة. أُضيفت فقط أصناف جديدة: رأس الأداة الجديد (.qbi-header الحاوية
+   نفسها، بعناصر icon/left/title الجديدة بدل نص مسطّح)، حفظ مفتاح API باسم العميل
+   (.qbi-api-*)، ونافذة نتائج الإرسال عبر API (.qbi-modal.wide، .qbi-send-*) — كل
+   ذلك لميزة "الإرسال المباشر عبر API" الجديدة كليًا بهذا التحديث. */
 
 .qbi {
-  --qbi-paper: #f6f7f9;
+  --qbi-paper: #F1F5F9;
   --qbi-card: #FFFFFF;
-  --qbi-ink: #1f2430;
-  --qbi-ink-2: #6b7280;
-  --qbi-line: #e2e5ea;
-  --qbi-accent: #0f6db8;
-  --qbi-accent-soft: #eef7fd;
-  --qbi-warn: #a86a00;
-  --qbi-warn-soft: #fff6e0;
-  --qbi-err: #c62828;
-  --qbi-err-soft: #fdecec;
-  --qbi-ok: #1c8a4a;
-  --qbi-r: 4px;
+  --qbi-ink: #0F172A;
+  --qbi-ink-2: #64748B;
+  --qbi-ink-3: #94A3B8;
+  --qbi-line: #E2E8F0;
+  --qbi-tint: #F8FAFC;
+
+  --qbi-accent: #162560;        /* qoyod.navy — اللون الكحلي الأساسي */
+  --qbi-accent-dark: #0F1A47;   /* qoyod.navy-dark */
+  --qbi-accent-light: #1E3370;  /* qoyod.navy-light */
+  --qbi-blue: #4A90D9;          /* qoyod.qoyod-accent */
+  --qbi-accent-soft: rgba(22,37,96,.06);
+  --qbi-accent-soft-strong: rgba(22,37,96,.1);
+  --qbi-accent-border: rgba(22,37,96,.35);
+
+  --qbi-ok: #059669; --qbi-ok-soft: rgba(5,150,105,.1); --qbi-ok-border: rgba(5,150,105,.3);
+  --qbi-warn: #B45309; --qbi-warn-soft: rgba(217,119,6,.12); --qbi-warn-border: rgba(217,119,6,.3);
+  --qbi-err: #DC2626; --qbi-err-soft: rgba(220,38,38,.08); --qbi-err-border: rgba(220,38,38,.32);
+
+  --qbi-r: 12px;
+  --qbi-shadow-card: 0 1px 3px rgba(15,23,42,.05);
+  --qbi-shadow-modal: 0 20px 48px rgba(15,23,42,.22);
 
   background: var(--qbi-paper);
   color: var(--qbi-ink);
-  font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
   font-size: 14px;
   line-height: 1.6;
   min-height: 100%;
 }
 
 .qbi *, .qbi *::before, .qbi *::after { box-sizing: border-box; }
-.qbi h1, .qbi h2, .qbi h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.qbi h1, .qbi h2, .qbi h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
 .qbi button, .qbi input, .qbi select, .qbi textarea { font-family: inherit; font-size: inherit; color: inherit; }
 .qbi .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; direction: ltr; unicode-bidi: plaintext; }
 .qbi .err-text { color: var(--qbi-err); }
 
-.qbi-header { background: linear-gradient(135deg,var(--qbi-accent),#0b5590); color: #fff; padding: 18px 24px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-.qbi-header h1 { font-size: 18px; color: #fff; }
-.qbi-header .sub { font-size: 12.5px; color: #e0e8f0; }
+/* [إعادة تصميم] رأس الأداة — نفس تكوين رأس MergeTool.jsx (أيقونة كحلية مربّعة
+   الزوايا خفيفة الانحناء + عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق. */
+.qbi-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.qbi-header-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--qbi-accent); color: #fff; font-size: 20px; box-shadow: var(--qbi-shadow-card); }
+.qbi-header-title { min-width: 0; }
+.qbi-header h1 { font-size: 19px; color: var(--qbi-ink); line-height: 1.35; }
+.qbi-header .sub { font-size: 12.5px; color: var(--qbi-ink-2); margin-top: 2px; }
 .qbi-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 24px 80px; }
 
 /* شريط الخطوات */
-.qbi-steps { display: flex; gap: 2px; margin: 18px 0 22px; flex-wrap: wrap; }
+.qbi-steps { display: flex; gap: 8px; margin: 0 0 22px; flex-wrap: wrap; }
 .qbi-steps button {
-  flex: 1 1 180px; text-align: right; background: #f6f7f9; border: 1px solid var(--qbi-line);
-  border-left: none; padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0;
+  flex: 1 1 180px; text-align: right; background: var(--qbi-card); border: 2px solid var(--qbi-line);
+  border-radius: var(--qbi-r); padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0;
+  box-shadow: var(--qbi-shadow-card); transition: .15s;
 }
-.qbi-steps button:first-child { border-left: 1px solid var(--qbi-line); border-radius: 0 var(--qbi-r) var(--qbi-r) 0; }
-.qbi-steps button:last-child { border-radius: var(--qbi-r) 0 0 var(--qbi-r); }
 .qbi-steps button .n {
-  width: 22px; height: 22px; flex: none; border-radius: 50%; background: #fff;
-  border: 1px solid var(--qbi-line); display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--qbi-tint);
+  border: 1px solid var(--qbi-line); display: grid; place-items: center; font-size: 12px; font-weight: 700;
 }
 .qbi-steps button .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qbi-steps button[aria-selected="true"] { background: #eef7fd; color: #0b5590; border-color: var(--qbi-accent); }
+.qbi-steps button[aria-selected="true"] { background: var(--qbi-accent-soft); color: var(--qbi-accent); border-color: var(--qbi-accent); }
 .qbi-steps button[aria-selected="true"] .n { background: var(--qbi-accent); border-color: var(--qbi-accent); color: #fff; }
 .qbi-steps button[disabled] { opacity: 0.5; cursor: not-allowed; }
-.qbi-steps button.done .n { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); color: var(--qbi-accent); }
+.qbi-steps button.done .n { background: var(--qbi-ok-soft); border-color: var(--qbi-ok); color: var(--qbi-ok); }
 
 /* البطاقات والحقول */
-.qbi-card { background: var(--qbi-card); border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 18px 20px; margin-bottom: 16px; }
-.qbi-card > h2 { font-size: 15px; margin-bottom: 4px; }
+.qbi-card { background: var(--qbi-card); border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--qbi-shadow-card); }
+.qbi-card > h2 { font-size: 15px; margin-bottom: 4px; color: var(--qbi-ink); }
 .qbi-card > .hint { color: var(--qbi-ink-2); font-size: 12.5px; margin: 0 0 14px; }
 .qbi label.f { display: block; margin-bottom: 12px; }
-.qbi label.f > span { display: block; font-size: 12.5px; color: var(--qbi-ink-2); margin-bottom: 4px; }
+.qbi label.f > span { display: block; font-size: 12.5px; color: var(--qbi-ink-2); margin-bottom: 4px; font-weight: 600; }
 .qbi label.inline { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
 .qbi input[type=text], .qbi input[type=password], .qbi input[type=number], .qbi select, .qbi textarea {
-  width: 100%; padding: 8px 10px; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff;
+  width: 100%; padding: 8px 10px; border: 1px solid var(--qbi-line); border-radius: 8px; background: #fff; transition: .15s;
 }
-.qbi input:focus, .qbi select:focus, .qbi textarea:focus { outline: 2px solid var(--qbi-accent); outline-offset: -1px; border-color: var(--qbi-accent); }
+.qbi input:focus, .qbi select:focus, .qbi textarea:focus { outline: none; border-color: var(--qbi-accent); box-shadow: 0 0 0 3px var(--qbi-accent-soft); }
 .qbi-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
 .qbi-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
 
 /* الأزرار */
-.qbi-btn { background: var(--qbi-accent); color: #fff; border: 1px solid var(--qbi-accent); padding: 9px 16px; border-radius: var(--qbi-r); cursor: pointer; font-weight: 500; }
-.qbi-btn:hover { background: #0b5590; }
-.qbi-btn.ghost { background: #fff; color: #0b5590; border-color: var(--qbi-accent); }
-.qbi-btn.ghost:hover { background: #eef7fd; }
-.qbi-btn.dark { background: #1f2430; border-color: #1f2430; }
+.qbi-btn { background: var(--qbi-accent); color: #fff; border: 1px solid var(--qbi-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
+.qbi-btn:hover { background: var(--qbi-accent-dark); border-color: var(--qbi-accent-dark); }
+.qbi-btn.ghost { background: #fff; color: var(--qbi-accent); border-color: var(--qbi-accent); }
+.qbi-btn.ghost:hover { background: var(--qbi-accent-soft); }
+.qbi-btn.dark { background: var(--qbi-ink); border-color: var(--qbi-ink); }
+.qbi-btn.danger { background: #fff; color: var(--qbi-err); border-color: var(--qbi-err); }
+.qbi-btn.danger:hover { background: var(--qbi-err-soft); }
 .qbi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .qbi-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 
 /* منطقة الإفلات */
-.qbi-drop { border: 1.5px dashed var(--qbi-line); border-radius: var(--qbi-r); background: #fbfcfd; padding: 26px; text-align: center; cursor: pointer; color: var(--qbi-ink-2); }
+.qbi-drop { border: 2px dashed var(--qbi-line); border-radius: var(--qbi-r); background: var(--qbi-tint); padding: 26px; text-align: center; cursor: pointer; color: var(--qbi-ink-2); transition: .15s; }
 .qbi-drop:hover, .qbi-drop.over { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); color: var(--qbi-ink); }
 
 /* الشارات والرسائل */
@@ -84,70 +110,98 @@
 .qbi-chips .chip { background: #fff; border: 1px solid var(--qbi-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
 .qbi-chips .chip.ok { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); }
 .qbi-chips .chip.warn { border-color: var(--qbi-warn); color: var(--qbi-warn); }
-.qbi-msg { padding: 10px 12px; border-radius: var(--qbi-r); font-size: 13px; margin: 10px 0; border: 1px solid; }
-.qbi-msg.info { background: var(--qbi-accent-soft); border-color: #BBD9D2; }
-.qbi-msg.warn { background: var(--qbi-warn-soft); border-color: #EBD3A8; }
-.qbi-msg.err { background: var(--qbi-err-soft); border-color: #EFC4BF; }
-.qbi-msg.ok { background: #E7F3EB; border-color: #B7DCC3; }
-.qbi .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; margin: 1px 0; }
-.qbi .b-err { color: var(--qbi-err); border-color: var(--qbi-err); background: #fff; }
-.qbi .b-warn { color: var(--qbi-warn); border-color: var(--qbi-warn); background: #fff; }
-.qbi .b-ok { color: var(--qbi-ok); border-color: #B7DCC3; background: #E7F3EB; }
+.qbi-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin: 10px 0; border: 1px solid; }
+.qbi-msg.info { background: var(--qbi-accent-soft); border-color: var(--qbi-accent-border); }
+.qbi-msg.warn { background: var(--qbi-warn-soft); border-color: var(--qbi-warn-border); color: var(--qbi-warn); }
+.qbi-msg.err { background: var(--qbi-err-soft); border-color: var(--qbi-err-border); color: var(--qbi-err); }
+.qbi-msg.ok { background: var(--qbi-ok-soft); border-color: var(--qbi-ok-border); color: var(--qbi-ok); }
+.qbi .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; margin: 1px 0; font-weight: 600; }
+.qbi .b-err { color: var(--qbi-err); border-color: var(--qbi-err-border); background: var(--qbi-err-soft); }
+.qbi .b-warn { color: var(--qbi-warn); border-color: var(--qbi-warn-border); background: var(--qbi-warn-soft); }
+.qbi .b-ok { color: var(--qbi-ok); border-color: var(--qbi-ok-border); background: var(--qbi-ok-soft); }
 .qbi .count { font-size: 12.5px; color: var(--qbi-ink-2); }
+
+/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط qsv-api- وqpu-key- بالأدوات الأخرى */
+.qbi-api-row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 4px; margin-bottom: 10px; }
+.qbi-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.qbi-api-field span { font-size: 12.5px; color: var(--qbi-ink-2); font-weight: 600; }
+.qbi-api-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.qbi-api-chip { display: inline-flex; align-items: center; gap: 7px; border-radius: 20px; border: 1px solid var(--qbi-line); padding: 4px 12px; font-size: 12px; font-weight: 600; color: var(--qbi-ink-2); background: #fff; }
+.qbi-api-chip.active { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); color: var(--qbi-accent); }
+.qbi-api-chip span:first-child { cursor: pointer; }
+.qbi-api-chip .x { cursor: pointer; color: var(--qbi-err); font-weight: 700; line-height: 1; }
+.qbi-api-chip .x:hover { opacity: .7; }
 
 /* الجداول */
 .qbi-scroll { overflow: auto; max-height: 65vh; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff; }
 .qbi table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .qbi th, .qbi td { border: 1px solid var(--qbi-line); padding: 5px 7px; text-align: right; vertical-align: top; }
-.qbi th { background: #f1f3f6; font-weight: 600; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
-.qbi tbody tr:nth-child(even) td { background: #f8fafc; }
+.qbi th { background: var(--qbi-tint); font-weight: 700; position: sticky; top: 0; z-index: 2; white-space: nowrap; color: var(--qbi-ink); }
+.qbi tbody tr:nth-child(even) td { background: var(--qbi-tint); }
 .qbi tr.r-err td { background: var(--qbi-err-soft) !important; }
 .qbi tr.r-warn td { background: var(--qbi-warn-soft) !important; }
-.qbi td input, .qbi td select { padding: 4px 6px; min-width: 90px; font-size: 12.5px; border-radius: 2px; }
+.qbi td input, .qbi td select { padding: 4px 6px; min-width: 90px; font-size: 12.5px; border-radius: 4px; }
 .qbi td.num input { min-width: 70px; text-align: left; direction: ltr; }
-.qbi td input.derived { background: #eef7fd; border-color: #0f6db8; }
+.qbi td input.derived { background: var(--qbi-accent-soft); border-color: var(--qbi-accent); }
 .qbi .issue-list { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
 .qbi-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .qbi-toolbar .f { margin: 0; }
 .qbi-toolbar .sp { flex: 1; }
 
 /* شريط الحقول وشبكة الربط */
-.qbi-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #fbfcfd; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); }
+.qbi-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--qbi-tint); border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); }
 .qbi-pick .pick-sec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .qbi-pick .fld { background: #fff; border: 1px solid var(--qbi-line); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
-.qbi-pick .fld:hover { border-color: #0f6db8; }
-.qbi-pick .fld .col { font-size: 11px; color: #0f6db8; background: #eef7fd; border-radius: 999px; padding: 0 7px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qbi-pick .fld:hover { border-color: var(--qbi-accent); }
+.qbi-pick .fld .col { font-size: 11px; color: var(--qbi-accent); background: var(--qbi-accent-soft); border-radius: 999px; padding: 0 7px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qbi-pick .fld.req { border-color: var(--qbi-err); color: var(--qbi-err); }
-.qbi-pick .fld.mapped { border-color: #d8ddd6; color: #6b7280; background: #f6f7f9; }
-.qbi-pick .fld.armed { background: #1f2430; color: #fff; border-color: #1f2430; }
+.qbi-pick .fld.mapped { border-color: var(--qbi-line); color: var(--qbi-ink-2); background: var(--qbi-tint); }
+.qbi-pick .fld.armed { background: var(--qbi-ink); color: #fff; border-color: var(--qbi-ink); }
 .qbi-pick .fld.armed .col { background: #ffffff22; color: #fff; }
 .qbi-pick .fld .x { opacity: 0.55; font-weight: 700; }
 .qbi-pick .fld .x:hover { opacity: 1; }
 .qbi-pick-help { font-size: 12.5px; color: var(--qbi-ink-2); margin: 8px 2px 12px; }
 
 .qbi-scroll.arming .qbi-grid th.h-col { cursor: crosshair; }
-.qbi-scroll.arming .qbi-grid th.h-col:hover { background: #0f6db8; color: #fff; }
-.qbi-grid th.h-col { background: #f1f3f6; padding: 0; }
-.qbi-grid th.h-col.assigned { background: #eef7fd; }
+.qbi-scroll.arming .qbi-grid th.h-col:hover { background: var(--qbi-accent); color: #fff; }
+.qbi-grid th.h-col { background: var(--qbi-tint); padding: 0; }
+.qbi-grid th.h-col.assigned { background: var(--qbi-accent-soft); }
 .qbi-grid th.h-col select { border: none; background: transparent; border-radius: 0; padding: 6px 8px; font-size: 12px; font-weight: 600; width: 100%; min-width: 130px; }
-.qbi-grid th.h-col .orig { padding: 3px 8px 6px; font-size: 11.5px; color: #6b7280; font-weight: 400; border-top: 1px solid var(--qbi-line); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.qbi-grid th.h-col .orig { padding: 3px 8px 6px; font-size: 11.5px; color: var(--qbi-ink-2); font-weight: 400; border-top: 1px solid var(--qbi-line); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
 .qbi-grid th.h-col .orig .unmap { color: var(--qbi-err); cursor: pointer; white-space: nowrap; font-size: 11px; }
 .qbi-grid th.h-col .orig .unmap:hover { text-decoration: underline; }
 .qbi-grid td { white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-.qbi-grid td.c-assigned { background: #f0f7fd !important; }
+.qbi-grid td.c-assigned { background: var(--qbi-accent-soft) !important; }
 
 /* اللوحات القابلة للطي */
 .qbi-box { border: 1px solid var(--qbi-line); background: #fff; border-radius: var(--qbi-r); padding: 10px 14px; margin-bottom: 14px; }
 .qbi-box.need { border-color: var(--qbi-warn); background: var(--qbi-warn-soft); }
-.qbi-box summary { cursor: pointer; font-weight: 600; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.qbi-box summary { cursor: pointer; font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .qbi-list { max-height: 170px; overflow: auto; margin: 10px 0; background: #fff; border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 6px 10px; }
 .qbi-list label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
-.qbi-list label b { font-weight: 600; }
+.qbi-list label b { font-weight: 700; }
 
 .qbi-guide { border: 1px solid var(--qbi-line); border-radius: var(--qbi-r); background: #fff; padding: 10px 14px; margin-bottom: 16px; }
-.qbi-guide summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.qbi-guide summary { cursor: pointer; font-weight: 700; font-size: 13.5px; }
 .qbi-guide ul { margin: 10px 0 2px; padding-inline-start: 20px; font-size: 13px; color: var(--qbi-ink-2); }
 .qbi-guide li { margin-bottom: 6px; }
 
 /* القوائم المنسدلة (select) تحافظ على نمط الإدخال الموحد */
 .qbi-grid th.h-col select { background: transparent; color: inherit; }
+
+/* نافذة تأكيد بسيطة (ConfirmDialog) */
+.qbi-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.qbi-modal { background: var(--qbi-card); border-radius: 16px; padding: 22px; max-width: 420px; width: 92%; box-shadow: var(--qbi-shadow-modal); }
+.qbi-modal h3 { margin: 0 0 10px; font-size: 15px; color: var(--qbi-ink); }
+.qbi-modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--qbi-ink); line-height: 1.7; }
+.qbi-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* [إضافة] نافذة نتائج الإرسال عبر API (ApiSendResultsModal) — أوسع من نافذة التأكيد */
+.qbi-modal.wide { max-width: 900px; width: 96%; max-height: 88vh; display: flex; flex-direction: column; }
+.qbi-modal.wide .qbi-modal-scroll { overflow: auto; flex: 1; margin: 0 -4px; padding: 0 4px; }
+.qbi-send-progress { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--qbi-accent-soft); border: 1px solid var(--qbi-accent-border); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px; }
+.qbi-send-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.qbi-send-tab { flex: 1; min-width: 110px; border: 2px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 8px 10px; text-align: center; cursor: pointer; background: #fff; font-family: inherit; transition: .15s; }
+.qbi-send-tab .n { display: block; font-size: 20px; font-weight: 800; }
+.qbi-send-tab .l { font-size: 11.5px; color: var(--qbi-ink-2); }
+.qbi-send-tab.active { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); }

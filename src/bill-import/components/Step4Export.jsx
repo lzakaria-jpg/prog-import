@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import Note from './Note.jsx';
 import { fmtDate, norm } from '../lib/text.js';
 import { buildVendorIndex } from '../lib/matching.js';
 import { useTableVirtualization } from '../../lib/useTableVirtualization.js';
+import ApiSendResultsModal from './ApiSendResultsModal.jsx';
 
 /** الخطوة ٤: إخراج ملف الاستيراد */
 export default function Step4Export({ eng }) {
@@ -11,6 +12,12 @@ export default function Step4Export({ eng }) {
   const gs = eng.groups;
   const good = gs.filter((g) => !g.bad);
   const bad = gs.filter((g) => g.bad);
+  // [إضافة] إرسال مباشر عبر API — راجع تعليق رأس lib/billsPush.js للحمولة
+  // الكاملة وأسباب كل قرار. متاح فقط لو catalogSource==='api' (eng.canSendViaApi)
+  // — معرّفات المورد/المنتج/الضريبة/الموقع الحقيقية غير متوفرة إطلاقاً حين
+  // catalog مصدرها رفع قوائم يدوية.
+  const [showSendModal, setShowSendModal] = useState(false);
+  const handleSendViaApi = () => { setShowSendModal(true); eng.pushViaApi(); };
   const vendorIdx = useMemo(() => buildVendorIndex(eng.catalog.vendors), [eng.catalog.vendors]);
   const v = useTableVirtualization(gs.length);
   const visibleGroups = v.shouldVirtualize ? gs.slice(v.startIndex, v.endIndex) : gs;
@@ -34,8 +41,25 @@ export default function Step4Export({ eng }) {
           <button className="qbi-btn dark" disabled={!gs.length} onClick={() => eng.doExport('all')}>{t({ ar: 'تحميل الملف كاملاً', en: 'Download the full file' })}</button>
           <button className="qbi-btn" disabled={!good.length} onClick={() => eng.doExport('valid')}>{t({ ar: 'تحميل الفواتير الصحيحة فقط', en: 'Download valid invoices only' })}</button>
           <button className="qbi-btn ghost" disabled={!bad.length} onClick={() => eng.doExport('errors')}>{t({ ar: 'تحميل تقرير الأخطاء', en: 'Download the error report' })}</button>
+          {eng.canSendViaApi && (
+            <button className="qbi-btn" style={{ background: 'var(--qbi-ok)', borderColor: 'var(--qbi-ok)' }}
+              disabled={!eng.sendableGroups.length || eng.apiSending} onClick={handleSendViaApi}>
+              🚀 {eng.apiSending
+                ? t({ ar: `جارٍ الإرسال (${eng.apiSendProgress.current}/${eng.apiSendProgress.total})...`, en: `Sending (${eng.apiSendProgress.current}/${eng.apiSendProgress.total})...` })
+                : t({ ar: `إرسال ${eng.sendableGroups.length} فاتورة سليمة عبر API`, en: `Send ${eng.sendableGroups.length} valid bill(s) via API` })}
+            </button>
+          )}
         </div>
+        {!eng.canSendViaApi && (
+          <p className="hint" style={{ marginTop: 6 }}>
+            {t({
+              ar: 'الإرسال المباشر عبر API يتطلب جلب بيانات المنشأة عبر الاتصال المباشر بالخطوة ١ (لا رفع قوائم يدوية) — معرّفات المورد/المنتج/الضريبة/الموقع الحقيقية غير متوفرة إلا بهذا المسار.',
+              en: 'Direct API sending requires fetching the account data via the live connection in step 1 (not manual list uploads) — real vendor/product/tax/location IDs are only available through that path.',
+            })}
+          </p>
+        )}
         <Note note={eng.notes.export} />
+        {showSendModal && <ApiSendResultsModal eng={eng} onClose={() => setShowSendModal(false)} />}
 
         <div className={`qbi-msg ${eng.templateName ? 'info' : 'warn'}`}>
           {eng.templateName

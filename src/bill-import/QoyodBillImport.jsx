@@ -40,9 +40,14 @@ export default function QoyodBillImport({
   return (
     <div className={`qbi ${className}`} dir={dir}>
       {showHeader && (
+        // [إعادة تصميم] رأس بنفس تكوين رأس أداتي الشجرة والقيود (أيقونة كحلية +
+        // عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق — بلا أي تأثير على منطق الأداة.
         <header className="qbi-header">
-          <h1>{t({ ar: 'مُجهِّز فواتير المشتريات', en: 'Purchase Invoice Preparer' })}</h1>
-          <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب الاستيراد المعتمد في قيود', en: "Converts customers' unstructured files into Qoyod's approved import template" })}</div>
+          <div className="qbi-header-icon" aria-hidden="true">📥</div>
+          <div className="qbi-header-title">
+            <h1>{t({ ar: 'مُجهِّز فواتير المشتريات', en: 'Purchase Invoice Preparer' })}</h1>
+            <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب الاستيراد المعتمد في قيود', en: "Converts customers' unstructured files into Qoyod's approved import template" })}</div>
+          </div>
         </header>
       )}
 

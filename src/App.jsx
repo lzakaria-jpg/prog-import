@@ -475,8 +475,11 @@ function AppShell() {
           {can(currentUserRecord, "tool.merge") && (
             <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}><MergeTool /></div>
           )}
+          {/* [إعادة تصميم] نفس معالجة أداتي فواتير المبيعات/رفع المنتجات — showHeader
+              مفعّل الآن (بلا تمرير false) بعد أن صار رأس أداة فواتير المشتريات مطابقًا
+              بصريًا لبقية الأدوات. */}
           {can(currentUserRecord, "tool.bills") && (
-            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport showHeader={false} /></div>
+            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport /></div>
           )}
           {/* [إعادة تصميم] showHeader مفعّل الآن (بلا تمرير false) — رأس الأداة الجديد صار
               مطابقًا بصريًا لرأسَي أداتي الشجرة والقيود (MergeTool/JournalTool)، اللتين
