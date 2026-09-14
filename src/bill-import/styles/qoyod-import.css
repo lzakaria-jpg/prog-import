@@ -105,6 +105,23 @@
 .qbi-drop { border: 2px dashed var(--qbi-line); border-radius: var(--qbi-r); background: var(--qbi-tint); padding: 26px; text-align: center; cursor: pointer; color: var(--qbi-ink-2); transition: .15s; }
 .qbi-drop:hover, .qbi-drop.over { border-color: var(--qbi-accent); background: var(--qbi-accent-soft); color: var(--qbi-ink); }
 
+/* [إضافة 2026-09-14] بطاقات "رفع/جلب" خضراء عند الاكتمال — نفس آلية أداة
+   فواتير المبيعات (qsv-upcard) بأصناف qbi-* متّسقة مع هوية هذه الأداة، طلب
+   صريح من المستخدم: "خلي شكلها زي فواتير المبيعات، مربعات ولما ارفق تصير خضراء". */
+.qbi-grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.qbi-upcard { border: 2px solid var(--qbi-line); border-radius: var(--qbi-r); padding: 16px; background: var(--qbi-card); transition: .15s; }
+.qbi-upcard.required { border-color: var(--qbi-err-border); }
+.qbi-upcard.loaded { border-color: var(--qbi-ok); background: var(--qbi-ok-soft); }
+.qbi-upcard h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--qbi-ink); }
+.qbi-upcard .qbi-drop { padding: 16px; }
+.qbi-tag, .qbi-optional-tag { font-size: 11px; border-radius: 6px; padding: 1px 8px; display: inline-block; margin-bottom: 6px; }
+.qbi-tag { color: #fff; background: var(--qbi-err); }
+.qbi-upcard.loaded .qbi-tag { background: var(--qbi-ok); }
+.qbi-optional-tag { color: var(--qbi-ink-2); background: var(--qbi-line); }
+.qbi-status-line { font-size: 12px; margin-top: 8px; color: var(--qbi-ink-2); }
+.qbi-upcard.loaded .qbi-status-line { color: var(--qbi-ok); font-weight: 600; }
+.qbi-actions-bar { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+
 /* الشارات والرسائل */
 .qbi-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .qbi-chips .chip { background: #fff; border: 1px solid var(--qbi-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }

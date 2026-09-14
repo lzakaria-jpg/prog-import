@@ -4,16 +4,40 @@ import DropZone from './DropZone.jsx';
 import Note from './Note.jsx';
 import { SafeInput, SafeTextarea } from '../../lib/SafeInput.jsx';
 
+// [إعادة تصميم 2026-09-14] طلب صريح من المستخدم: "خلي شكلها زي فواتير
+// المبيعات — مربعات، ولما ارفق فيها تصير خضراء، ولو عملت API ما يلزم ارفق
+// ملفات إلا القالب الرسمي وأروح للخطوة التالية". بطاقة عامة صغيرة (نفس مبدأ
+// UploadCard.jsx بأداة فواتير المبيعات) — required بحد أحمر، loaded بحد
+// وخلفية خضراء. لا تغيير على أي منطق جلب/تحقق — عرض فقط.
+function UpCard({ id, required, title, hint, status, loaded, children }) {
+  const { t } = useLanguage();
+  return (
+    <div className={`qbi-upcard${required ? ' required' : ''}${loaded ? ' loaded' : ''}`} id={id}>
+      {required ? <div className="qbi-tag">{t({ ar: 'إلزامي', en: 'Required' })}</div> : <div className="qbi-optional-tag">{t({ ar: 'اختياري', en: 'Optional' })}</div>}
+      <h4>{title}</h4>
+      <p className="hint">{hint}</p>
+      {children}
+      <div className="qbi-status-line">{status}</div>
+    </div>
+  );
+}
+
 /** الخطوة ١: الاتصال بالواجهة، ورفع القالب المعتمد، وبديل رفع القوائم يدوياً */
 export default function Step1Connect({ eng }) {
   const { t } = useLanguage();
-  const [productsFile, setProductsFile] = useState(null);
-  const [vendorsFile, setVendorsFile] = useState(null);
   const [taxesText, setTaxesText] = useState('ضريبة القيمة المضافة 15% = 15\nمعفاة = 0');
   const [locationsText, setLocationsText] = useState('Main الرئيسي');
 
   const c = eng.catalog;
   const noBuy = c.products.filter((p) => p.purchasable === false || p.active === false).length;
+
+  // [إضافة] رفع/تطبيق حقل واحد فقط فورًا عند اختيار الملف (بدل زر "اعتماد"
+  // جماعي واحد) — نفس دالة loadManualLists الموجودة أصلاً بلا أي تعديل على
+  // منطقها أو شروط التحقق بداخلها (لازالت تتطلب ضرائب/مواقع صالحة — من القالب
+  // لو مرفوع، وإلا من الحقلين تحت)، فقط تُستدعى لحقل واحد بدل دفعة واحدة.
+  const applyProducts = (file) => eng.loadManualLists({ productsFile: file, vendorsFile: null, taxesText, locationsText });
+  const applyVendors = (file) => eng.loadManualLists({ productsFile: null, vendorsFile: file, taxesText, locationsText });
+  const applyTaxesLocations = () => eng.loadManualLists({ productsFile: null, vendorsFile: null, taxesText, locationsText });
 
   return (
     <section>
@@ -23,19 +47,12 @@ export default function Step1Connect({ eng }) {
           {t({ ar: 'المفتاح يُولَّد من إعدادات المنشأة، ويُرسل في ترويسة', en: "The key is generated from the account's settings, and is sent in the" })} <span className="mono">API-KEY</span> {t({ ar: 'ترويسة.', en: 'header.' })}
           {' '}{t({ ar: 'يبقى في ذاكرة المتصفح ولا يُخزَّن ولا يُرسل لأي طرف ثالث.', en: "It stays in the browser's memory and is never stored or sent to any third party." })}
         </p>
-        {/* [إصلاح] حقلا "عنوان الواجهة"/"وسيط CORS" حُذفا من الواجهة الافتراضية —
-            الاتصال يمر الآن تلقائياً عبر وكيل الخادم المشترك بالمشروع
-            (functions/api/qoyod-proxy، راجع تعليق رأس lib/api.js) بلا أي حاجة
-            لإعداد يدوي، بنفس بساطة أدوات رفع المنتجات/فواتير المبيعات تماماً. */}
         <label className="f">
           <span>{t({ ar: 'مفتاح الواجهة (API Key)', en: 'API key' })}</span>
           <SafeInput type="password" value={eng.apiKey}
             onChange={(e) => eng.setApiKey(e.target.value)} placeholder={t({ ar: 'الصق المفتاح هنا', en: 'Paste the key here' })} />
         </label>
 
-        {/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط بقية أدوات API بالمشروع
-            (localStorage مشترك، keyStorage.js) — يوفّر إعادة الاتصال السريع لعميل
-            سبق التعامل معه بلا لصق المفتاح من جديد. */}
         <div className="qbi-api-row">
           <div className="qbi-api-field" style={{ flex: '1 1 200px' }}>
             <span>{t({ ar: 'اسم العميل (للحفظ)', en: 'Customer name (to save)' })}</span>
@@ -74,60 +91,81 @@ export default function Step1Connect({ eng }) {
         ) : null}
       </div>
 
-      <div className="qbi-card">
-        <h2>{t({ ar: 'قالب قيود المعتمد', en: "Qoyod's approved template" })}</h2>
-        <p className="hint">
-          {t({
-            ar: 'نزّل القالب من صفحة استيراد الفواتير في حساب العميل وارفعه هنا. تُقرأ منه القوائم المنسدلة كما هي: المواقع، الضرائب، حسابات وفئات خصم المستند، ووحدات التحويل — ويُكتب الملف النهائي داخله دون تغيير تنسيقه.',
-            en: "Download the template from the invoice import page in the customer's account and upload it here. Its dropdown lists are read as-is: locations, taxes, document-discount accounts and categories, and conversion units — and the final file is written inside it without changing its formatting.",
-          })}
-        </p>
-        <DropZone accept=".xlsx" label={t({ ar: 'اسحب ملف القالب هنا أو انقر للاختيار', en: 'Drag the template file here or click to choose' })} onFile={eng.loadTemplate} />
-        <Note note={eng.notes.tpl} />
-        {eng.tpl && (
-          <div className="qbi-chips">
-            <span className={`chip ${eng.tpl.locations.length ? 'ok' : ''}`}>{t({ ar: 'المواقع', en: 'Locations' })} <b>{eng.tpl.locations.length}</b></span>
-            <span className={`chip ${eng.tpl.taxes.length ? 'ok' : ''}`}>{t({ ar: 'الضرائب', en: 'Taxes' })} <b>{eng.tpl.taxes.length}</b></span>
-            <span className={`chip ${eng.tpl.units.length ? 'ok' : ''}`}>{t({ ar: 'وحدات التحويل', en: 'Conversion units' })} <b>{eng.tpl.units.length}</b></span>
-            <span className={`chip ${eng.tpl.discAccounts.length ? 'ok' : ''}`}>{t({ ar: 'حسابات خصم المستند', en: 'Document-discount accounts' })} <b>{eng.tpl.discAccounts.length}</b></span>
-            <span className={`chip ${eng.tpl.discTaxes.length ? 'ok' : ''}`}>{t({ ar: 'فئات ضريبة الخصم', en: 'Discount tax categories' })} <b>{eng.tpl.discTaxes.length}</b></span>
-          </div>
+      {/* [إعادة تصميم] القالب/المنتجات/الموردون كبطاقات — تصير خضراء تلقائيًا
+          سواء جاءت البيانات عبر API أو رفع يدوي. لو الاتصال عبر API نجح، هذه
+          البطاقات تصير جاهزة (خضراء) من تلقاء نفسها بلا أي رفع إضافي — القالب
+          فقط يبقى مطلوبًا رفعه دائمًا (لا بديل API له، راجع تعليق قديم عن سبب
+          ذلك بمنطق الأداة). */}
+      <div className="qbi-grid4">
+        <UpCard
+          required
+          title={t({ ar: 'قالب قيود المعتمد', en: "Qoyod's approved template" })}
+          hint={t({ ar: 'نزّله من صفحة استيراد فواتير المشتريات وارفعه هنا. تُقرأ منه القوائم المنسدلة كما هي.', en: "Download it from the purchase-invoice import page and upload it here. Its dropdown lists are read as-is." })}
+          loaded={!!eng.tpl}
+          status={eng.tpl
+            ? t({ ar: `تم ✓ — ${eng.tpl.locations.length} موقع، ${eng.tpl.taxes.length} ضريبة`, en: `Done ✓ — ${eng.tpl.locations.length} location(s), ${eng.tpl.taxes.length} tax(es)` })
+            : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' })}
+        >
+          <DropZone accept=".xlsx" label={t({ ar: 'اسحب ملف القالب هنا أو انقر للاختيار', en: 'Drag the template file here or click to choose' })} onFile={eng.loadTemplate} />
+          <Note note={eng.notes.tpl} />
+        </UpCard>
+
+        <UpCard
+          title={t({ ar: 'ملف المنتجات', en: 'Products file' })}
+          hint={t({ ar: 'يُجلب تلقائيًا عبر API أعلاه، أو ارفعه هنا يدويًا (يُقرأ منه عمود «يُشترى؟»).', en: 'Fetched automatically via the API above, or upload it here manually (the "Purchasable?" column is read from it).' })}
+          loaded={c.products.length > 0}
+          status={c.products.length > 0
+            ? t({
+              ar: `تم ✓ — ${c.products.length} منتج${eng.catalogSource === 'api' ? ' (عبر API)' : ''}`,
+              en: `Done ✓ — ${c.products.length} product(s)${eng.catalogSource === 'api' ? ' (via API)' : ''}`,
+            })
+            : t({ ar: 'لم يُجلب/يُرفع بعد', en: 'Not fetched/uploaded yet' })}
+        >
+          <DropZone accept=".xlsx,.xls,.csv" label={t({ ar: 'اسحب ملف المنتجات هنا أو انقر للاختيار', en: 'Drag the products file here or click to choose' })} onFile={applyProducts} />
+        </UpCard>
+
+        <UpCard
+          title={t({ ar: 'ملف الموردين', en: 'Vendors file' })}
+          hint={t({ ar: 'يُجلب تلقائيًا عبر API أعلاه، أو ارفعه هنا يدويًا.', en: 'Fetched automatically via the API above, or upload it here manually.' })}
+          loaded={c.vendors.length > 0}
+          status={c.vendors.length > 0
+            ? t({
+              ar: `تم ✓ — ${c.vendors.length} مورد${eng.catalogSource === 'api' ? ' (عبر API)' : ''}`,
+              en: `Done ✓ — ${c.vendors.length} vendor(s)${eng.catalogSource === 'api' ? ' (via API)' : ''}`,
+            })
+            : t({ ar: 'لم يُجلب/يُرفع بعد', en: 'Not fetched/uploaded yet' })}
+        >
+          <DropZone accept=".xlsx,.xls,.csv" label={t({ ar: 'اسحب ملف الموردين هنا أو انقر للاختيار', en: 'Drag the vendors file here or click to choose' })} onFile={applyVendors} />
+        </UpCard>
+
+        {/* [إعادة تصميم] بطاقة الضرائب/المواقع اليدوية تظهر فقط لو ما رُفع
+            القالب بعد — القالب يملأ الاثنتين فورًا عند رفعه ويجعل هذه البطاقة
+            بلا أثر عمليًا (نفس شرط "يُتجاهل عند رفع القالب" الأصلي بمنطق
+            loadManualLists، هنا فقط نخفيها بدل إظهارها بلا فائدة). */}
+        {!eng.tpl && (
+          <UpCard
+            title={t({ ar: 'الضرائب والمواقع (يدويًا)', en: 'Taxes & locations (manual)' })}
+            hint={t({ ar: 'فقط لو تعذّر رفع القالب أعلاه — سطر لكل ضريبة بصيغة «الاسم = النسبة»، واسم موقع في كل سطر.', en: "Only if you can't upload the template above — one tax per line as \"name = rate\", one location name per line." })}
+            loaded={c.taxes.length > 0 && c.locations.length > 0}
+            status={c.taxes.length > 0 && c.locations.length > 0
+              ? t({ ar: `تم ✓ — ${c.taxes.length} ضريبة، ${c.locations.length} موقع`, en: `Done ✓ — ${c.taxes.length} tax(es), ${c.locations.length} location(s)` })
+              : t({ ar: 'لم يُطبَّق بعد', en: 'Not applied yet' })}
+          >
+            <SafeTextarea rows={2} value={taxesText} onChange={(e) => setTaxesText(e.target.value)} />
+            <SafeTextarea rows={2} value={locationsText} onChange={(e) => setLocationsText(e.target.value)} style={{ marginTop: 6 }} />
+            <button className="qbi-btn ghost" style={{ marginTop: 8 }} onClick={applyTaxesLocations}>
+              {t({ ar: 'تطبيق', en: 'Apply' })}
+            </button>
+          </UpCard>
         )}
       </div>
+      <Note note={eng.notes.manual} />
 
-      <div className="qbi-card">
-        <h2>{t({ ar: 'تحميل القوائم يدوياً', en: 'Upload the lists manually' })}</h2>
-        <p className="hint">
-          {t({
-            ar: 'استخدم هذا إن تعذّر الاتصال المباشر (حظر CORS مثلاً): صدِّر المنتجات والموردين من قيود وارفعهما هنا. يُقرأ من ملف المنتجات عمود «يُشترى؟» لاستبعاد غير القابل للشراء.',
-            en: 'Use this when a direct connection fails (a CORS block, for example): export products and vendors from Qoyod and upload them here. The "Purchasable?" column is read from the products file to exclude non-purchasable ones.',
-          })}
-        </p>
-        <div className="qbi-grid3">
-          <label className="f">
-            <span>{t({ ar: 'ملف المنتجات (xlsx / csv)', en: 'Products file (xlsx / csv)' })}</span>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setProductsFile(e.target.files[0] || null)} />
-          </label>
-          <label className="f">
-            <span>{t({ ar: 'ملف الموردين (xlsx / csv)', en: 'Vendors file (xlsx / csv)' })}</span>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setVendorsFile(e.target.files[0] || null)} />
-          </label>
-        </div>
-        <label className="f">
-          <span>{t({ ar: 'الضرائب — سطر لكل ضريبة بصيغة «الاسم = النسبة» (يُتجاهل عند رفع القالب)', en: 'Taxes — one line per tax in the form "name = rate" (ignored when the template is uploaded)' })}</span>
-          <SafeTextarea rows={3} value={taxesText} onChange={(e) => setTaxesText(e.target.value)} />
-        </label>
-        <label className="f">
-          <span>{t({ ar: 'المواقع (المخازن) — اسم في كل سطر (يُتجاهل عند رفع القالب)', en: 'Locations (warehouses) — one name per line (ignored when the template is uploaded)' })}</span>
-          <SafeTextarea rows={2} value={locationsText} onChange={(e) => setLocationsText(e.target.value)} />
-        </label>
-        <div className="qbi-actions">
-          <button className="qbi-btn ghost"
-            onClick={() => eng.loadManualLists({ productsFile, vendorsFile, taxesText, locationsText })}>
-            {t({ ar: 'اعتماد القوائم المرفوعة', en: 'Adopt the uploaded lists' })}
-          </button>
-        </div>
-        <Note note={eng.notes.manual} />
+      <div className="qbi-actions-bar">
+        <div />
+        <button className="qbi-btn" disabled={!eng.readyForStep2} onClick={() => eng.setStep(2)}>
+          {t({ ar: 'التالي: ملف العميل ←', en: 'Next: client file →' })}
+        </button>
       </div>
     </section>
   );
