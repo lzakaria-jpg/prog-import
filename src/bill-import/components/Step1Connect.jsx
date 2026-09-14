@@ -39,6 +39,31 @@ export default function Step1Connect({ eng }) {
           <SafeInput type="text" className="mono" value={eng.proxy}
             onChange={(e) => eng.setProxy(e.target.value)} placeholder="http://localhost:8080/" />
         </label>
+
+        {/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط بقية أدوات API بالمشروع
+            (localStorage مشترك، keyStorage.js) — يوفّر إعادة الاتصال السريع لعميل
+            سبق التعامل معه بلا لصق المفتاح من جديد. */}
+        <div className="qbi-api-row">
+          <div className="qbi-api-field" style={{ flex: '1 1 200px' }}>
+            <span>{t({ ar: 'اسم العميل (للحفظ)', en: 'Customer name (to save)' })}</span>
+            <SafeInput type="text" value={eng.customerName} onChange={(e) => eng.setCustomerName(e.target.value)}
+              placeholder={t({ ar: 'اسم العميل', en: 'Customer name' })} />
+          </div>
+          <button className="qbi-btn ghost" onClick={eng.saveApiKeyForCustomer} disabled={!eng.customerName.trim() || !eng.apiKey.trim()}>
+            {t({ ar: 'حفظ المفتاح', en: 'Save key' })}
+          </button>
+        </div>
+        {Object.keys(eng.savedKeys || {}).length > 0 && (
+          <div className="qbi-api-chips">
+            {Object.keys(eng.savedKeys).map((name) => (
+              <div key={name} className={`qbi-api-chip${eng.savedKeys[name] === eng.apiKey.trim() ? ' active' : ''}`}>
+                <span onClick={() => eng.loadSavedApiKey(name)}>{name}</span>
+                <span className="x" onClick={() => eng.removeSavedApiKey(name)} title={t({ ar: 'حذف', en: 'Remove' })}>×</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="qbi-actions">
           <button className="qbi-btn" disabled={eng.busy} onClick={eng.connect}>
             {eng.busy ? t({ ar: 'جاري الجلب…', en: 'Fetching…' }) : t({ ar: 'جلب بيانات المنشأة', en: "Fetch the account's data" })}

@@ -28,6 +28,28 @@ export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey
   return out;
 }
 
+// [إضافة] إرسال POST — تُستخدَم فقط من billsPush.js لإنشاء فاتورة مشتريات
+// حقيقية عبر POST /bills. نفس دالة url() أعلاه (تحترم الوسيط proxy الاختياري
+// لهذه الأداة تحديداً بخلاف باقي أدوات المشروع)، فبنية استدعاء واحدة موحّدة
+// للقراءة (getAll) والكتابة (postResource) معاً.
+export async function postResource(resource, body, { base = DEFAULT_BASE, proxy = '', apiKey }) {
+  const res = await fetch(url(base, proxy, `/${resource}`), {
+    method: 'POST',
+    headers: { 'API-KEY': apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const text = await res.text();
+  let json;
+  try { json = text ? JSON.parse(text) : {}; } catch { json = {}; }
+  if (!res.ok) {
+    const msg = json && json.errors
+      ? Object.entries(json.errors).map(([k, v]) => `${k}: ${(Array.isArray(v) ? v : [v]).join(', ')}`).join(' | ')
+      : (typeof json === 'string' ? json : `${res.status} ${res.statusText}`);
+    throw new Error(msg || `${res.status} ${res.statusText}`);
+  }
+  return json;
+}
+
 /** قراءة علم منطقي مهما اختلف اسمه في الاستجابة */
 function flagOf(o, keys) {
   for (const k of keys) {
@@ -67,6 +89,25 @@ export const normTax = (t) => ({
   percent: num(pick(t, 'percent', 'rate', 'value', 'tax_percent'))
 });
 
+// [إضافة] موقع/مخزون بمعرّفه الحقيقي — منفصل عن catalog.locations (أسماء فقط،
+// تُستخدَم لمطابقة قائمة القالب المنسدلة وملف الاستيراد اليدوي، ولا تُمَس هنا
+// إطلاقاً). يُستخدَم فقط من billsPush.js لحل inventory_id الحقيقي عند الإرسال
+// عبر API مباشرة — احتياج جديد كلياً لم يكن له وجود قبل ميزة الإرسال عبر API.
+export const normInventoryFull = (i) => ({
+  id: i.id,
+  name: String(pick(i, 'name', 'name_ar', 'title') || '')
+});
+
+// [إضافة] حساب من شجرة الحسابات بمعرّفه الحقيقي — يُستخدَم فقط لحل
+// discount_account_id (حساب خصم المستند) عند الإرسال عبر API مباشرة. GET
+// /accounts مؤكَّد فعلياً عبر استخدامه الحي بأدوات أخرى بالمشروع (شجرة
+// الحسابات/القيود المحاسبية) — نفس المصدر، هنا فقط id+name للمطابقة النصية.
+export const normAccount = (a) => ({
+  id: a.id,
+  code: String(pick(a, 'code') || ''),
+  name: String(pick(a, 'name_ar', 'name', 'name_en') || '')
+});
+
 /**
  * جلب كل ما تحتاجه الأداة. القوائم المنسدلة (المواقع والضرائب) تُفضَّل من القالب
  * حين يكون مرفوعاً، لأن قيمها هي المقبولة حرفياً في ملف الاستيراد.
@@ -79,6 +120,14 @@ export async function fetchCatalog(opts, tpl) {
     units: [],
     locations: [],
     taxes: [],
+    // [إضافة] نسختان بمعرّفات حقيقية (id) — منفصلتان تماماً عن accounts/inventoriesFull
+    // القديمتين (أسماء فقط، تُستخدمان بمطابقة القالب/الملف اليدوي كما كانتا دوماً بلا
+    // أي تغيير). تُستخدَمان فقط من billsPush.js لحل discount_account_id/inventory_id
+    // الحقيقيَين عند الإرسال المباشر عبر API — فشل جلبهما لا يمنع القراءة/المطابقة
+    // اليدوية إطلاقاً، فقط يمنع خيار "الإرسال عبر API" لاحقاً (يبقى ملف الاستيراد
+    // اليدوي متاحاً كالمعتاد).
+    accounts: [],
+    inventoriesFull: [],
     // [إصلاح] كانت أخطاء نقاط النهاية تُبتلَع بـcatch فارغ ثم تُلفَّق قيم بديلة
     // (موقع "Main الرئيسي" وضرائب ثابتة) وتُعرَض الرسالة "تم جلب بيانات المنشأة"
     // كأن كل شيء سليم — فيمرّ التحقق على موقع/ضريبة لا وجود لهما بالمنشأة، ثم
@@ -90,9 +139,16 @@ export async function fetchCatalog(opts, tpl) {
   catch { catalog.units = []; catalog.warnings.push('تعذّر جلب وحدات القياس من المنشأة.'); }
 
   try {
-    catalog.locations = (await getAll('inventories', opts))
-      .map((i) => String(pick(i, 'name', 'name_ar', 'title'))).filter(Boolean);
-  } catch { catalog.locations = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
+    const inv = await getAll('inventories', opts);
+    catalog.locations = inv.map((i) => String(pick(i, 'name', 'name_ar', 'title'))).filter(Boolean);
+    catalog.inventoriesFull = inv.map(normInventoryFull).filter((i) => i.name);
+  } catch { catalog.locations = []; catalog.inventoriesFull = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
+
+  // [إضافة] لا تُضاف لـwarnings (لا تمنع القراءة/التحقق اليدوي بأي حال) — فقط
+  // تبقى accounts فارغة، فيتعذّر لاحقاً حل discount_account_id لأي فاتورة عليها
+  // خصم مستند عند محاولة الإرسال عبر API تحديداً (خطأ واضح حينها من billsPush.js).
+  try { catalog.accounts = (await getAll('accounts', opts)).map(normAccount).filter((a) => a.code || a.name); }
+  catch { catalog.accounts = []; }
 
   let taxes = [];
   for (const ep of ['taxes', 'tax_rates', 'vat_rates']) {
