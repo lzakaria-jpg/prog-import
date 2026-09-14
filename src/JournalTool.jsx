@@ -343,7 +343,10 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                 className="w-32 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
             </label>
           </div>
-          <table className="mb-3 w-full text-xs">
+          {/* [إضافة] غلاف بتمرير أفقي — الجدول 7 أعمدة يفيض عرض شاشة الجوال، وبدون
+              هذا الغلاف كان يوسّع الصفحة كاملة أفقياً بدل التمرير داخل الجدول نفسه. */}
+          <div className="mb-3 overflow-x-auto">
+          <table className="w-full text-xs" style={{ minWidth: 640 }}>
             <thead><tr style={{ color: "#64748B" }}>
               <th className="pb-1 text-start font-medium">{t({ ar: "الرمز", en: "Code" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "اسم الحساب", en: "Account" })}</th>
@@ -394,6 +397,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
               })}
             </tbody>
           </table>
+          </div>
           {issues.some((issue) => (issue.type === "unknown_code" && issue.suggestions?.length) || (issue.type === "parent_account" && issue.suggestions?.length) || (issue.type === "date_format" && issue.suggestedDate)) && (
             <button onClick={() => onApplyAllSuggestions(entry.seq, issues)} className="mb-3 rounded-md px-3 py-1.5 text-xs font-semibold text-white" style={{ background: "#B98227" }}>
               {t({ ar: "تطبيق مقترحات القيد", en: "Apply entry suggestions" })}

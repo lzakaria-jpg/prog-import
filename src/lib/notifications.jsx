@@ -89,7 +89,11 @@ export function NotificationBell({ currentUser, isRTL }) {
 
       {open && (
         <div style={{
-          position: "absolute", bottom: 52, [isRTL ? "left" : "right"]: 0, width: 320, maxHeight: 400,
+          position: "absolute", bottom: 52, [isRTL ? "left" : "right"]: 0,
+          // [إصلاح] 320px ثابت قد يفيض عن حافة الشاشة على جوال ضيق جداً (≤320px)
+          // بما إن هذه اللوحة نفسها منزاحة 16px عن حافة الشاشة أصلاً (bottom:84
+          // بالحاوية الأب). min() يبقيها 320px على أي شاشة أوسع من ذلك بلا تغيير.
+          width: "min(320px, calc(100vw - 32px))", maxHeight: 400,
           background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
           overflow: "hidden", display: "flex", flexDirection: "column",
         }}>

@@ -1041,7 +1041,11 @@ export function ChatPanel({ isOpen, onClose, isRTL, onUnreadChange }) {
     <div
       dir={isRTL ? "rtl" : "ltr"}
       style={{
-        position: "fixed", bottom: 16, [isRTL ? "left" : "right"]: 16, width: 400, height: 600, zIndex: 1000,
+        position: "fixed", bottom: 16, [isRTL ? "left" : "right"]: 16, zIndex: 1000,
+        // [إصلاح] 400×600 ثابتين كانا يفيضان خارج شاشة الجوال (عرض شائع 360-400px)
+        // فيُقتَطع جزء من النافذة أو تظهر خارج حدود الشاشة كليًا. min() يحافظ على
+        // نفس المقاس 400×600 على شاشات سطح المكتب/التابلت بلا أي تغيير.
+        width: "min(400px, calc(100vw - 32px))", height: "min(600px, calc(100vh - 32px))",
         display: "flex", flexDirection: "column", borderRadius: 20, overflow: "hidden",
         boxShadow: "0 12px 48px rgba(22, 37, 96, 0.25), 0 0 0 1px rgba(22, 37, 96, 0.08)",
         fontFamily: "Cairo, sans-serif", background: "#FFFFFF",
