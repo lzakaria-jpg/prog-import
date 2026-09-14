@@ -2,7 +2,7 @@
  * useImportEngine.js — كل حالة الأداة ومنطق تشغيلها في خطّاف واحد.
  * المكونات تعرض فقط؛ لا منطق أعمال داخلها.
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../language.jsx';
 import { fetchCatalog, DEFAULT_BASE } from './lib/api.js';
 import { readTemplate } from './lib/template.js';
@@ -37,6 +37,17 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
   const [catalogSource, setCatalogSource] = useState(null);
   const [tpl, setTpl] = useState(null);
   const templateFile = useRef(null);
+
+  // [إضافة 2026-09-14] جاهزية الانتقال للخطوة 2 — راجع تعليق connect() فوق
+  // لسبب إزالة الشرط القديم (عدد منتجات/موردين). الشرط الفعلي الصحيح هنا: وجود
+  // ضرائب ومواقع صالحة بالكتالوج — يتحقق بصرف النظر عن مصدره (قالب/API/رفع
+  // يدوي)، ويكفي فعليًا لبدء خطوة المطابقة (التي لا تحتاج مسبقًا مطابقة كل
+  // منتج/مورد ناجحة، هذا دورها هي بالضبط). مشتقة مباشرة من catalog — بلا حالة
+  // إضافية منفصلة يمكن أن تفلت من المزامنة.
+  const readyForStep2 = catalog.taxes.length > 0 && catalog.locations.length > 0;
+  useEffect(() => {
+    if (readyForStep2) setMaxStep((s) => Math.max(s, 2));
+  }, [readyForStep2]);
 
   const [wb, setWb] = useState(null);
   const [sheetName, setSheetName] = useState('');
@@ -84,6 +95,17 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
   const fail = useCallback((k, e) => { note(k, 'err', e.message || String(e)); onError && onError(e); }, [note, onError]);
 
   /* ---------- الخطوة ١ ---------- */
+  // [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: "لم يجلب البيانات
+  // او يظهر لي خيار للانتقال الى الصفحة التالية" — السبب: connect()/loadManualLists
+  // كانا يشترطان products.length && vendors.length معًا (الاثنان غير صفر) قبل
+  // فتح الخطوة التالية تلقائيًا. منشأة عميل جديدة (صفر منتجات أو صفر موردين
+  // بعد) كانت تُعلِّق الأداة كليًا بلا أي طريقة للمتابعة رغم نجاح الجلب/الرفع
+  // فعليًا (الفواتير لا تحتاج مطابقة كل منتج/مورد ناجحة مسبقًا — هذا دور خطوة
+  // المطابقة التالية، لا شرط دخول لها). التصحيح: أُزيل القفز التلقائي القديم من
+  // هنا بالكامل — الجاهزية الآن تُحسَب تفاعليًا (`readyForStep2` تحت) من وجود
+  // ضرائب/مواقع صالحة بالكتالوج (شرط ضروري وكافٍ فعليًا لخطوة المطابقة، يتحقق
+  // بصرف النظر عن مصدره: القالب يملؤه فورًا عند رفعه، وconnect()/loadManualLists
+  // كلاهما يملآنه أيضًا) — بلا أي اعتماد على عدد المنتجات/الموردين إطلاقًا.
   const connect = useCallback(async () => {
     if (!apiKey.trim()) return note('api', 'err', t({ ar: 'أدخل مفتاح الواجهة أولاً.', en: 'Enter the API key first.' }));
     setBusy(true); note('api', '', '');
@@ -97,7 +119,6 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
         warns.length
           ? t({ ar: `تم جلب بيانات المنشأة جزئيًا — ${warns.join(' ')}`, en: `Fetched the account's data partially — ${warns.join(' ')}` })
           : t({ ar: 'تم جلب بيانات المنشأة.', en: "Fetched the account's data." }));
-      if (cat.products.length && cat.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
     } catch (e) {
       // [إصلاح] الرسالة القديمة كانت تفترض دومًا سبب CORS وتحيل لحقل "وسيط"
       // محذوف الآن (الاتصال يمر تلقائيًا عبر وكيل الخادم المشترك — راجع تعليق
@@ -176,7 +197,8 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
       setCatalog(next);
       setCatalogSource('manual');
       note('manual', 'ok', t({ ar: 'تم اعتماد القوائم المرفوعة.', en: 'The uploaded lists were adopted.' }));
-      if (next.products.length && next.vendors.length) { setMaxStep((s) => Math.max(s, 2)); setStep(2); }
+      // [إصلاح خطأ حقيقي] راجع تعليق connect() أعلاه — نفس القفز التلقائي
+      // القديم المشروط بعدد المنتجات/الموردين أُزيل من هنا أيضًا لنفس السبب.
     } catch (e) { fail('manual', e); }
   }, [catalog, tpl, note, fail, t]);
 
@@ -337,7 +359,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', apiBaseUrl = 
 
   return {
     // حالة
-    step, maxStep, busy, notes, catalog, catalogSource, tpl, templateName: templateFile.current?.name || '',
+    step, maxStep, readyForStep2, busy, notes, catalog, catalogSource, tpl, templateName: templateFile.current?.name || '',
     wb, sheetName, aoa, headerRow, headers, map, rows, groups, totalBasis,
     apiKey, baseUrl, proxy,
     customerName, savedKeys,
