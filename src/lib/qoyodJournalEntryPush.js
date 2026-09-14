@@ -189,14 +189,26 @@ export async function pushJournalEntriesToQoyod(entries, apiKey, opts = {}) {
     } else {
       try {
         const res = await api('POST', '/journal_entries', built.payload, key);
-        const created = res && res.journal_entry;
-        if (created && created.id) {
-          sent++;
-          emit({ seq: entry.seq, status: 'success', id: created.id, totalDebit: created.total_debit, totalCredit: created.total_credit, response: created });
-        } else {
-          failed++;
-          emit({ seq: entry.seq, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف قيد)' });
-        }
+        const created = (res && res.journal_entry) || null;
+        // [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: دفعة 3707 قيد
+        // ظهرت "فشل" بالكامل بهذا التقرير رغم أنها وصلت وأُنشئت بنجاح تام وصحيح
+        // بمنشأة العميل (تأكَّد بنفسه من واجهة قيود مباشرة) — ونظام قيود يُرقّمها
+        // بتسلسله الخاص (يتجاهل أي تلميح تسلسل بالطلب)، على الأرجح لأنه يعالج
+        // دفعات القيود الكبيرة بشكل غير متزامن (queued بالخلفية). الكود القديم
+        // كان يشترط journal_entry.id صريحاً بالرد الفوري ليُعتبر القيد ناجحاً —
+        // فمع هذا النمط يفشل الشرط لكل قيد رغم نجاح الإنشاء الفعلي 100%. التصحيح:
+        // أي رد HTTP ناجح (2xx — لم يُرمَ استثناء من api() أصلاً) يُعتبر نجاحاً
+        // بصرف النظر عن وجود id صريح بالرد الفوري؛ الفشل الحقيقي (بيانات غير
+        // صالحة، حساب غير موجود...) يصل دومًا كخطأ HTTP غير 2xx (422 حسب
+        // JournalEntryInput بالمواصفة الرسمية) فيُلتقَط أصلاً بكتلة catch تحت،
+        // لا بهذا الفرع — لا خطر بتحويل فشل حقيقي إلى نجاح زائف.
+        sent++;
+        emit({
+          seq: entry.seq, status: 'success',
+          id: created?.id ?? (typeof res?.id === 'number' ? res.id : null),
+          totalDebit: created?.total_debit, totalCredit: created?.total_credit,
+          response: created || res || {},
+        });
       } catch (e) {
         failed++;
         emit({ seq: entry.seq, status: 'error', reason: e.message || String(e) });

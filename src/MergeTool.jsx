@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import * as XLSX from "xlsx";
 import * as d3 from "d3";
 import {
@@ -1632,7 +1632,13 @@ export function repairLevels(rows, ctx) {
 // المكوّن الرئيسي للتطبيق
 // =====================================================================================
 
-export function MergeTool() {
+// [إضافة 2026-09-14] forwardRef + onNameChange/onBusyChange — دعم "التبويبات
+// المتعددة داخل الأداة" (TabbedTool.jsx): إضافتان اختياريتان بحتتان، بلا قيمة
+// افتراضية تُغيّر أي سلوك لو تُجوهلتا (الاستخدام المباشر <MergeTool/> بلا غلاف
+// يبقى يعمل بالضبط كما كان). لا تعديل على أي منطق داخلي — فقط استمع لحالتين
+// موجودتين أصلاً (customerName/sending) وبلّغهما لأعلى، وعرّف requestStop لإيقاف
+// إرسال جارٍ فعليًا لو المستخدم أغلق تبويبه (راجع تعليق TabbedTool.jsx).
+export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyChange } = {}, ref) {
   const { t, dir, lang } = useLanguage();
   const { currentUser } = useAuth();
   const [file1, setFile1] = useState(null);
@@ -1948,6 +1954,12 @@ export function MergeTool() {
   };
 
   const stopSending = () => { sendStopRef.current.current = true; };
+
+  // [إضافة 2026-09-14] راجع تعليق forwardRef أعلى الملف — تبليغ الغلاف (لو
+  // موجود) باسم العميل وحالة الانشغال، وإتاحة إيقاف قسري عند إغلاق التبويب.
+  useEffect(() => { onNameChange && onNameChange(customerName); }, [customerName, onNameChange]);
+  useEffect(() => { onBusyChange && onBusyChange(busy || sending); }, [busy, sending, onBusyChange]);
+  useImperativeHandle(ref, () => ({ requestStop: stopSending }), []);
 
   const ROWS_PER_PAGE = 100;
   const [visibleCount, setVisibleCount] = useState(ROWS_PER_PAGE);
@@ -2791,7 +2803,7 @@ export function MergeTool() {
       </div>
     </div>
   );
-}
+});
 
 // =====================================================================================
 // مكوّنات فرعية صغيرة

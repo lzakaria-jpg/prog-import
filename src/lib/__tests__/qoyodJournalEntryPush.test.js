@@ -145,6 +145,32 @@ describe('pushJournalEntriesToQoyod', () => {
     expect(entries).toEqual([{ seq: '1', status: 'success', id: 123, totalDebit: '100.00', totalCredit: '100.00', response: { id: 123, total_debit: '100.00', total_credit: '100.00' } }]);
   });
 
+  // [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: دفعة 3707 قيد
+  // ظهرت "فشل" بالكامل بالتقرير رغم إنشائها بنجاح تام بمنشأة العميل — الرد
+  // الفوري لبعض دفعات القيود الكبيرة يصل 200 ناجحاً لكن بلا journal_entry.id
+  // صريح (على الأرجح معالجة غير متزامنة/queued من قيود).
+  it('[الخطأ الحقيقي] رد 200 ناجح بلا journal_entry.id صريح يُعتبر نجاحاً لا فشلاً', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({}) });
+    const entries = [];
+    const result = await pushJournalEntriesToQoyod([makeEntry()], 'KEY', { chartMap, onEntry: (e) => entries.push(e) });
+    expect(result).toMatchObject({ total: 1, sent: 1, failed: 0, stoppedEarly: false });
+    expect(entries[0]).toMatchObject({ seq: '1', status: 'success', id: null });
+  });
+
+  it('رد 200 ناجح بجسم فارغ تمامًا (بلا نص إطلاقًا) يُعتبر نجاحاً أيضًا', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' });
+    const result = await pushJournalEntriesToQoyod([makeEntry()], 'KEY', { chartMap });
+    expect(result).toMatchObject({ sent: 1, failed: 0 });
+    expect(result.entries[0].status).toBe('success');
+  });
+
+  it('فشل حقيقي (422 من Qoyod) يبقى يُسجَّل كخطأ كالمعتاد — لم يتحوّل لنجاح زائف', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 422, text: async () => JSON.stringify({ errors: { base: ['x'] } }) });
+    const result = await pushJournalEntriesToQoyod([makeEntry()], 'KEY', { chartMap });
+    expect(result).toMatchObject({ sent: 0, failed: 1 });
+    expect(result.entries[0].status).toBe('error');
+  });
+
   it('فشل قيد واحد (رفض API) لا يوقف باقي القيود المستقلة', async () => {
     let call = 0;
     global.fetch = vi.fn().mockImplementation(async () => {
