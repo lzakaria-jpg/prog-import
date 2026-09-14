@@ -469,37 +469,35 @@ function AppShell() {
             كشفه بأدوات المطوّر. التنفيذ الفعلي هنا هو الإنفاذ الحقيقي الوحيد
             المتاح في تطبيق بلا خادم خلفي مستقل (انظر تعليق hasPermission في auth.jsx).
           */}
+          {/* [إضافة 2026-09-14] "التبويبات المتعددة" (طلب صريح من المستخدم: عدة
+              عملاء بنفس الوقت داخل نفس الأداة، بلا توقف أي عملية إرسال جارية
+              عند التنقل بين التبويبات أو حتى الخروج لأداة أخرى) — عُمِّمت على
+              الأدوات الخمس كلها بعد تجربتها أولاً على شجرة الحسابات وحدها.
+              راجع تعليق رأس TabbedTool.jsx للآلية الكاملة. */}
           {can(currentUserRecord, "tool.journal") && (
             <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
-              <JournalTool />
+              <TabbedTool Component={JournalTool} toolKey="journal" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
             </div>
           )}
-          {/* [إضافة 2026-09-14] أول أداة تجرِّب "التبويبات المتعددة" (طلب صريح
-              من المستخدم: عدة شجرات حسابات لعدة عملاء بنفس الوقت، بلا توقف
-              أي عملية إرسال جارية عند التنقل بين التبويبات أو حتى الخروج
-              لأداة أخرى) — راجع تعليق رأس TabbedTool.jsx للآلية الكاملة. */}
           {can(currentUserRecord, "tool.merge") && (
             <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}>
               <TabbedTool Component={MergeTool} toolKey="merge" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
             </div>
           )}
-          {/* [إعادة تصميم] نفس معالجة أداتي فواتير المبيعات/رفع المنتجات — showHeader
-              مفعّل الآن (بلا تمرير false) بعد أن صار رأس أداة فواتير المشتريات مطابقًا
-              بصريًا لبقية الأدوات. */}
           {can(currentUserRecord, "tool.bills") && (
-            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}><QoyodBillImport /></div>
+            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={QoyodBillImport} toolKey="bills" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
           )}
-          {/* [إعادة تصميم] showHeader مفعّل الآن (بلا تمرير false) — رأس الأداة الجديد صار
-              مطابقًا بصريًا لرأسَي أداتي الشجرة والقيود (MergeTool/JournalTool)، اللتين
-              تعرضان رأسيهما دائمًا بلا هذا الخيار أصلًا؛ يوحّد ظهور عنوان الأداة بأعلى الصفحة
-              بدل غياب أي عنوان سابقًا. تعديل سطر واحد بصري بحت، بلا أي أثر على منطق الأداة. */}
           {can(currentUserRecord, "tool.sales") && (
-            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}><InvoiceImportTool /></div>
+            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={InvoiceImportTool} toolKey="sales" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
           )}
-          {/* [إعادة تصميم] نفس معالجة أداة فواتير المبيعات أعلاه — showHeader مفعّل الآن
-              (بلا تمرير false) بعد أن صار رأس أداة المنتجات مطابقًا بصريًا لبقية الأدوات. */}
           {can(currentUserRecord, "tool.products") && (
-            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}><ProductUploadTool /></div>
+            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={ProductUploadTool} toolKey="products" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
           )}
           {visibleNavItems.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#94A3B8", fontSize: 14, textAlign: "center" }}>

@@ -11,8 +11,12 @@
  * @param {Function} [onExport]      يُستدعى بعد كل تصدير: ({kind, filename, blob, invoices, usedTemplate})
  * @param {Function} [onStepChange]  يُستدعى عند تغيّر الخطوة: (stepNumber)
  * @param {Function} [onError]       يُستدعى عند أي فشل: (Error)
+ * @param {Function} [onNameChange]  [إضافة 2026-09-14] يُستدعى عند تغيّر اسم
+ *                                   العميل — دعم "التبويبات المتعددة" (TabbedTool.jsx)
+ * @param {Function} [onBusyChange]  [إضافة 2026-09-14] يُستدعى عند تغيّر حالة
+ *                                   الانشغال (إرسال جارٍ عبر API)
  */
-import { useEffect } from 'react';
+import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { useLanguage } from '../language.jsx';
 import useImportEngine from './useImportEngine.js';
 import StepNav from './components/StepNav.jsx';
@@ -22,7 +26,7 @@ import Step3Review from './components/Step3Review.jsx';
 import Step4Export from './components/Step4Export.jsx';
 import './styles/qoyod-import.css';
 
-export default function QoyodBillImport({
+const QoyodBillImport = forwardRef(function QoyodBillImport({
   apiKey = '',
   apiBaseUrl,
   corsProxy = '',
@@ -30,12 +34,17 @@ export default function QoyodBillImport({
   className = '',
   onExport,
   onStepChange,
-  onError
-}) {
+  onError,
+  onNameChange,
+  onBusyChange,
+}, ref) {
   const { t, dir } = useLanguage();
   const eng = useImportEngine({ apiKey, apiBaseUrl, corsProxy, onExport, onError });
 
   useEffect(() => { onStepChange && onStepChange(eng.step); }, [eng.step, onStepChange]);
+  useEffect(() => { onNameChange && onNameChange(eng.customerName); }, [eng.customerName, onNameChange]);
+  useEffect(() => { onBusyChange && onBusyChange(eng.apiSending); }, [eng.apiSending, onBusyChange]);
+  useImperativeHandle(ref, () => ({ requestStop: eng.stopApiSend }), [eng.stopApiSend]);
 
   return (
     <div className={`qbi ${className}`} dir={dir}>
@@ -75,4 +84,6 @@ export default function QoyodBillImport({
       </div>
     </div>
   );
-}
+});
+
+export default QoyodBillImport;

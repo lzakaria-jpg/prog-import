@@ -22,11 +22,33 @@ export const DEFAULT_BASE = '/api/qoyod-proxy';
 const url = (base, proxy, path) =>
   (proxy ? proxy.replace(/\/$/, '') + '/' : '') + base.replace(/\/$/, '') + path;
 
+// [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: "الاداة لا تجلب
+// البيانات نهائي"، زر "جلب بيانات المنشأة" يعلّق على "جاري الجلب…" للأبد رغم
+// تأكيد وجود منتجات/موردين/مشتريات فعلياً بمنشأة العميل. السبب المؤكَّد من
+// مواصفة Qoyod الرسمية (OpenAPI): عدة موارد هنا **لا تدعم الترقيم (pagination)
+// إطلاقاً**، أو تتطلبه بشرط صريح لم يكن مُحقَّقاً:
+//   - GET /vendors: بلا أي معامل page/per_page موثَّق إطلاقاً — يرجع كل
+//     الموردين دفعة واحدة دومًا بصرف النظر عن قيمة page المرسلة.
+//   - GET /accounts: "Pagination is optional (only applied when both page and
+//     per_page are provided)" — إرسال page بمفرده (كما كان هنا) يُبطل الترقيم
+//     كليًا فيرجع كل الحسابات دفعة واحدة أيضًا.
+//   - GET /inventories، GET /product_unit_types، GET /taxes: بلا ترقيم إطلاقاً
+//     ("No pagination" صراحة لـproduct_unit_types).
+// بدون per_page، كان PER_PAGE أدناه غير مُرسَل، فأي مورد من هذه (وأغلب منشآت
+// العملاء الحقيقية فيها أكثر من 15 مورّد/حساب) يُرجع نفس القائمة الكاملة كل
+// مرة — فيظل شرط التوقف القديم (arr.length < 15) لا يتحقق أبدًا، وتُعاد نفس
+// القائمة الكاملة (قد تكون آلاف السطور) 60 مرة متتالية بلا داعٍ — تعليق طويل
+// يبدو للمستخدم "لا يجلب شيئًا نهائيًا". الإصلاح: إرسال per_page صريحًا دومًا
+// (يُفعِّل ترقيم /accounts فعليًا)، + كشف إضافي (نفس أول عنصر بصفحتين متتاليتين
+// = هذا المورد لا يُرقِّم حقًا) يوقف الحلقة فورًا بعد أول طلب لأي مورد من هذه،
+// بدل الانتظار حتى نهاية الـ60 محاولة.
 /** جلب مورد بكل صفحاته */
 export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey }) {
   const out = [];
+  const PER_PAGE = 100;
+  let prevFirstId;
   for (let page = 1; page <= 60; page++) {
-    const res = await fetch(url(base, proxy, `/${resource}?page=${page}`), {
+    const res = await fetch(url(base, proxy, `/${resource}?page=${page}&per_page=${PER_PAGE}`), {
       headers: { 'API-KEY': apiKey, Accept: 'application/json' }
     });
     // [إصلاح خطأ حقيقي شهده المستخدم] Qoyod API يُرجع 404 ("We found nothing")
@@ -40,8 +62,21 @@ export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey
     if (!res.ok) throw new Error(`${resource}: ${res.status} ${res.statusText}`);
     const j = await res.json();
     const arr = Array.isArray(j) ? j : j[resource] || Object.values(j).find(Array.isArray) || [];
+    if (arr.length === 0) break;
+    // مورد لا يُرقِّم فعليًا (راجع التعليق أعلاه) — الصفحة الثانية تُرجع نفس
+    // العنصر الأول بالضبط كالأولى؛ نتوقف فورًا بلا إضافة تكرار.
+    if (page > 1 && arr[0] && arr[0].id !== undefined && arr[0].id === prevFirstId) break;
+    prevFirstId = arr[0] && arr[0].id;
     for (const item of arr) out.push(item); // بلا out.push(...arr) — يتجنب "Maximum call stack size exceeded" لو صفحة واحدة كانت كبيرة جداً
-    if (arr.length === 0 || arr.length < 15) break;
+    // [إصلاح أداء حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ: "وجدت البيانات مقروءة
+    // تمام بعد فترة طويلة... المشكلة بالوقت المستغرق". السبب: مورد بلا ترقيم
+    // فعلي (20100 مورّد بمثال حقيقي) كان يُطلَب **مرتين كاملتين** (صفحة 1 ثم
+    // صفحة 2 لاكتشاف التطابق أعلاه) قبل التوقف — أي ~40 ألف سطر JSON منقولة
+    // ومُحلَّلة بلا أي فائدة إضافية. الآن: لو الصفحة رجعت أكثر من PER_PAGE رغم
+    // طلبنا الصريح per_page=100، فهذا دليل قاطع فوري أن الخادم تجاهل per_page
+    // وأرجع كل شيء دفعة واحدة — نتوقف فورًا بلا أي طلب صفحة ثانية إطلاقاً
+    // (طلب واحد فقط بدل اثنين لأضخم الموارد تحديدًا، حيث يهم الفرق أكثر شيء).
+    if (arr.length > PER_PAGE || arr.length < PER_PAGE) break;
   }
   return out;
 }
@@ -145,9 +180,41 @@ export const normAccount = (a) => ({
 /**
  * جلب كل ما تحتاجه الأداة. القوائم المنسدلة (المواقع والضرائب) تُفضَّل من القالب
  * حين يكون مرفوعاً، لأن قيمها هي المقبولة حرفياً في ملف الاستيراد.
+ *
+ * [إصلاح أداء حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ: "وجدت البيانات مقروءة
+ * تمام بعد فترة طويلة... المشكلة بالوقت المستغرق، أريده سريعاً". كانت كل
+ * الموارد الخمسة (منتجات+موردين معاً، ثم وحدات، ثم مواقع، ثم حسابات، ثم
+ * ضرائب) تُجلَب **بالتتابع** (كل مورد ينتظر انتهاء اللي قبله بالكامل قبل أن
+ * يبدأ) رغم أنها مستقلة تماماً عن بعضها — فوقت الجلب الكلي كان مجموع أوقات
+ * الخمسة (بطيء جداً لمنشأة كبيرة مثل مثال حقيقي: 20100 مورّد). الآن تُجلَب
+ * الخمسة **بالتوازي** (Promise.all) — الوقت الكلي يصير أقرب لأبطأ مورد
+ * واحد فقط، لا مجموعهم جميعاً. لا تغيير إطلاقاً على منطق أي مورد بمفرده
+ * (نفس try/catch، نفس رسائل warnings، نفس سلسلة بدائل الضرائب) — فقط توقيت
+ * التنفيذ صار متزامناً بدل متتابع.
  */
 export async function fetchCatalog(opts, tpl) {
-  const [prods, vends] = await Promise.all([getAll('products', opts), getAll('vendors', opts)]);
+  const fetchTaxes = async () => {
+    for (const ep of ['taxes', 'tax_rates', 'vat_rates']) {
+      try {
+        const t = (await getAll(ep, opts)).map(normTax).filter((t) => t.percent != null);
+        if (t.length) return t;
+      } catch { /* المورد غير متاح في هذه المنشأة */ }
+    }
+    return [];
+  };
+
+  const [[prods, vends], unitsRes, invRes, accountsRes, taxesRes] = await Promise.all([
+    Promise.all([getAll('products', opts), getAll('vendors', opts)]),
+    // [إصلاح خطأ حقيقي] المورد الصحيح فعلياً هو "product_unit_types" لا
+    // "product_units" (مؤكَّد من توثيق Qoyod الرسمي) — كان يُرجع 404 دومًا.
+    getAll('product_unit_types', opts).then((r) => ({ ok: true, data: r })).catch(() => ({ ok: false })),
+    getAll('inventories', opts).then((r) => ({ ok: true, data: r })).catch(() => ({ ok: false })),
+    // [إضافة] فشل accounts لا يمنع القراءة/المطابقة اليدوية إطلاقاً، فقط يمنع
+    // خيار "الإرسال عبر API" لاحقاً (خطأ واضح حينها من billsPush.js).
+    getAll('accounts', opts).then((r) => ({ ok: true, data: r })).catch(() => ({ ok: false })),
+    fetchTaxes(),
+  ]);
+
   const catalog = {
     products: prods.map(normProduct).filter((p) => p.sku || p.name),
     vendors: vends.map(normVendor).filter((v) => v.name || v.ref),
@@ -169,34 +236,18 @@ export async function fetchCatalog(opts, tpl) {
     warnings: []
   };
 
-  // [إصلاح خطأ حقيقي] المورد الصحيح فعلياً هو "product_unit_types" لا
-  // "product_units" (مؤكَّد من توثيق Qoyod الرسمي — لا وجود لمسار "product_units"
-  // إطلاقاً) — كان يُرجع 404 دومًا (يُعامَل الآن كقائمة فارغة بفضل إصلاح getAll
-  // أعلاه، لا كخطأ يوقف الجلب، لكن catalog.units كانت تبقى فارغة دومًا بصمت رغم
-  // وجود وحدات حقيقية بالمنشأة). حقل الاسم الحقيقي "unit_name" لا "name".
-  try { catalog.units = (await getAll('product_unit_types', opts)).map((u) => String(pick(u, 'unit_name', 'name', 'name_ar', 'title'))); }
-  catch { catalog.units = []; catalog.warnings.push('تعذّر جلب وحدات القياس من المنشأة.'); }
+  if (unitsRes.ok) catalog.units = unitsRes.data.map((u) => String(pick(u, 'unit_name', 'name', 'name_ar', 'title')));
+  else { catalog.units = []; catalog.warnings.push('تعذّر جلب وحدات القياس من المنشأة.'); }
 
-  try {
-    const inv = await getAll('inventories', opts);
+  if (invRes.ok) {
     // [إصلاح] "ar_name" لا "name_ar" — راجع تعليق normInventoryFull أعلاه لنفس الإصلاح
-    catalog.locations = inv.map((i) => String(pick(i, 'name', 'ar_name', 'name_ar', 'title'))).filter(Boolean);
-    catalog.inventoriesFull = inv.map(normInventoryFull).filter((i) => i.name);
-  } catch { catalog.locations = []; catalog.inventoriesFull = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
+    catalog.locations = invRes.data.map((i) => String(pick(i, 'name', 'ar_name', 'name_ar', 'title'))).filter(Boolean);
+    catalog.inventoriesFull = invRes.data.map(normInventoryFull).filter((i) => i.name);
+  } else { catalog.locations = []; catalog.inventoriesFull = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
 
-  // [إضافة] لا تُضاف لـwarnings (لا تمنع القراءة/التحقق اليدوي بأي حال) — فقط
-  // تبقى accounts فارغة، فيتعذّر لاحقاً حل discount_account_id لأي فاتورة عليها
-  // خصم مستند عند محاولة الإرسال عبر API تحديداً (خطأ واضح حينها من billsPush.js).
-  try { catalog.accounts = (await getAll('accounts', opts)).map(normAccount).filter((a) => a.code || a.name); }
-  catch { catalog.accounts = []; }
+  catalog.accounts = accountsRes.ok ? accountsRes.data.map(normAccount).filter((a) => a.code || a.name) : [];
 
-  let taxes = [];
-  for (const ep of ['taxes', 'tax_rates', 'vat_rates']) {
-    try {
-      taxes = (await getAll(ep, opts)).map(normTax).filter((t) => t.percent != null);
-      if (taxes.length) break;
-    } catch { /* المورد غير متاح في هذه المنشأة */ }
-  }
+  let taxes = taxesRes;
   if (!taxes.length) {
     const seen = new Map();
     prods.forEach((p) => {

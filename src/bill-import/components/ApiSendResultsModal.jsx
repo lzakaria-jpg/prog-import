@@ -33,7 +33,14 @@ export default function ApiSendResultsModal({ eng, onClose }) {
         {apiSending && (
           <div className="qbi-send-progress">
             <span>{t({ ar: `جارٍ الإرسال: ${apiSendProgress.current} من ${apiSendProgress.total}`, en: `Sending: ${apiSendProgress.current} of ${apiSendProgress.total}` })}</span>
-            <button type="button" className="qbi-btn danger" onClick={stopApiSend}>{t({ ar: 'إيقاف', en: 'Stop' })}</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {/* [إضافة 2026-09-14] راجع نفس الإصلاح بباقي الأدوات — تصغير أثناء
+                  الإرسال بدل إجبار المستخدم على إبقاء الصفحة مفتوحة. */}
+              <button type="button" className="qbi-btn ghost" onClick={onClose} title={t({ ar: 'تصغير — الإرسال يستمر بالخلفية', en: 'Minimize — sending continues in the background' })}>
+                − {t({ ar: 'تصغير', en: 'Minimize' })}
+              </button>
+              <button type="button" className="qbi-btn danger" onClick={stopApiSend}>{t({ ar: 'إيقاف', en: 'Stop' })}</button>
+            </div>
           </div>
         )}
 

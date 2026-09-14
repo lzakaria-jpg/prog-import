@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useLanguage } from '../language.jsx';
 import useSalesInvoiceImportEngine from './useSalesInvoiceImportEngine.js';
@@ -20,10 +20,18 @@ import './styles/qoyod-sales-import.css';
  * @param {object}  props
  * @param {boolean} props.showHeader إظهار الشريط العلوي الداخلي؛ مرّر false عند الدمج داخل
  *                                   تطبيق له شريطه الخاص (هذا ما يستخدمه App.jsx فعليًا).
+ *
+ * [إضافة 2026-09-14] forwardRef + onNameChange/onBusyChange — دعم "التبويبات
+ * المتعددة داخل الأداة" (TabbedTool.jsx)، نفس نمط باقي الأدوات — إضافتان
+ * اختياريتان بحتتان بلا قيمة افتراضية تُغيّر أي سلوك لو تُجوهلتا.
  */
-export default function InvoiceImportTool({ showHeader = true } = {}) {
+const InvoiceImportTool = forwardRef(function InvoiceImportTool({ showHeader = true, onNameChange, onBusyChange } = {}, ref) {
   const { t, dir } = useLanguage();
   const engine = useSalesInvoiceImportEngine();
+
+  useEffect(() => { onNameChange && onNameChange(engine.customerName); }, [engine.customerName, onNameChange]);
+  useEffect(() => { onBusyChange && onBusyChange(engine.apiSendBusy); }, [engine.apiSendBusy, onBusyChange]);
+  useImperativeHandle(ref, () => ({ requestStop: engine.stopApiSend }), [engine.stopApiSend]);
 
   return (
     <div className="qsv-app" dir={dir}>
@@ -61,4 +69,6 @@ export default function InvoiceImportTool({ showHeader = true } = {}) {
       </div>
     </div>
   );
-}
+});
+
+export default InvoiceImportTool;
