@@ -4,7 +4,7 @@ import * as d3 from "d3";
 import {
   Upload, Download, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
   FileSpreadsheet, Sparkles, Copy, Settings2, ArrowRight, Info, Loader2,
-  Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers, Send, KeyRound, StopCircle,
+  Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers, Send, KeyRound, StopCircle, Minus,
 } from "lucide-react";
 import { useLanguage } from "./language";
 import { useAuth } from "./auth";
@@ -29,6 +29,8 @@ function localizeMergeError(msg) {
     return r;
   }
   if (msg.includes("حساب أب مفقود")) return msg.replace('فيه ', 'There are ').replace(' حساب أب مفقود', ' missing parent account(s)').replace(' - اضغط "أنشئ الآباء المفقودة" قبل التنزيل', ' — click "Create missing parents" before downloading');
+  if (msg === "لا يمكن التعديل أثناء الإرسال المباشر عبر API — أوقف الإرسال أولاً من نافذة النتائج لو تحتاج تعديل، ثم أعد الإرسال لاحقًا.")
+    return "You can't edit while a direct API send is running — stop the send from the results window first if you need to edit, then send again afterward.";
   return msg;
 }
 
@@ -1678,6 +1680,20 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   const [sendEntries, setSendEntries] = useState([]);
   const [sendResult, setSendResult] = useState(null);
   const sendStopRef = useRef({ current: false });
+  // [إضافة 2026-09-14] طلب صريح من المستخدم: "لا يمكن للمستخدم التعديل على
+  // البيانات في الشجرة لحين الانتهاء من الرفع او ان يقوم المستخدم بايقاف
+  // العملية". مرجع (ref) لا حالة React عادية - لتجنّب مشكلة قيم قديمة محفوظة
+  // (stale closure) داخل دوال memo-ized بـuseCallback (setRowDeleted تحديدًا)
+  // لا تُعاد بناؤها كل رندر، فقراءة حالة React "sending" مباشرة بداخلها كانت
+  // ستجمّد على قيمتها الأولى للأبد. يُحدَّث فقط من runSendSegment (المصدر
+  // الوحيد لـsetSending بكل الملف) بجانب setSending مباشرة، فيبقى حيًّا فوريًا
+  // دون انتظار إعادة رندر.
+  const sendingGuardRef = useRef(false);
+  const blockedBySending = useCallback(() => {
+    if (!sendingGuardRef.current) return false;
+    setToast({ type: "error", text: "لا يمكن التعديل أثناء الإرسال المباشر عبر API — أوقف الإرسال أولاً من نافذة النتائج لو تحتاج تعديل، ثم أعد الإرسال لاحقًا." });
+    return true;
+  }, []);
   // [إضافة 2026-09-09] "توقف مع خيار" عند فشل حقيقي (غير تكرار، غير إيقاف
   // يدوي): sendRowsToSendRef تحفظ اللقطة الكاملة لهذه الدفعة (لا تتغير بين
   // المقاطع/الاستئناف)، sendProcessedCountRef يتراكم عدد الصفوف التي فعلاً
@@ -1723,6 +1739,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   const [file1ApiError, setFile1ApiError] = useState("");
 
   const fetchFile1FromApi = async (keyOverride) => {
+    if (blockedBySending()) return;
     const key = (keyOverride ?? apiKey).trim();
     if (!key) return;
     setFile1ApiFetching(true);
@@ -1824,6 +1841,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   // (غير تكرار - ذاك أصلاً لا يوقف الحلقة - وغير إيقاف يدوي من المستخدم).
   const runSendSegment = async (rowsSegment) => {
     setSending(true);
+    sendingGuardRef.current = true;
     sendStopRef.current.current = false;
     setSendProgress({ current: 0, total: rowsSegment.length });
     // [إضافة 2026-09-10] entryIndex يطابق كل entry بالصف المصدر لها بنفس الترتيب
@@ -1862,11 +1880,19 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
       setSendPausedForDecision(false);
       const remaining = sendRowsToSendRef.current.slice(sendProcessedCountRef.current);
       if (remaining.length > 0) {
-        await runSendSegment(remaining);
+        await runSendSegment(remaining); // يُعيد ضبط sendingGuardRef=true من جديد بداخلها
+      } else {
+        sendingGuardRef.current = false; // آخر صف بالدفعة، لا مزيد من العمل قادم
       }
       return;
     }
 
+    // [إضافة 2026-09-14] الدفعة "مستقرة" الآن فقط لو لن ينتظر قرار مستخدم
+    // (isGenuineFailure=false: إما اكتملت بنجاح، أو توقف يدوي من المستخدم عبر
+    // زر "إيقاف" - wasManualStop أعلاه). لو توقفت لانتظار قرار (isGenuineFailure
+    // =true)، التعديل يبقى محظورًا لحين اختيار المستخدم أحد الخيارات الثلاثة —
+    // "أوقف الآن والتعديل" (stopAndEditNow تحت) هو ما يفك الحظر فعليًا حينها.
+    sendingGuardRef.current = isGenuineFailure;
     setSendPausedForDecision(isGenuineFailure);
   };
 
@@ -1949,6 +1975,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   // ثم يعيد الإرسال لاحقًا (زر "إرسال المتبقي عبر API" يشمله تلقائيًا لأنه
   // محفوظ apiStatus:"error" لا "sent").
   const stopAndEditNow = () => {
+    sendingGuardRef.current = false; // يفك حظر التعديل — القرار الصريح المطلوب
     setSendPausedForDecision(false);
     setShowSendResults(false);
   };
@@ -1982,6 +2009,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
   const handleFile = async (file, which) => {
+    if (blockedBySending()) return;
     setError("");
     try {
       const wb = await readWorkbookFile(file);
@@ -2003,6 +2031,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   const headerRow2 = file2Rows ? file2Rows[findHeaderRowIndex(file2Rows)] : null;
 
   const runCompare = () => {
+    if (blockedBySending()) return;
     const usingApiFile1 = file1Source === "api" && file1ApiRecords && file1ApiRecords.length > 0;
     if (!usingApiFile1 && (!file1Rows || !mapping1)) return;
     if (!file2Rows || !mapping2) return;
@@ -2097,7 +2126,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   }, [activeNewRows, activeNewCodes]);
 
   const fixMissingParents = () => {
-    if (!results) return;
+    if (!results || blockedBySending()) return;
     const { rows, created } = ensureParentsExist(results, treeMetaRef.current);
     setResults(enforceCategoryInheritance(rows, treeMetaRef.current.tree1Index).rows);
     setToast(created.length > 0
@@ -2106,7 +2135,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   };
 
   const runRepairLevels = () => {
-    if (!results) return;
+    if (!results || blockedBySending()) return;
     const { rows, changed } = repairLevels(results, treeMetaRef.current);
     setResults(enforceCategoryInheritance(rows, treeMetaRef.current.tree1Index).rows);
     setToast({ type: changed > 0 ? "success" : "info", text: changed > 0 ? `تم تصحيح المستوى لـ ${changed} حساب حسب مستوى الأب` : "كل المستويات متطابقة مع الآباء" });
@@ -2167,6 +2196,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
    * mode: "self" = الأب فقط | "cascade" = الأب وكل ذريته | undefined = اسأل إذا له أبناء
    */
   const setRowDeleted = useCallback((id, deletedValue, mode) => {
+    if (blockedBySending()) return;
     const rows = resultsRef.current;
     if (!rows) return;
 
@@ -2201,9 +2231,10 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
       code: targetCode,
       count: descendants.size,
     });
-  }, [collectDescendantIds, applyDelete]);
+  }, [collectDescendantIds, applyDelete, blockedBySending]);
 
   const addChildAccount = (parent) => {
+    if (blockedBySending()) return;
     const newId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setResults((prev) => {
       const fromTree = treeMetaRef.current.siblingCodesByParent?.[parent.code] || [];
@@ -2235,6 +2266,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   };
 
   const updateRow = (id, patch) => {
+    if (blockedBySending()) return;
     setResults((prev) => {
       const nextPatch = { ...patch };
       if (nextPatch.type && TYPE_TO_LEVEL2[nextPatch.type]) {
@@ -2330,6 +2362,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   };
 
   const resetAll = () => {
+    if (blockedBySending()) return;
     setFile1(null); setFile2(null); setFile1Rows(null); setFile2Rows(null); setMapping1(null); setMapping2(null);
     setShowMap1(false); setShowMap2(false); setUseFile2Codes(false); setResults(null); setBusy(false); setError("");
     setCopied(false); setExportText(""); setActiveFilter("all"); setSearchInput(""); setSearchQuery(""); setShowPreCompareConfirm(false); setToast(null);
@@ -2350,7 +2383,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
               <p className="text-sm text-[#64748B]">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
             </div>
           </div>
-           <button onClick={resetAll} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-2 text-xs font-semibold text-[#64748B] shadow-sm transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
+           <button onClick={resetAll} disabled={sending} title={t({ ar: "إعادة التعيين والبدء من الصفر", en: "Reset and start over" })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-[#FFFFFF] px-3 py-2 text-xs font-semibold text-[#64748B] shadow-sm transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw size={14} /> {t({ ar: "إعادة تعيين", en: "Reset" })}</button>
         </div>
 
         {pendingDelete && (
@@ -2439,7 +2472,15 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
               {sending && (
                 <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 text-xs">
                   <span className="font-semibold text-[#0F172A]">{t({ ar: `جارٍ الإرسال: ${sendProgress.current} من ${sendProgress.total}`, en: `Sending: ${sendProgress.current} of ${sendProgress.total}` })}</span>
-                  <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-600 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
+                  <div className="flex items-center gap-2">
+                    {/* [إضافة 2026-09-14] طلب صريح من المستخدم: تصغير النافذة أثناء
+                        الإرسال بدل إجباره على إبقاء الصفحة مفتوحة — الإرسال يستمر
+                        بالخلفية بلا أي تأثير (حلقة الإرسال بالخطّاف مستقلة تمامًا
+                        عن ظهور/إخفاء هذه النافذة، فقط تخفي عرضها). الزر الطافي
+                        بالأسفل (بعد إغلاق sendResult) يعيد فتحها مع تقدّم حي. */}
+                    <button onClick={() => setShowSendResults(false)} title={t({ ar: "تصغير — الإرسال يستمر بالخلفية", en: "Minimize — sending continues in the background" })} className="flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-2 py-1 font-semibold text-[#475569] hover:bg-[#E2E8F0]"><Minus size={13} /></button>
+                    <button onClick={stopSending} className="flex items-center gap-1 rounded-lg border border-red-500/30 px-2 py-1 font-semibold text-red-600 hover:bg-red-500/10"><StopCircle size={13} /> {t({ ar: "إيقاف", en: "Stop" })}</button>
+                  </div>
                 </div>
               )}
 
@@ -2578,12 +2619,24 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
             بلا أي طريقة رجوع. البيانات (sendEntries/sendResult/resultsTab/التحديد)
             كلها محفوظة أصلاً بحالة المكوّن الأعلى (لا تُمسح بإغلاق النافذة نفسها) -
             فإعادة الفتح تعيدها لنفس التبويب وبنفس التعديلات فورًا بلا أي عمل إضافي. */}
-        {!showSendResults && sendResult && (
-          <button onClick={() => setShowSendResults(true)} title={t({ ar: "الرجوع لنتائج آخر إرسال عبر API", en: "Back to the last API send results" })} className="fixed bottom-5 left-5 z-[55] flex items-center gap-2 rounded-full bg-[#162560] px-4 py-3 text-xs font-semibold text-white shadow-2xl hover:bg-[#1c2f7a]">
-            <Send size={16} />
-            {t({ ar: "نتائج الإرسال", en: "Send results" })}
-            {sendResult.failed > 0 && (<span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold">{sendResult.failed}</span>)}
-          </button>
+        {/* [توسيع 2026-09-14] راجع تعليق زر التصغير أعلاه — نفس الأيقونة العائمة
+            تظهر الآن أيضًا أثناء الإرسال الفعلي (لا فقط بعد اكتماله)، بتقدّم حيّ
+            وزر إيقاف مباشر، فيقدر المستخدم يتنقل بحرية بين التبويبات وحتى لأداة
+            أخرى بالكامل والإرسال يستمر — يرجع يشوف حالته أو يوقفه من هنا مباشرة
+            بلا حاجة لفتح النافذة الكاملة من جديد. */}
+        {!showSendResults && (sending || sendResult) && (
+          <div className="fixed bottom-5 left-5 z-[55] flex items-center gap-1.5 rounded-full bg-[#162560] py-2 pl-2 pr-4 text-xs font-semibold text-white shadow-2xl">
+            <button onClick={() => setShowSendResults(true)} title={t({ ar: "فتح نافذة نتائج الإرسال", en: "Open the send results window" })} className="flex items-center gap-2 hover:opacity-90">
+              {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              {sending
+                ? t({ ar: `جارٍ الإرسال: ${sendProgress.current}/${sendProgress.total}`, en: `Sending: ${sendProgress.current}/${sendProgress.total}` })
+                : t({ ar: "نتائج الإرسال", en: "Send results" })}
+              {!sending && sendResult?.failed > 0 && (<span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold">{sendResult.failed}</span>)}
+            </button>
+            {sending && (
+              <button onClick={stopSending} title={t({ ar: "إيقاف الإرسال", en: "Stop sending" })} className="flex items-center rounded-full p-1.5 text-white/80 hover:bg-white/15 hover:text-white"><StopCircle size={14} /></button>
+            )}
+          </div>
         )}
 
         {toast && (
@@ -2705,7 +2758,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
                   <div className="font-mono">{Array.from(missingParentCodes).slice(0, 10).join("، ")}{missingParentCodes.size > 10 ? " ..." : ""}</div>
                   <div className="mt-1">{t({ ar: "رفع الملف بهالحالة راح يُرفض من قيود لأن الحسابات الفرعية تشير لأب غير موجود.", en: "Uploading the file in this state will be rejected by Qoyod because child accounts point to a non-existent parent." })}</div>
                 </div>
-                <button onClick={fixMissingParents} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700"><Wand2 size={14} /> {t({ ar: "أنشئ الآباء المفقودة الآن", en: "Create missing parents now" })}</button>
+                <button onClick={fixMissingParents} disabled={sending} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"><Wand2 size={14} /> {t({ ar: "أنشئ الآباء المفقودة الآن", en: "Create missing parents now" })}</button>
               </div>
             )}
 
@@ -2723,8 +2776,8 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button onClick={() => selectFilter("tree")} className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${activeFilter === "tree" ? "border-blue-700 bg-blue-700 text-white" : "border-[#E2E8F0] bg-[#FFFFFF] text-[#0F172A] hover:border-blue-700 hover:text-blue-700"}`}><GitBranch size={16} /> {t({ ar: "مخطط شجرة الحسابات التفاعلي", en: "Interactive accounts tree diagram" })}</button>
-              <button onClick={fixMissingParents} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-violet-500 hover:text-violet-700"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
-              <button onClick={runRepairLevels} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-blue-700 hover:text-blue-700"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
+              <button onClick={fixMissingParents} disabled={sending} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-violet-500 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"><Wand2 size={16} /> {t({ ar: "فحص وإنشاء الآباء المفقودة", en: "Check and create missing parents" })}</button>
+              <button onClick={runRepairLevels} disabled={sending} className="flex items-center gap-2 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-4 py-2.5 text-sm font-semibold text-[#0F172A] transition hover:border-blue-700 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><Layers size={16} /> {t({ ar: "تصحيح المستويات حسب الأب", en: "Repair levels based on parent" })}</button>
             </div>
 
             {activeFilter === "tree" ? (
@@ -3516,6 +3569,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
   const handleDrop = (targetNode) => {
     setDropMessage(null); setDragOverCode(null);
     if (!draggedCode || !draggedNode) return;
+    if (blockedBySending()) { setDraggedCode(null); return; }
     const targetCode = targetNode.isAnchor ? targetNode.code : targetNode.row.code;
     // [إصلاح 2026-09-04] كل سلسلة التحقق (الفئة الرئيسية، الذرية، المستوى،
     // سقف 7 مستويات) انتقلت لدالة نقية واحدة computeDropValidity، مشتركة مع
