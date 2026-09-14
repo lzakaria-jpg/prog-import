@@ -85,6 +85,11 @@ export const normProduct = (p) => ({
   sku: String(pick(p, 'sku', 'barcode', 'code', 'product_code', 'reference') || ''),
   name: String(pick(p, 'name_ar', 'name', 'name_en', 'title') || ''),
   unit: String(pick(p, 'unit_name', 'unit') || (p.unit && p.unit.name) || ''),
+  // [إضافة] معرّف وحدة المنتج الأساسية الحقيقي (unit_type بـProductResponse
+  // الرسمي — رقم لا نص، مختلف عن حقل "unit" النصي أعلاه) — يُستخدَم فقط من
+  // billsPush.js لتعبية line_items[].unit_id. المنتج المصدره ملف يدوي (id
+  // المنتج نفسه null أصلاً) يبقى بلا unitTypeId (undefined) بلا أي أثر آخر.
+  unitTypeId: typeof p.unit_type === 'number' ? p.unit_type : (num(p.unit_type) ?? undefined),
   taxPercent: num(pick(p, 'tax_percent', 'tax_rate', 'vat')),
   purchasable: flagOf(p, ['is_purchasable', 'purchasable', 'is_purchase', 'can_be_purchased', 'is_bought', 'buy', 'purchase_account_id', 'buying_account_id']),
   active: flagOf(p, ['active', 'is_active', 'enabled', 'status']),
@@ -101,19 +106,30 @@ export const normVendor = (v) => ({
   phone: digitsOnly(pick(v, 'phone_number', 'phone', 'mobile', 'telephone'))
 });
 
+// [إصلاح خطأ حقيقي] الحقل الحقيقي بـGET /taxes الرسمي هو "percentage" لا
+// "percent"/"rate"/"value"/"tax_percent" (مؤكَّد حرفياً من توثيق Qoyod: "Select
+// on percentage and name_en/name_ar") — لم يكن يطابق أي مرشَّح سابق إطلاقاً،
+// فـpercent تبقى null دومًا لكل الضرائب المجلوبة عبر API، فتُستبعَد كلها من
+// catalog.taxes (فلترة .filter(t => t.percent != null) أسفل fetchCatalog)
+// وتحل محلها ضرائب افتراضية ملفَّقة (15%/معفاة) بتحذير — رغم وجود ضرائب حقيقية
+// فعلاً بالمنشأة. "percentage" أُضيف كأول مرشَّح، والبقية أُبقيت احتياطاً بلا ضرر.
 export const normTax = (t) => ({
   id: t.id,
-  name: String(pick(t, 'name', 'name_ar', 'title') || ''),
-  percent: num(pick(t, 'percent', 'rate', 'value', 'tax_percent'))
+  name: String(pick(t, 'name_ar', 'name_en', 'name', 'title') || ''),
+  percent: num(pick(t, 'percentage', 'percent', 'rate', 'value', 'tax_percent'))
 });
 
 // [إضافة] موقع/مخزون بمعرّفه الحقيقي — منفصل عن catalog.locations (أسماء فقط،
 // تُستخدَم لمطابقة قائمة القالب المنسدلة وملف الاستيراد اليدوي، ولا تُمَس هنا
 // إطلاقاً). يُستخدَم فقط من billsPush.js لحل inventory_id الحقيقي عند الإرسال
 // عبر API مباشرة — احتياج جديد كلياً لم يكن له وجود قبل ميزة الإرسال عبر API.
+// [إصلاح] اسم الحقل العربي الحقيقي بـGET /inventories هو "ar_name" (مؤكَّد من
+// توثيق Qoyod الرسمي) لا "name_ar" — أُضيف كمرشَّح إضافي؛ "name" (الإنجليزي)
+// يبقى الأولوية الأولى فلا يتغيّر أي سلوك حالي عملياً (كل منشأة فيها اسم
+// إنجليزي للموقع غالباً)، فقط يُغطّي الحالة النادرة لموقع باسم عربي فقط.
 export const normInventoryFull = (i) => ({
   id: i.id,
-  name: String(pick(i, 'name', 'name_ar', 'title') || '')
+  name: String(pick(i, 'name', 'ar_name', 'name_ar', 'title') || '')
 });
 
 // [إضافة] حساب من شجرة الحسابات بمعرّفه الحقيقي — يُستخدَم فقط لحل
@@ -153,12 +169,18 @@ export async function fetchCatalog(opts, tpl) {
     warnings: []
   };
 
-  try { catalog.units = (await getAll('product_units', opts)).map((u) => String(pick(u, 'name', 'name_ar', 'title'))); }
+  // [إصلاح خطأ حقيقي] المورد الصحيح فعلياً هو "product_unit_types" لا
+  // "product_units" (مؤكَّد من توثيق Qoyod الرسمي — لا وجود لمسار "product_units"
+  // إطلاقاً) — كان يُرجع 404 دومًا (يُعامَل الآن كقائمة فارغة بفضل إصلاح getAll
+  // أعلاه، لا كخطأ يوقف الجلب، لكن catalog.units كانت تبقى فارغة دومًا بصمت رغم
+  // وجود وحدات حقيقية بالمنشأة). حقل الاسم الحقيقي "unit_name" لا "name".
+  try { catalog.units = (await getAll('product_unit_types', opts)).map((u) => String(pick(u, 'unit_name', 'name', 'name_ar', 'title'))); }
   catch { catalog.units = []; catalog.warnings.push('تعذّر جلب وحدات القياس من المنشأة.'); }
 
   try {
     const inv = await getAll('inventories', opts);
-    catalog.locations = inv.map((i) => String(pick(i, 'name', 'name_ar', 'title'))).filter(Boolean);
+    // [إصلاح] "ar_name" لا "name_ar" — راجع تعليق normInventoryFull أعلاه لنفس الإصلاح
+    catalog.locations = inv.map((i) => String(pick(i, 'name', 'ar_name', 'name_ar', 'title'))).filter(Boolean);
     catalog.inventoriesFull = inv.map(normInventoryFull).filter((i) => i.name);
   } catch { catalog.locations = []; catalog.inventoriesFull = []; catalog.warnings.push('تعذّر جلب المواقع/المستودعات من المنشأة.'); }
 

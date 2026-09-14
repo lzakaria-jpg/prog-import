@@ -21,7 +21,7 @@ function makeGroup(ref, rows) { return { ref, rows, bad: false }; }
 
 const catalog = {
   vendors: [{ id: 1, ref: 'V1', name: 'مورد تجريبي', phone: '' }],
-  products: [{ id: 2, sku: 'SKU1', name: 'منتج تجريبي', unit: '', taxPercent: 15, purchasable: true, active: true, conversions: [] }],
+  products: [{ id: 2, sku: 'SKU1', name: 'منتج تجريبي', unit: '', unitTypeId: 9, taxPercent: 15, purchasable: true, active: true, conversions: [] }],
   taxes: [{ id: 1, name: 'ضريبة 15%', percent: 15 }, { id: 2, name: 'خصم ضريبي', percent: 0 }],
   inventoriesFull: [{ id: 5, name: 'الرئيسي' }],
   accounts: [{ id: 17, code: '5101', name: 'حساب الخصم' }],
@@ -38,7 +38,7 @@ describe('buildBillIndexes', () => {
 });
 
 describe('buildBillPayload', () => {
-  it('يبني حمولة صحيحة كاملة (تاريخ ISO، line_items، بلا discount/project/unit_id بلا حاجة لها)', () => {
+  it('يبني حمولة صحيحة كاملة (تاريخ ISO، quantity/unit_price نصاً، unit_id من product.unitTypeId، بلا project_id بلا حاجة له)', () => {
     const built = buildBillPayload(makeGroup('BILL-1', [makeRow()]), buildBillIndexes(catalog));
     expect(built.ok).toBe(true);
     expect(built.payload).toEqual({
@@ -50,11 +50,18 @@ describe('buildBillPayload', () => {
         status: 'Draft',
         inventory_id: 5,
         line_items: [{
-          product_id: 2, quantity: 5, unit_price: 170, is_inclusive: false,
-          inventory_id: 5, tax_id: 1, tax_percentage: '15',
+          product_id: 2, quantity: '5', unit_price: '170', is_inclusive: false,
+          inventory_id: 5, tax_id: 1, tax_percentage: '15', unit_id: 9,
         }],
       },
     });
+  });
+
+  it('منتج بلا unitTypeId معروف (رفع يدوي مثلاً): unit_id لا يُرسَل إطلاقاً', () => {
+    const noUnitCatalog = { ...catalog, products: [{ ...catalog.products[0], unitTypeId: undefined }] };
+    const built = buildBillPayload(makeGroup('BILL-1b', [makeRow()]), buildBillIndexes(noUnitCatalog));
+    expect(built.ok).toBe(true);
+    expect(built.payload.bill.line_items[0]).not.toHaveProperty('unit_id');
   });
 
   it('بلا تاريخ استحقاق: يُستخدَم تاريخ الإصدار', () => {
@@ -100,10 +107,11 @@ describe('buildBillPayload', () => {
     expect(built.payload.bill.line_items[0].discount_type).toBe('0');
   });
 
-  it('[قرار متعمَّد] خصم بالقيمة على بند: خطأ حاجب صريح بدل تخمين شكل الحقل', () => {
+  it('[تصحيح حسب المواصفة الرسمية] خصم بالقيمة على بند: نفس discount_percent + discount_type="1"', () => {
     const built = buildBillPayload(makeGroup('BILL-9', [makeRow({ discVal: 20 })]), buildBillIndexes(catalog));
-    expect(built.ok).toBe(false);
-    expect(built.error).toMatch(/خصم بالقيمة/);
+    expect(built.ok).toBe(true);
+    expect(built.payload.bill.line_items[0].discount_percent).toBe('20');
+    expect(built.payload.bill.line_items[0].discount_type).toBe('1');
   });
 
   it('وصف البند (prodDesc) يُحمَل لو غير فارغ', () => {
@@ -122,6 +130,7 @@ describe('buildBillPayload', () => {
       expect(built.payload.bill.discount_account_id).toBe(17);
       expect(built.payload.bill.discount_tax_id).toBe(2);
       expect(built.payload.bill.discount_type).toBe('amount');
+      expect(built.payload.bill.discount_timing).toBe('before_vat');
     });
 
     it('docDiscVal>0 بلا حساب مطابَق: خطأ حاجب صريح', () => {
