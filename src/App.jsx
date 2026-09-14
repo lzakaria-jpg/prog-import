@@ -11,7 +11,7 @@ import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -178,6 +178,10 @@ function AppShell() {
   // فعليًا لو ما كان يملك صلاحية "merge" تحديدًا - فلا شاشة فارغة لأي أحد.
   const [tab, setTab] = useState("merge");
   const [collapsed, setCollapsed] = useState(false);
+  // [إضافة] القائمة الجانبية على الجوال: نفس عناصر sidebar سطح المكتب لكن كدرج
+  // منزلق (overlay) فوق المحتوى بدل عمود ثابت العرض يلتهم أغلب شاشة الجوال —
+  // sidebar سطح المكتب (md فأعلى) بلا أي تغيير إطلاقاً.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("merge"));
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, canAddUsers, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
@@ -277,10 +281,24 @@ function AppShell() {
       {showAISettings && canUseAI && <AISettings onClose={() => setShowAISettings(false)} />}
       {showChangePassword && !isAdmin && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
-      {/* Sidebar */}
+      {/* [إضافة] ستارة خلف القائمة الجانبية على الجوال فقط — لمسة عليها تُغلق الدرج */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-30 md:hidden"
+          style={{ background: "rgba(15, 23, 42, 0.5)" }}
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — عمود ثابت على سطح المكتب (md فأعلى، بلا أي تغيير)، درج منزلق
+          فوق المحتوى على الجوال (يُفتح بزر القائمة بأعلى الشاشة) */}
       <aside
-        className="relative flex flex-col transition-all duration-300"
+        className={
+          "flex flex-col transition-all duration-300 fixed md:relative inset-y-0 z-40 md:translate-x-0 " +
+          (mobileNavOpen ? "translate-x-0" : dir === "rtl" ? "translate-x-full" : "-translate-x-full")
+        }
         style={{
+          [dir === "rtl" ? "right" : "left"]: 0,
           width: collapsed ? 72 : 264,
           minWidth: collapsed ? 72 : 264,
           background: "linear-gradient(180deg, var(--qoyod-sidebar-grad-a) 0%, var(--qoyod-sidebar-grad-b) 100%)",
@@ -352,7 +370,7 @@ function AppShell() {
                       return (
                         <button
                           key={item.id}
-                          onClick={item.action}
+                          onClick={() => { item.action(); setMobileNavOpen(false); }}
                           className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
                           style={{
                             padding: "8px 14px",
@@ -395,10 +413,10 @@ function AppShell() {
           </div>
         )}
 
-        {/* Collapse button */}
+        {/* Collapse button — سطح المكتب فقط (على الجوال الدرج يُغلَق بالستارة أو زر القائمة) */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="absolute top-5 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200 z-10"
+          className="hidden md:flex absolute top-5 w-6 h-6 rounded-full items-center justify-center transition-all duration-200 z-10"
           style={{
             [lang === "ar" ? "left" : "right"]: "-12px",
             background: "var(--qoyod-sidebar-grad-b)",
@@ -424,8 +442,23 @@ function AppShell() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto relative" style={{ background: "var(--qoyod-bg)" }}>
+      <main className="flex-1 overflow-auto relative w-full min-w-0" style={{ background: "var(--qoyod-bg)" }}>
         <Watermark type={tab === "merge" ? "tree" : tab === "bills" ? "bill" : tab === "sales" ? "sale" : tab === "products" ? "product" : "journal"} lang={lang} />
+        {/* [إضافة] شريط علوي بزر القائمة — الجوال فقط (md فأصغر)؛ سطح المكتب
+            يعتمد على sidebar الثابت دائماً كما كان بلا أي تغيير */}
+        <div className="flex md:hidden items-center gap-3 relative z-10" style={{ padding: "12px 16px 0" }}>
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            className="flex items-center justify-center rounded-lg flex-shrink-0"
+            style={{ width: 40, height: 40, background: "#FFFFFF", color: "#162560", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "1px solid #E2E8F0" }}
+            title={t({ ar: "القائمة", en: "Menu" })}
+          >
+            <Menu size={20} />
+          </button>
+          <p className="text-sm font-bold truncate" style={{ color: "#162560" }}>
+            {t(visibleNavItems.find((i) => i.id === tab)?.label || { ar: "", en: "" })}
+          </p>
+        </div>
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
           {/*
