@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getAll, DEFAULT_BASE, normTax, normProduct, normInventoryFull, normAccount, normVendor } from '../api.js';
+import { getAll, DEFAULT_BASE, normTax, normProduct, normInventoryFull, normAccount, normVendor, fetchCatalog } from '../api.js';
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -44,14 +44,18 @@ describe('getAll', () => {
   // جلب نفس القائمة (قد تكون كبيرة) 60 مرة متتالية (arr.length لا يقل أبداً عن
   // العتبة) — تعليق طويل يبدو "لا يجلب شيئًا". يجب التوقف من أول تكرار (page=2
   // يُرجع نفس أول عنصر بالضبط) بلا أي تكرار بالنتيجة.
-  it('[الخطأ الحقيقي] مورد لا يُرقِّم إطلاقًا وقائمته الكاملة أطول من PER_PAGE — يتوقف من أول تكرار بلا حلقة تُعيد الجلب 60 مرة', async () => {
-    // 150 عنصر: أطول من PER_PAGE(100) فلا يتوقف بشرط "أقصر من الحد" وحده —
-    // بالضبط الحالة الحقيقية المبلَّغة (منشأة عميل فيها أكثر من 100 مورّد/حساب).
+  // [إصلاح أداء 2026-09-14] بلاغ: "المشكلة بالوقت الطويل المستغرق، أريده
+  // سريعاً" — مورد ضخم بلا ترقيم (20100 مورّد بمثال حقيقي) كان يُطلَب مرتين
+  // كاملتين (صفحة 1 ثم 2 لاكتشاف التطابق) قبل هذا التحسين. الآن: صفحة أطول
+  // من PER_PAGE المطلوب صراحةً = دليل قاطع فوري بلا حاجة لصفحة ثانية إطلاقاً.
+  it('[إصلاح أداء] مورد لا يُرقِّم إطلاقًا وقائمته الكاملة أطول من PER_PAGE — طلب واحد فقط بلا أي تكرار بالنتيجة', async () => {
+    // 150 عنصر: أطول من PER_PAGE(100) — بالضبط الحالة الحقيقية المبلَّغة
+    // (منشأة عميل فيها أكثر من 100 مورّد/حساب، مثال حي: 20100 مورّد).
     const fullList = Array.from({ length: 150 }, (_, i) => ({ id: i, name: `Vendor ${i}` }));
     global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { vendors: fullList }));
     const result = await getAll('vendors', { apiKey: 'KEY' });
     expect(result).toHaveLength(150); // لا تكرار — لا 300 أو أكثر
-    expect(global.fetch).toHaveBeenCalledTimes(2); // صفحة أولى + صفحة ثانية تكتشف التطابق فتتوقف فورًا
+    expect(global.fetch).toHaveBeenCalledTimes(1); // طلب واحد فقط — لا حاجة لصفحة ثانية للتأكد
   });
 
   it('[الخطأ الحقيقي] مورد لا يُرقِّم وقائمته أقصر من PER_PAGE — يتوقف من أول طلب فقط (بلا حاجة لكشف التكرار)', async () => {
@@ -126,5 +130,73 @@ describe('normVendor — حقل name الرسمي (لا reference حقيقي ب�
     const v = normVendor({ id: 5, name: 'مورد تجريبي', phone_number: '0501234567' });
     expect(v.name).toBe('مورد تجريبي');
     expect(v.ref).toBe('');
+  });
+});
+
+// [إصلاح أداء حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ: "وجدت البيانات مقروءة
+// تمام بعد فترة طويلة... المشكلة بالوقت الطويل المستغرق، أريده سريعاً" —
+// الموارد الخمسة كانت تُجلَب بالتتابع (كل مورد ينتظر اللي قبله)، صارت تُجلَب
+// بالتوازي. الاختبارات هنا تتحقق أن التوازي لم يُخِلّ بعزل الأخطاء (فشل مورد
+// واحد لا يمنع أو يؤخر باقي الموارد) ولا بأي منطق بديل موجود أصلاً.
+describe('fetchCatalog — الجلب المتوازي (5 موارد معاً) لا التتابعي', () => {
+  function mockByResource(handlers) {
+    return vi.fn(async (u) => {
+      const url = String(u);
+      for (const [resource, handler] of Object.entries(handlers)) {
+        if (url.includes(`/${resource}?`)) return handler();
+      }
+      return mockResponse(404, { error: 'unhandled in test mock: ' + url });
+    });
+  }
+
+  it('كل الموارد الخمسة تُنادى (بالتوازي) وتُملأ بشكل صحيح حين تنجح جميعها', async () => {
+    let concurrentCalls = 0;
+    let maxConcurrent = 0;
+    const track = (body) => async () => {
+      concurrentCalls++;
+      maxConcurrent = Math.max(maxConcurrent, concurrentCalls);
+      await Promise.resolve(); // نقطة تعليق قصيرة تسمح بتداخل النداءات الأخرى فعلاً
+      concurrentCalls--;
+      return mockResponse(200, body);
+    };
+    global.fetch = mockByResource({
+      products: track({ products: [{ id: 1, name_ar: 'منتج', sku: 'P1' }] }),
+      vendors: track({ vendors: [{ id: 2, name: 'مورد' }] }),
+      product_unit_types: track({ product_unit_types: [{ id: 3, unit_name: 'قطعة' }] }),
+      inventories: track({ inventories: [{ id: 4, name: 'المستودع الرئيسي' }] }),
+      accounts: track({ accounts: [{ id: 5, code: '4001', name_ar: 'حساب خصم' }] }),
+      taxes: track({ taxes: [{ id: 6, name_ar: 'ضريبة 15%', percentage: 15 }] }),
+    });
+
+    const catalog = await fetchCatalog({ apiKey: 'KEY' }, null);
+
+    expect(maxConcurrent).toBeGreaterThan(1); // دليل تنفيذ متزامن فعلي، لا متتابع
+    expect(catalog.products).toHaveLength(1);
+    expect(catalog.vendors).toHaveLength(1);
+    expect(catalog.units).toEqual(['قطعة']);
+    expect(catalog.locations).toEqual(['المستودع الرئيسي']);
+    expect(catalog.accounts).toHaveLength(1);
+    expect(catalog.taxes).toEqual([{ id: 6, name: 'ضريبة 15%', percent: 15 }]);
+    expect(catalog.warnings).toEqual([]);
+  });
+
+  it('فشل مورد واحد (وحدات القياس مثلاً) لا يمنع أو يؤخر باقي الموارد — كل واحد معزول بخطئه', async () => {
+    global.fetch = mockByResource({
+      products: async () => mockResponse(200, { products: [] }),
+      vendors: async () => mockResponse(200, { vendors: [{ id: 1, name: 'مورد' }] }),
+      product_unit_types: async () => mockResponse(500, { error: 'server error' }),
+      inventories: async () => mockResponse(200, { inventories: [{ id: 2, name: 'الرئيسي' }] }),
+      accounts: async () => mockResponse(200, { accounts: [{ id: 3, code: '1', name_ar: 'حساب' }] }),
+      taxes: async () => mockResponse(200, { taxes: [{ id: 4, name_ar: 'ضريبة', percentage: 15 }] }),
+    });
+
+    const catalog = await fetchCatalog({ apiKey: 'KEY' }, null);
+
+    expect(catalog.vendors).toHaveLength(1); // لم يتأثر بفشل مورد آخر
+    expect(catalog.locations).toEqual(['الرئيسي']);
+    expect(catalog.accounts).toHaveLength(1);
+    expect(catalog.taxes).toEqual([{ id: 4, name: 'ضريبة', percent: 15 }]);
+    expect(catalog.units).toEqual([]);
+    expect(catalog.warnings).toEqual(['تعذّر جلب وحدات القياس من المنشأة.']);
   });
 });
