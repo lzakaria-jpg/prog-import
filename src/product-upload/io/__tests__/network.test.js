@@ -50,4 +50,16 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
     expect(result).toHaveLength(101);
     expect(call).toBe(2);
   });
+
+  // [الخطأ الحقيقي] GET /projects يرجع مصفوفة خام بلا مفتاح جذر (مؤكَّد من
+  // توثيق Qoyod الرسمي) — الاستخراج القديم res[Object.keys(res)[0]] كان يأخذ
+  // العنصر الأول فقط (Object.keys(array)[0] === "0")، فتظل المشاريع فارغة دوماً
+  // بصمت رغم وجودها فعلياً — يؤثر على أداتي استيراد القيود وفواتير المبيعات معاً.
+  it("[الخطأ الحقيقي] مصفوفة خام بلا مفتاح جذر (GET /projects) تُقرأ كاملة لا كعنصر أول فقط", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, text: async () => JSON.stringify([{ id: 1, name: 'مشروع أ' }, { id: 2, name: 'مشروع ب' }]),
+    });
+    const result = await fetchAll("/projects", "KEY");
+    expect(result).toEqual([{ id: 1, name: 'مشروع أ' }, { id: 2, name: 'مشروع ب' }]);
+  });
 });
