@@ -11,8 +11,11 @@ import {
   QOYOD_TYPE_BY_LEVEL1_ROOT,
   ALL_QOYOD_ACCOUNT_TYPES,
   QOYOD_BRANCH_KIND_BY_LEVEL2,
+  QOYOD_KIND_INFO_BY_KIND,
+  QOYOD_LOCKED_ACCOUNT_KINDS,
 } from "../qoyodAccountSync.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2, compareTrees } from "../../MergeTool.jsx";
+import qoyodAccountTypesReference from "../../../config/qoyod-account-types-reference.json";
 
 describe("mapAccountTypeToQoyod — تحويل تصنيف الأداة (59 نوع) لقيم Qoyod الـ16", () => {
   it("كل قيمة بجدول الافتراضي حسب مستوى2 من ضمن الـ16 المسموحة فعليًا بـQoyod", () => {
@@ -159,6 +162,43 @@ describe("buildQoyodAccountPayload — بناء حمولة POST /accounts", () =
     expect(expenseRoot.ok).toBe(true);
     expect(expenseRoot.payload.account.type).toBe("Expense");
   });
+
+  // [إضافة 2026-09-15] طلب المستخدم الصريح: "أستبعده من الإرسال عبر API (يظهر
+  // تنبيه للمستخدم)" لأي حساب من الأنواع الثمانية المقفلة نظاميًا بقيود.
+  describe("الحسابات المقفلة نظاميًا (systemLockedAccounts) — استبعاد من الإرسال + تنبيه", () => {
+    it("يرفض بناء الحمولة لصف يُصنَّف لأي من الأنواع الثمانية المقفلة، مع ok:false وlocked:true ورسالة تنبيه واضحة", () => {
+      const lockedRow = { code: "1102", nameEn: "Accounts receivable", nameAr: "المدينون", level: 3, type: "المدينون", level2Category: "الأصول المتداولة", payCollect: "No" };
+      const result = buildQoyodAccountPayload(lockedRow);
+      expect(result.ok).toBe(false);
+      expect(result.locked).toBe(true);
+      expect(result.error).toContain("المدينون");
+      expect(result.payload).toBeUndefined();
+    });
+
+    it("تغطية كاملة: كل نوع مستوى3 يُطابق account_kind مقفلاً يُستبعَد (locked:true)، وأي نوع آخر لا", () => {
+      const allLevel3Types = Object.values(LEVEL3_MAP).flat();
+      allLevel3Types.forEach((type) => {
+        const level2 = TYPE_TO_LEVEL2[type];
+        const kind = mapRowToQoyodAccountKind({ level: 3, type, level2Category: level2 });
+        const row = { code: "999", nameEn: "x", nameAr: type, level: 3, type, level2Category: level2, payCollect: "No" };
+        const result = buildQoyodAccountPayload(row);
+        if (QOYOD_LOCKED_ACCOUNT_KINDS.has(kind.accountKind)) {
+          expect(result.ok, `النوع "${type}" (${kind.accountKind}) مقفل ولازم يُستبعَد`).toBe(false);
+          expect(result.locked, `النوع "${type}"`).toBe(true);
+        } else {
+          expect(result.ok, `النوع "${type}" (${kind.accountKind}) غير مقفل ولازم يُبنى بنجاح`).toBe(true);
+        }
+      });
+    });
+
+    it("قائمة الأنواع المقفلة بالمرجع لم تتغيّر (8 أنواع) — لو زادت/نقصت لازم مراجعة هذا الاختبار عمدًا", () => {
+      expect([...QOYOD_LOCKED_ACCOUNT_KINDS].sort()).toEqual([
+        "accounts_payable", "accounts_receivable", "accumulated_amortization",
+        "accumulated_depreciation", "amortization", "bank_account", "depreciation", "retained_earnings",
+      ]);
+      expect(qoyodAccountTypesReference.systemLockedAccounts.length).toBe(QOYOD_LOCKED_ACCOUNT_KINDS.size);
+    });
+  });
 });
 
 describe("mapRowToQoyodType — استنتاج نوع Qoyod حسب مستوى الصف الفعلي (المصدر الوحيد الصحيح بعد التصحيح)", () => {
@@ -185,7 +225,7 @@ describe("mapRowToQoyodType — استنتاج نوع Qoyod حسب مستوى ا
   });
 });
 
-// [إضافة 2026-09-14] mapRowToQoyodAccountKind — نظير مواصفة OpenAPI الرسمية
+// [إضافة 2026-09-14، حُدِّثت 2026-09-15] mapRowToQoyodAccountKind — نظير مواصفة OpenAPI الرسمية
 describe("mapRowToQoyodAccountKind — استنتاج account_kind/parent_kind/branch_kind الرسمية", () => {
   it("تغطية كاملة: كل نوع من الـ59 نوعًا الفعلي بـLEVEL3_MAP يُحوَّل لثلاثية صالحة", () => {
     const allLevel3Types = Object.values(LEVEL3_MAP).flat();
@@ -194,9 +234,40 @@ describe("mapRowToQoyodAccountKind — استنتاج account_kind/parent_kind/b
       const level2 = TYPE_TO_LEVEL2[type];
       const result = mapRowToQoyodAccountKind({ level: 3, type, level2Category: level2 });
       expect(result, `النوع "${type}" (مستوى2: ${level2}) لازم يتحوّل لثلاثية صالحة`).toBeTruthy();
-      expect(result.branchKind).toBe(QOYOD_BRANCH_KIND_BY_LEVEL2[level2]);
       expect(["assets", "liability", "equity", "revenue", "expense"]).toContain(result.parentKind);
       expect(result.accountKind).toBeTruthy();
+    });
+  });
+
+  // [إضافة 2026-09-15] طلب المستخدم الصريح: "أصلحه الحين (اشتقاق branch/parent
+  // من الـkind) واضح ومؤكد بالمرجع." — هذا اختبار الحماية الدائم: parentKind/
+  // branchKind لأي نوع من الـ59 لازم يطابقا حرفيًا المرجع الرسمي (config/
+  // qoyod-account-types-reference.json)، لا شجرة الأداة الداخلية. كان هذا
+  // يتعارض فعليًا بـ6 أنواع قبل التصحيح (مثال: "مجمع الاستهلاك").
+  it("parentKind/branchKind لكل نوع من الـ59 يطابقان المرجع الرسمي حرفيًا (لا شجرة الأداة الداخلية)", () => {
+    const allLevel3Types = Object.values(LEVEL3_MAP).flat();
+    allLevel3Types.forEach((type) => {
+      const level2 = TYPE_TO_LEVEL2[type];
+      const result = mapRowToQoyodAccountKind({ level: 3, type, level2Category: level2 });
+      const canonical = QOYOD_KIND_INFO_BY_KIND[result.accountKind];
+      expect(canonical, `account_kind "${result.accountKind}" لازم يكون موجودًا بالمرجع الرسمي`).toBeTruthy();
+      expect(result.parentKind, `parentKind للنوع "${type}" لازم يطابق المرجع`).toBe(canonical.parentKind);
+      expect(result.branchKind, `branchKind للنوع "${type}" لازم يطابق المرجع`).toBe(canonical.branchKind);
+    });
+  });
+
+  it("مثال التعارض المُصحَّح فعليًا: 'مجمع الاستهلاك' (تصنَّف داخليًا تحت الالتزامات المتداولة) يُشتَق الآن أصوله/فرعه من accumulated_depreciation الرسمي (assets/fixed_assets) لا من فئته الداخلية", () => {
+    const result = mapRowToQoyodAccountKind({ level: 3, type: "مجمع الاستهلاك", level2Category: "الالتزامات المتداولة" });
+    expect(result).toEqual({ accountKind: "accumulated_depreciation", parentKind: "assets", branchKind: "fixed_assets" });
+  });
+
+  it("الأنواع الثمانية المقفلة نظاميًا بالمرجع (systemLockedAccounts) لا تزال تُحوَّل لثلاثية صالحة (القفل يُفحَص لاحقًا بـbuildQoyodAccountPayload لا هنا)", () => {
+    expect(QOYOD_LOCKED_ACCOUNT_KINDS.size).toBe(8);
+    ["المدينون", "حساب البنك", "الدائنون", "مصاريف الاستهلاك", "مصاريف الإطفاء", "الأرباح المبقاة (أو الخسائر)"].forEach((type) => {
+      const level2 = TYPE_TO_LEVEL2[type];
+      const result = mapRowToQoyodAccountKind({ level: 3, type, level2Category: level2 });
+      expect(result, `النوع "${type}"`).toBeTruthy();
+      expect(QOYOD_LOCKED_ACCOUNT_KINDS.has(result.accountKind), `${type} -> ${result.accountKind} لازم يكون مقفلاً`).toBe(true);
     });
   });
 

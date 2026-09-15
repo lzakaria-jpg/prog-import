@@ -126,6 +126,29 @@ describe("pushAccountsToQoyod", () => {
     expect(result.entries[1].status).toBe("error");
   });
 
+  // [إضافة 2026-09-15] طلب المستخدم الصريح: حساب مقفل نظاميًا (مثال: المدينون/
+  // accounts_receivable) يُستبعَد من الإرسال (تخطٍّ + تنبيه)، لا يُعامَل كفشل
+  // يوقف الدفعة كاملة — خلافًا لأي فشل بناء حمولة آخر (الاختبار السابق أعلاه).
+  it("حساب مقفل نظاميًا (مثال: المدينون) يُتخطى مع رسالة تنبيه، ويُكمَل لباقي الصفوف بلا توقف", async () => {
+    fetchAll.mockResolvedValue([]);
+    api.mockResolvedValue({ account: { id: 1 } });
+
+    const rows = [
+      row("4101", "A", "أ"),
+      row("1102", "Accounts receivable", "المدينون", { type: "المدينون", level2Category: "الأصول المتداولة" }),
+      row("4103", "C", "ج"),
+    ];
+    const result = await pushAccountsToQoyod(rows, "fake-key");
+
+    expect(api).toHaveBeenCalledTimes(2); // الصف المقفل ما استدعى POST إطلاقًا، لكن الثالث وصله الإرسال
+    expect(result.sent).toBe(2);
+    expect(result.skipped).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.stoppedEarly).toBe(false);
+    expect(result.entries[1].status).toBe("skip");
+    expect(result.entries[1].reason).toContain("المدينون");
+  });
+
   it("يتوقف فورًا لو stoppedRef.current صار true بين صفين (إيقاف يدوي من المستخدم)", async () => {
     fetchAll.mockResolvedValue([]);
     const stoppedRef = { current: false };
