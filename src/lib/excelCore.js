@@ -932,8 +932,14 @@ function parseRawLedgerSchema(rows, hIdx) {
     const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
     const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
     const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
-    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
-    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
 
     current.rows.push({
       seq: op,
@@ -1055,11 +1061,14 @@ function parseQoyodJournalReportSchema(rows) {
     const projectEntryTrimmed = (projectEntryCol && String(projectEntryCol).trim()) || "";
     const locationTrimmed = (location && String(location).trim()) || "";
     const locationEntryTrimmed = (locationEntryCol && String(locationEntryCol).trim()) || "";
-    // [إضافة 2026-09-15] عمود "مستوى القيد" المخصَّص أولى دومًا لتحديد افتراضي
-    // القيد، وإلا أول قيمة غير فارغة من عمود "مستوى السطر" - نفس فلسفة باقي
-    // المخططات (findProjectLocationColumns/groupEntries) تمامًا.
-    if (!current.project && (projectEntryTrimmed || projectTrimmed)) current.project = projectEntryTrimmed || projectTrimmed;
-    if (!current.location && (locationEntryTrimmed || locationTrimmed)) current.location = locationEntryTrimmed || locationTrimmed;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "خاص بالسطر" كانت تُرفَع
+    // خطأً لتصبح "افتراضي القيد" أيضًا حين يكون عمود "افتراضي" فارغًا لذلك
+    // السطر - فتُرسَل مرتين (كافتراضي قيد + كقيمة سطر) رغم القصد الصريح
+    // بوجود عمودين منفصلين. افتراضي القيد يُشتَق الآن حصرًا من عمود "افتراضي"
+    // (لو موجود بصف الرأس الفرعي)، ولا يُشتَق أبدًا من عمود "خاص بالسطر" -
+    // يبقى فارغًا لو ما كتبه العميل صراحةً بعموده الخاص.
+    if (!current.project && projectEntryTrimmed) current.project = projectEntryTrimmed;
+    if (!current.location && locationEntryTrimmed) current.location = locationEntryTrimmed;
 
     current.rows.push({
       seq: current.seq,
@@ -1222,8 +1231,11 @@ function parseGenericFlexibleSchema(rows) {
         localGroups.push(current);
         seqCounter++;
       }
-      if (!current.project && rowProject) current.project = rowProject;
-      if (!current.location && rowLocation) current.location = rowLocation;
+      // [تصحيح 2026-09-15] هذا المخطط العام لا يميّز "مستوى قيد" عن "مستوى سطر"
+      // لعمود المشروع/الموقع (معنى واحد فقط لكل عمود - راجع COLUMN_KEYWORDS) -
+      // فلا يُشتَق أي "افتراضي قيد" هنا إطلاقًا تفاديًا لبلاغ مستخدم حي: قيمة
+      // سطر واحد كانت تُرفَع خطأً لتصبح افتراضي القيد كله وتُرسَل مرتين. القيمة
+      // تبقى خاصة بسطرها فقط (project/location أدناه على كل صف كما هي).
 
       const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
       const code = normalizeCode(m2 ? m2[1] : accountRaw);
@@ -1304,8 +1316,14 @@ function parseEnglishExportSchema(rows, hIdx) {
     const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
     const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
     const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
-    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
-    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
 
     current.rows.push({
       seq: current.seq,
@@ -1373,8 +1391,14 @@ function parseArabicFlexibleSchema(rows, hIdx) {
     const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
     const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
     const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
-    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
-    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
 
     current.rows.push({
       seq: current.seq,
@@ -1526,14 +1550,15 @@ function groupEntries(flatRows) {
     }
     if (!current.date && r.date) current.date = r.date;
     if (!current.desc && r.desc) current.desc = r.desc;
-    // [إضافة 2026-09-15] مشروع/موقع افتراضي القيد - عمود "مستوى القيد" المخصَّص
-    // (projectEntryCol/locationEntryCol) أولى دومًا، وإلا أول قيمة غير فارغة من
-    // عمود "مستوى السطر" (project/location) تُعتمَد كافتراضي - بنفس فلسفة
-    // date/desc أعلاه بالضبط. لا يمنع أي سطر لاحق من أن يحمل قيمته الخاصة
-    // (تبقى بحقل project/location بكل سطر كما هي، تتجاوز هذا الافتراضي فقط
-    // عند البناء النهائي - راجع qoyodJournalEntryPush.js).
-    if (!current.project && (r.projectEntryCol || r.project)) current.project = r.projectEntryCol || r.project;
-    if (!current.location && (r.locationEntryCol || r.location)) current.location = r.locationEntryCol || r.location;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: مشروع/موقع افتراضي القيد كان يُشتَق
+    // خطأً من عمود "مستوى السطر" (project/location) حين يكون عمود "مستوى
+    // القيد" المخصَّص فارغًا لذلك السطر - فتُرسَل القيمة مرتين (كافتراضي قيد +
+    // كقيمة سطر) رغم أن الملف يملك عمودين منفصلين عمدًا. الآن يُشتَق حصرًا من
+    // عمود "مستوى القيد" (projectEntryCol/locationEntryCol) إن وُجد بالملف -
+    // لا يُشتَق أبدًا من عمود "مستوى السطر" (project/location)، الذي يبقى
+    // خاصًا بسطره فقط دومًا (يُستخدَم عند البناء النهائي - راجع qoyodJournalEntryPush.js).
+    if (!current.project && r.projectEntryCol) current.project = r.projectEntryCol;
+    if (!current.location && r.locationEntryCol) current.location = r.locationEntryCol;
     current.rows.push({ ...r, _rowIndex: idx });
   });
   return groups;
