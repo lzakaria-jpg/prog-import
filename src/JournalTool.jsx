@@ -88,6 +88,14 @@ const MAPPER_FIELDS = [
   { key: "debit", ar: "مدين", en: "Debit", required: true },
   { key: "credit", ar: "دائن", en: "Credit", required: true },
   { key: "comment", ar: "تعليق", en: "Comment", required: false },
+  // [إضافة 2026-09-15] المشروع/الموقع - طلب المستخدم الصريح: قد يكون لكل منهما
+  // عمود منفصل على مستوى القيد كله (يُطبَّق افتراضيًا على كل بنوده) وعمود آخر
+  // منفصل على مستوى سطر القيد تحديدًا (يتجاوز الافتراضي لذلك السطر فقط) -
+  // 4 حقول مستقلة، اترك أيًا منها "— بدون —" لو الملف لا يحمل ذلك العمود.
+  { key: "projectLine", ar: "المشروع (مستوى السطر)", en: "Project (line level)", required: false },
+  { key: "projectEntry", ar: "المشروع (مستوى القيد)", en: "Project (entry level)", required: false },
+  { key: "locationLine", ar: "الموقع (مستوى السطر)", en: "Location (line level)", required: false },
+  { key: "locationEntry", ar: "الموقع (مستوى القيد)", en: "Location (entry level)", required: false },
 ];
 
 function columnLetter(idx) {
@@ -342,11 +350,21 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                 title={t({ ar: "رقم المشروع أو اسمه — يُطبَّق على كل بنود القيد إلا ما له مشروع خاص بعمود الجدول", en: "Project number or name — applied to all entry lines unless a line has its own project in the table column" })}
                 className="w-32 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
             </label>
+            {/* [إضافة 2026-09-15] موقع افتراضي (inventory_id) لكل بنود القيد —
+                نفس فلسفة المشروع أعلاه تمامًا، بفارق مؤكَّد بمثال طلب حقيقي من
+                المستخدم: هذا الافتراضي نفسه يُرسَل أيضًا على مستوى القيد ذاته
+                بجانب تطبيقه على كل بند (راجع qoyodJournalEntryPush.js). */}
+            <label className="flex items-center gap-1">{t({ ar: "الموقع (افتراضي):", en: "Location (default):" })}
+              <SafeInput value={entry.location || ""} onChange={(e) => onUpdateMeta(entry.seq, "location", e.target.value)}
+                title={t({ ar: "رقم الموقع أو اسمه — يُطبَّق على كل بنود القيد إلا ما له موقع خاص بعمود الجدول، ويُرسَل أيضًا على مستوى القيد نفسه", en: "Location number or name — applied to all entry lines unless a line has its own location in the table column, and also sent at the entry level itself" })}
+                className="w-32 rounded border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
+            </label>
           </div>
-          {/* [إضافة] غلاف بتمرير أفقي — الجدول 7 أعمدة يفيض عرض شاشة الجوال، وبدون
-              هذا الغلاف كان يوسّع الصفحة كاملة أفقياً بدل التمرير داخل الجدول نفسه. */}
+          {/* [إضافة] غلاف بتمرير أفقي — الجدول (8 أعمدة بعد إضافة عمود الموقع
+              2026-09-15) يفيض عرض شاشة الجوال، وبدون هذا الغلاف كان يوسّع
+              الصفحة كاملة أفقياً بدل التمرير داخل الجدول نفسه. */}
           <div className="mb-3 overflow-x-auto">
-          <table className="w-full text-xs" style={{ minWidth: 640 }}>
+          <table className="w-full text-xs" style={{ minWidth: 720 }}>
             <thead><tr style={{ color: "#64748B" }}>
               <th className="pb-1 text-start font-medium">{t({ ar: "الرمز", en: "Code" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "اسم الحساب", en: "Account" })}</th>
@@ -354,6 +372,7 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
               <th className="pb-1 text-start font-medium">{t({ ar: "مدين", en: "Debit" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "دائن", en: "Credit" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "مشروع (خاص بالسطر)", en: "Project (line override)" })}</th>
+              <th className="pb-1 text-start font-medium">{t({ ar: "موقع (خاص بالسطر)", en: "Location (line override)" })}</th>
               <th className="pb-1 text-start font-medium">{t({ ar: "تعليق", en: "Comment" })}</th>
             </tr></thead>
             <tbody>
@@ -386,6 +405,11 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                     <td className="py-1.5 pe-2">
                       <SafeInput value={r.project || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "project", e.target.value)}
                         title={t({ ar: "يتجاوز مشروع القيد الافتراضي لهذا السطر فقط — اتركه فارغًا لاستخدام الافتراضي", en: "Overrides the entry's default project for this line only — leave empty to use the default" })}
+                        className="w-24 rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
+                    </td>
+                    <td className="py-1.5 pe-2">
+                      <SafeInput value={r.location || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "location", e.target.value)}
+                        title={t({ ar: "يتجاوز موقع القيد الافتراضي لهذا السطر فقط — اتركه فارغًا لاستخدام الافتراضي", en: "Overrides the entry's default location for this line only — leave empty to use the default" })}
                         className="w-24 rounded border px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" style={{ borderColor: COLORS.line, background: "#F1F5F9", color: "#0F172A" }} />
                     </td>
                     <td className="py-1.5">
@@ -636,6 +660,10 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   const [apiFetchError, setApiFetchError] = useState("");
   const [apiFetchSummary, setApiFetchSummary] = useState(null);
   const [projectsRef, setProjectsRef] = useState({ loaded: false });
+  // [إضافة 2026-09-15] فهرس مواقع/مخازن منشأة العميل (inventory_id) — طلب
+  // المستخدم الصريح، مؤكَّد بمثال طلب POST /journal_entries حقيقي. نفس فلسفة
+  // projectsRef تمامًا.
+  const [locationsRef, setLocationsRef] = useState({ loaded: false });
   const [showApiPanel, setShowApiPanel] = useState(false);
   const [apiSending, setApiSending] = useState(false);
   const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
@@ -927,6 +955,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setSuppliersRefList(result.suppliersRefList.length ? result.suppliersRefList : null);
       setSuppliersRefFileName(result.suppliersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
       setProjectsRef(result.projectsRef);
+      setLocationsRef(result.locationsRef);
       setApiFetchSummary(result.counts);
       setAuditVersion((version) => version + 1);
     } catch (err) {
@@ -1172,7 +1201,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     setApiSendResult(null);
     setShowApiSendModal(true);
     const result = await pushJournalEntriesToQoyod(sendableEntries, apiKey, {
-      chartMap, debtorsCodes, creditorsCodes, projectsIndex: projectsRef,
+      chartMap, debtorsCodes, creditorsCodes, projectsIndex: projectsRef, locationsIndex: locationsRef,
       onProgress: (current, total) => setApiSendProgress({ current, total }),
       stoppedRef: apiStoppedRef.current,
     });
@@ -1298,8 +1327,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
               {!apiFetchBusy && !apiFetchError && apiFetchSummary && (
                 <div className="mt-3 rounded-md border px-3 py-2" style={{ borderColor: COLORS.green, background: "rgba(21,128,61,0.08)", color: COLORS.green }}>
                   ✅ {t({
-                    ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع.`,
-                    en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s).`,
+                    ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع، ${apiFetchSummary.locations} موقع.`,
+                    en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s), ${apiFetchSummary.locations} location(s).`,
                   })}
                 </div>
               )}

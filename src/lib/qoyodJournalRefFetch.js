@@ -121,10 +121,39 @@ export function buildProjectsIndexFromApi(apiProjects) {
 }
 
 /**
+ * [إضافة 2026-09-15] فهرس مواقع/مخازن منشأة العميل من مصفوفة GET /inventories
+ * الخام — طلب المستخدم الصريح: بعض ملفات العملاء تحمل "الموقع" (inventory_id
+ * بمواصفة Qoyod الرسمية، مؤكَّد بمثال طلب POST /journal_entries حقيقي من
+ * المستخدم 2026-09-15 يحمل inventory_id على مستوى القيد ذاته وعلى مستوى كل بند
+ * أيضًا معًا) بجانب "المشروع". GET /inventories مؤكَّد ميدانيًا فعلاً (bill-import/
+ * lib/api.js: normInventoryFull) — id + name (إنجليزي، الحقل الأساسي) + ar_name
+ * (عربي، مؤكَّد من توثيق Qoyod الرسمي). نفس شكل بناء الفهرس تمامًا كـ
+ * buildProjectsIndexFromApi أعلاه (byId + byName)، بلا فرق سوى مصدر الاسم.
+ */
+export function buildLocationsIndexFromApi(apiInventories) {
+  const byId = new Map();
+  const byName = new Map();
+  (apiInventories || []).forEach((inv) => {
+    const id = inv?.id;
+    if (id === undefined || id === null) return;
+    const name = (String(inv?.name ?? '').trim() || String(inv?.ar_name ?? '').trim());
+    const rec = { id, name };
+    byId.set(String(id), rec);
+    if (name) {
+      const nk = name.toLowerCase();
+      if (!byName.has(nk)) byName.set(nk, []);
+      byName.get(nk).push(rec);
+    }
+  });
+  return { byId, byName };
+}
+
+/**
  * الدالة المنسِّقة — تُستدعى من JournalTool.jsx فقط. تجلب /accounts (مطلوب)
- * بالتوازي مع /customers (اختياري)، ثم /vendors و/projects (اختياريان، فشل كل
- * منهما فارغ فقط بلا إيقاف الجلب). ترمي استثناءً برسالة عربية واضحة فقط لو فشل
- * جلب /accounts نفسه (المورد الوحيد الذي بلا بديل يدوي في مسار API).
+ * بالتوازي مع /customers (اختياري)، ثم /vendors و/projects و/inventories
+ * (اختيارية، فشل كل منها فارغ فقط بلا إيقاف الجلب). ترمي استثناءً برسالة عربية
+ * واضحة فقط لو فشل جلب /accounts نفسه (المورد الوحيد الذي بلا بديل يدوي في
+ * مسار API).
  */
 export async function fetchJournalReferencesFromApi(apiKey) {
   const key = (apiKey || '').trim();
@@ -158,11 +187,22 @@ export async function fetchJournalReferencesFromApi(apiKey) {
     apiProjects = [];
   }
 
+  // [إضافة 2026-09-15] /inventories — نفس مسار /products، بلا ترقيم إطلاقًا
+  // (مؤكَّد بـbill-import/lib/api.js) — fetchAll تتعامل مع هذا بأمان (رد غير
+  // مُرقَّم يُعامَل كصفحة واحدة كاملة، لا حاجة لأي تعديل عليها).
+  let apiInventories;
+  try {
+    apiInventories = await fetchAll('/inventories', key);
+  } catch (e) {
+    apiInventories = [];
+  }
+
   return {
     chartAccounts: buildChartAccountsFromApi(apiAccounts),
     customersRefList: buildNameRefListFromApi(apiCustomers),
     suppliersRefList: buildNameRefListFromApi(apiVendors),
     projectsRef: { loaded: true, ...buildProjectsIndexFromApi(apiProjects) },
-    counts: { accounts: apiAccounts.length, customers: apiCustomers.length, vendors: apiVendors.length, projects: apiProjects.length },
+    locationsRef: { loaded: true, ...buildLocationsIndexFromApi(apiInventories) },
+    counts: { accounts: apiAccounts.length, customers: apiCustomers.length, vendors: apiVendors.length, projects: apiProjects.length, locations: apiInventories.length },
   };
 }
