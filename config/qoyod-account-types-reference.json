@@ -1,0 +1,903 @@
+{
+  "metadata": {
+    "version": "v2",
+    "source": "Qoyod API V2 OpenAPI Specification",
+    "lastUpdated": "2026-08-31",
+    "totalAccountKinds": 41,
+    "description": "Complete reference for Qoyod chart of accounts validation"
+  },
+  "parentCategories": {
+    "assets": {
+      "code": "A",
+      "name_en": "Assets",
+      "name_ar": "الأصول",
+      "type_of_account": "Debit",
+      "description": "Resources owned by the entity"
+    },
+    "liability": {
+      "code": "L",
+      "name_en": "Liabilities",
+      "name_ar": "الالتزامات",
+      "type_of_account": "Credit",
+      "description": "Obligations of the entity"
+    },
+    "equity": {
+      "code": "E",
+      "name_en": "Equity",
+      "name_ar": "حقوق الملكية",
+      "type_of_account": "Credit",
+      "description": "Owner's stake in the entity"
+    },
+    "revenue": {
+      "code": "R",
+      "name_en": "Revenue",
+      "name_ar": "الإيرادات",
+      "type_of_account": "Credit",
+      "description": "Income from business operations"
+    },
+    "expense": {
+      "code": "EX",
+      "name_en": "Expenses",
+      "name_ar": "المصروفات",
+      "type_of_account": "Debit",
+      "description": "Costs incurred in operations"
+    }
+  },
+  "branchCategories": {
+    "current_assets": {
+      "parent_kind": "assets",
+      "name_en": "Current Assets",
+      "name_ar": "الأصول المتداولة",
+      "maxDepth": 3,
+      "description": "Assets expected to be converted to cash within one year"
+    },
+    "fixed_assets": {
+      "parent_kind": "assets",
+      "name_en": "Fixed Assets",
+      "name_ar": "الأصول الثابتة",
+      "maxDepth": 3,
+      "description": "Long-term assets not easily convertible to cash"
+    },
+    "current_liability": {
+      "parent_kind": "liability",
+      "name_en": "Current Liabilities",
+      "name_ar": "الالتزامات المتداولة",
+      "maxDepth": 3,
+      "description": "Obligations due within one year"
+    },
+    "non_current_liability": {
+      "parent_kind": "liability",
+      "name_en": "Non-Current Liabilities",
+      "name_ar": "الالتزامات غير المتداولة",
+      "maxDepth": 3,
+      "description": "Long-term obligations"
+    },
+    "issued_capital": {
+      "parent_kind": "equity",
+      "name_en": "Issued Capital",
+      "name_ar": "رأس المال المصدر",
+      "maxDepth": 2,
+      "description": "Capital contributed by owners"
+    },
+    "other_equity": {
+      "parent_kind": "equity",
+      "name_en": "Other Equity",
+      "name_ar": "حقوق ملكية أخرى",
+      "maxDepth": 2,
+      "description": "Additional equity reserves"
+    },
+    "retained_earnings": {
+      "parent_kind": "equity",
+      "name_en": "Retained Earnings",
+      "name_ar": "الأرباح المحتفظ بها",
+      "maxDepth": 2,
+      "description": "Accumulated profits not distributed"
+    },
+    "sales": {
+      "parent_kind": "revenue",
+      "name_en": "Sales",
+      "name_ar": "المبيعات",
+      "maxDepth": 3,
+      "description": "Revenue from product/service sales"
+    },
+    "non_operative_revenue": {
+      "parent_kind": "revenue",
+      "name_en": "Non-Operative Revenue",
+      "name_ar": "الإيرادات غير التشغيلية",
+      "maxDepth": 3,
+      "description": "Revenue from non-core activities"
+    },
+    "direct_cost": {
+      "parent_kind": "expense",
+      "name_en": "Direct Cost",
+      "name_ar": "التكاليف المباشرة",
+      "maxDepth": 3,
+      "description": "Direct costs of goods sold"
+    },
+    "operational_cost": {
+      "parent_kind": "expense",
+      "name_en": "Operational Cost",
+      "name_ar": "التكاليف التشغيلية",
+      "maxDepth": 3,
+      "description": "Costs of running operations"
+    },
+    "non_operational_expense": {
+      "parent_kind": "expense",
+      "name_en": "Non-Operational Expense",
+      "name_ar": "مصروفات غير تشغيلية",
+      "maxDepth": 3,
+      "description": "Non-core business expenses"
+    }
+  },
+  "accountKinds": {
+    "current_assets": [
+      {
+        "kind": "accounts_receivable",
+        "name_en": "Accounts Receivable",
+        "name_ar": "المدينون",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": true,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Do not attempt to modify or create duplicate accounts."
+      },
+      {
+        "kind": "bank_account",
+        "name_en": "Bank Account",
+        "name_ar": "حساب بنكي",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": true,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Bank accounts must be created through the Bank module."
+      },
+      {
+        "kind": "petty_cash",
+        "name_en": "Petty Cash",
+        "name_ar": "النقدية الصغيرة",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Modifiable. Used for small cash transactions."
+      },
+      {
+        "kind": "non_bank_cash_and_equivalents",
+        "name_en": "Non-Bank Cash & Equivalents",
+        "name_ar": "النقد والمعادل النقدي",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "For cash not held in banks"
+      },
+      {
+        "kind": "inventory",
+        "name_en": "Inventory",
+        "name_ar": "المخزون",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Track quantities if enabled"
+      },
+      {
+        "kind": "employees_advances",
+        "name_en": "Employees Advances",
+        "name_ar": "سلفات الموظفين",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Money advanced to employees"
+      },
+      {
+        "kind": "prepaid_expenses_and_others",
+        "name_en": "Prepaid Expenses & Others",
+        "name_ar": "المصروفات المدفوعة مقدماً",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Expenses paid in advance"
+      },
+      {
+        "kind": "other_current_assets",
+        "name_en": "Other Current Assets",
+        "name_ar": "أصول متداولة أخرى",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Miscellaneous current assets"
+      }
+    ],
+    "fixed_assets": [
+      {
+        "kind": "property_plant_and_equipment",
+        "name_en": "Property, Plant & Equipment",
+        "name_ar": "الممتلكات والمنشآت والمعدات",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Tangible fixed assets"
+      },
+      {
+        "kind": "accumulated_depreciation",
+        "name_en": "Accumulated Depreciation",
+        "name_ar": "الاستهلاك المتراكم",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Updated automatically by depreciation entries."
+      },
+      {
+        "kind": "intangible_assets",
+        "name_en": "Intangible Assets",
+        "name_ar": "الأصول غير الملموسة",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Non-physical assets (goodwill, patents, etc.)"
+      },
+      {
+        "kind": "accumulated_amortization",
+        "name_en": "Accumulated Amortization",
+        "name_ar": "الإطفاء المتراكم",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Updated automatically by amortization entries."
+      },
+      {
+        "kind": "allowance_for_doubtful_accounts",
+        "name_en": "Allowance for Doubtful Accounts",
+        "name_ar": "مخصص الديون المشكوك فيها",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Reserve for potentially uncollectible receivables"
+      },
+      {
+        "kind": "other_fixed_assets",
+        "name_en": "Other Fixed Assets",
+        "name_ar": "أصول ثابتة أخرى",
+        "parent_kind": "assets",
+        "branch_kind": "fixed_assets",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Other non-current assets"
+      }
+    ],
+    "current_liability": [
+      {
+        "kind": "accounts_payable",
+        "name_en": "Accounts Payable",
+        "name_ar": "الدائنون",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": true,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-locked. Do not attempt to modify or create duplicate accounts."
+      },
+      {
+        "kind": "short_term_borrowings",
+        "name_en": "Short-Term Borrowings",
+        "name_ar": "القروض قصيرة الأجل",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Loans repayable within 12 months"
+      },
+      {
+        "kind": "accrued_expenses",
+        "name_en": "Accrued Expenses",
+        "name_ar": "المصروفات المستحقة",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Expenses incurred but not yet paid"
+      },
+      {
+        "kind": "accrued_salaries_and_amounts_owed_to_employees",
+        "name_en": "Accrued Salaries & Amounts Owed to Employees",
+        "name_ar": "الرواتب المستحقة والمستحقات للموظفين",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Employee compensation liabilities"
+      },
+      {
+        "kind": "taxes_payable",
+        "name_en": "Taxes Payable",
+        "name_ar": "الضرائب المستحقة",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Tax obligations to government"
+      },
+      {
+        "kind": "unearned_revenues",
+        "name_en": "Unearned Revenues",
+        "name_ar": "الإيرادات المستحصلة مقدماً",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Revenue collected before service provision"
+      },
+      {
+        "kind": "end_of_service_benefits",
+        "name_en": "End of Service Benefits",
+        "name_ar": "مكافآت نهاية الخدمة",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Employee termination benefits"
+      },
+      {
+        "kind": "other_current_liability",
+        "name_en": "Other Current Liabilities",
+        "name_ar": "التزامات متداولة أخرى",
+        "parent_kind": "liability",
+        "branch_kind": "current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Miscellaneous current obligations"
+      }
+    ],
+    "non_current_liability": [
+      {
+        "kind": "long_term_borrowings",
+        "name_en": "Long-Term Borrowings",
+        "name_ar": "القروض طويلة الأجل",
+        "parent_kind": "liability",
+        "branch_kind": "non_current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Loans repayable after 12 months"
+      },
+      {
+        "kind": "provisions",
+        "name_en": "Provisions",
+        "name_ar": "المخصصات",
+        "parent_kind": "liability",
+        "branch_kind": "non_current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Potential future liabilities"
+      },
+      {
+        "kind": "other_non_current_liabilities",
+        "name_en": "Other Non-Current Liabilities",
+        "name_ar": "التزامات غير متداولة أخرى",
+        "parent_kind": "liability",
+        "branch_kind": "non_current_liability",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Miscellaneous long-term obligations"
+      }
+    ],
+    "equity": [
+      {
+        "kind": "registered_capital",
+        "name_en": "Registered Capital",
+        "name_ar": "رأس المال المسجل",
+        "parent_kind": "equity",
+        "branch_kind": "issued_capital",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": false,
+        "constraints": "Capital invested by owners"
+      },
+      {
+        "kind": "additional_paid_in_capital",
+        "name_en": "Additional Paid-In Capital",
+        "name_ar": "رأس المال الإضافي المدفوع",
+        "parent_kind": "equity",
+        "branch_kind": "issued_capital",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Capital premium or surplus"
+      },
+      {
+        "kind": "reserves",
+        "name_en": "Reserves",
+        "name_ar": "الاحتياطيات",
+        "parent_kind": "equity",
+        "branch_kind": "other_equity",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Retained earnings reserves"
+      },
+      {
+        "kind": "retained_earnings",
+        "name_en": "Retained Earnings",
+        "name_ar": "الأرباح المحتفظ بها",
+        "parent_kind": "equity",
+        "branch_kind": "retained_earnings",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Updated automatically at fiscal year-end."
+      },
+      {
+        "kind": "employees_equity",
+        "name_en": "Employees Equity",
+        "name_ar": "حقوق الموظفين",
+        "parent_kind": "equity",
+        "branch_kind": "other_equity",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Employee ownership stake"
+      },
+      {
+        "kind": "other_equity",
+        "name_en": "Other Equity",
+        "name_ar": "حقوق ملكية أخرى",
+        "parent_kind": "equity",
+        "branch_kind": "other_equity",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Additional equity components"
+      }
+    ],
+    "revenue": [
+      {
+        "kind": "sales",
+        "name_en": "Sales",
+        "name_ar": "المبيعات",
+        "parent_kind": "revenue",
+        "branch_kind": "sales",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Revenue from product/service sales"
+      },
+      {
+        "kind": "other_revenue",
+        "name_en": "Other Revenue",
+        "name_ar": "إيرادات أخرى",
+        "parent_kind": "revenue",
+        "branch_kind": "non_operative_revenue",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Non-core revenue sources"
+      },
+      {
+        "kind": "vat",
+        "name_en": "VAT",
+        "name_ar": "ضريبة القيمة المضافة",
+        "parent_kind": "revenue",
+        "branch_kind": "sales",
+        "type_of_account": "Credit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": false,
+        "constraints": "VAT collected from customers (ZATCA compliance)"
+      }
+    ],
+    "expense": [
+      {
+        "kind": "cost_of_sales",
+        "name_en": "Cost of Sales",
+        "name_ar": "تكلفة البضائع المباعة",
+        "parent_kind": "expense",
+        "branch_kind": "direct_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Direct cost of goods sold"
+      },
+      {
+        "kind": "other_direct_cost",
+        "name_en": "Other Direct Cost",
+        "name_ar": "تكاليف مباشرة أخرى",
+        "parent_kind": "expense",
+        "branch_kind": "direct_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Additional direct production costs"
+      },
+      {
+        "kind": "salaries",
+        "name_en": "Salaries",
+        "name_ar": "الرواتب",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Employee salary expenses"
+      },
+      {
+        "kind": "employee_incentives_and_benefits",
+        "name_en": "Employee Incentives & Benefits",
+        "name_ar": "الحوافز والمزايا",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Bonuses, benefits, perks"
+      },
+      {
+        "kind": "general_and_administrative",
+        "name_en": "General & Administrative",
+        "name_ar": "المصروفات الإدارية والعامة",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Office supplies, utilities, administrative costs"
+      },
+      {
+        "kind": "marketing",
+        "name_en": "Marketing",
+        "name_ar": "التسويق",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Advertising and promotional expenses"
+      },
+      {
+        "kind": "depreciation",
+        "name_en": "Depreciation",
+        "name_ar": "الاستهلاك",
+        "parent_kind": "expense",
+        "branch_kind": "non_operational_expense",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Updated automatically based on asset depreciation."
+      },
+      {
+        "kind": "amortization",
+        "name_en": "Amortization",
+        "name_ar": "الإطفاء",
+        "parent_kind": "expense",
+        "branch_kind": "non_operational_expense",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": true,
+        "canModify": false,
+        "canDelete": false,
+        "constraints": "System-managed. Updated automatically based on intangible asset amortization."
+      },
+      {
+        "kind": "technical_and_consulting_expenses",
+        "name_en": "Technical & Consulting Expenses",
+        "name_ar": "نفقات استشارات تقنية",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Professional services and consulting fees"
+      },
+      {
+        "kind": "taxes",
+        "name_en": "Taxes",
+        "name_ar": "الضرائب",
+        "parent_kind": "expense",
+        "branch_kind": "non_operational_expense",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Tax expenses (not withheld)"
+      },
+      {
+        "kind": "other_operational_cost",
+        "name_en": "Other Operational Cost",
+        "name_ar": "تكاليف تشغيلية أخرى",
+        "parent_kind": "expense",
+        "branch_kind": "operational_cost",
+        "type_of_account": "Debit",
+        "locked": false,
+        "autoSystem": false,
+        "canModify": true,
+        "canDelete": true,
+        "constraints": "Miscellaneous operational expenses"
+      }
+    ]
+  },
+  "systemLockedAccounts": [
+    "accounts_receivable",
+    "bank_account",
+    "accounts_payable",
+    "accumulated_depreciation",
+    "accumulated_amortization",
+    "retained_earnings",
+    "depreciation",
+    "amortization"
+  ],
+  "validationRules": {
+    "accountCodeFormat": {
+      "description": "Account code format rules",
+      "pattern": "alphanumeric with dashes allowed",
+      "minLength": 1,
+      "maxLength": 20,
+      "example": "1-1-1"
+    },
+    "accountNameFormat": {
+      "description": "Account name format rules",
+      "en_name": {
+        "minLength": 1,
+        "maxLength": 250,
+        "required": true,
+        "example": "Petty Cash"
+      },
+      "ar_name": {
+        "minLength": 1,
+        "maxLength": 250,
+        "required": true,
+        "example": "النقدية الصغيرة"
+      }
+    },
+    "hierarchy": {
+      "maxDepth": 4,
+      "rootLevel": 1,
+      "description": "Maximum hierarchy depth is 4 levels"
+    },
+    "codeUniqueness": {
+      "required": true,
+      "description": "Account codes must be unique across the chart"
+    },
+    "parentMustExist": {
+      "required": true,
+      "description": "Every non-root account must have a valid parent"
+    },
+    "typeImmutability": {
+      "required": true,
+      "description": "Account type cannot be changed after creation"
+    },
+    "noCircularHierarchy": {
+      "required": true,
+      "description": "An account cannot be its own ancestor"
+    }
+  },
+  "commonErrors": {
+    "INVALID_ACCOUNT_KIND": {
+      "code": "E001",
+      "severity": "CRITICAL",
+      "message": "Account kind '{kind}' is not in the 41 valid account types",
+      "fix": "Use one of the valid account_kind values from accountKinds"
+    },
+    "INVALID_PARENT_KIND": {
+      "code": "E002",
+      "severity": "CRITICAL",
+      "message": "Parent kind '{parent_kind}' is invalid",
+      "fix": "Use one of: assets, liability, equity, revenue, expense"
+    },
+    "INVALID_BRANCH_KIND": {
+      "code": "E003",
+      "severity": "CRITICAL",
+      "message": "Branch kind '{branch_kind}' is invalid for parent_kind '{parent_kind}'",
+      "fix": "Ensure branch_kind matches the allowed values for the parent_kind"
+    },
+    "LOCKED_ACCOUNT_MODIFICATION": {
+      "code": "E004",
+      "severity": "CRITICAL",
+      "message": "Cannot modify system-locked account '{kind}'",
+      "fix": "System-locked accounts are managed automatically. Do not attempt to modify."
+    },
+    "DUPLICATE_ACCOUNT_CODE": {
+      "code": "E005",
+      "severity": "CRITICAL",
+      "message": "Account code '{code}' already exists",
+      "fix": "Use a unique account code"
+    },
+    "PARENT_NOT_FOUND": {
+      "code": "E006",
+      "severity": "CRITICAL",
+      "message": "Parent account with code '{parent_code}' does not exist",
+      "fix": "Ensure the parent account exists before creating child accounts"
+    },
+    "HIERARCHY_DEPTH_EXCEEDED": {
+      "code": "E007",
+      "severity": "HIGH",
+      "message": "Hierarchy depth exceeds maximum of 4 levels",
+      "fix": "Flatten the hierarchy to 4 levels or fewer"
+    },
+    "CIRCULAR_HIERARCHY": {
+      "code": "E008",
+      "severity": "CRITICAL",
+      "message": "Circular hierarchy detected: {path}",
+      "fix": "Review parent-child relationships and remove circular references"
+    },
+    "INVALID_CODE_FORMAT": {
+      "code": "E009",
+      "severity": "HIGH",
+      "message": "Account code '{code}' does not match required format",
+      "fix": "Use alphanumeric characters and dashes, 1-20 characters"
+    },
+    "MISSING_REQUIRED_FIELD": {
+      "code": "E010",
+      "severity": "CRITICAL",
+      "message": "Required field '{field}' is missing",
+      "fix": "Provide values for: en_name, ar_name, account_kind, parent_kind, branch_kind"
+    },
+    "PARENT_KIND_MISMATCH": {
+      "code": "E011",
+      "severity": "HIGH",
+      "message": "account_kind '{kind}' belongs to parent_kind '{expected_parent}' but '{provided_parent}' was given",
+      "fix": "Correct the parent_kind to match the account_kind"
+    },
+    "BRANCH_KIND_MISMATCH": {
+      "code": "E012",
+      "severity": "HIGH",
+      "message": "branch_kind '{branch}' is not valid for account_kind '{kind}'",
+      "fix": "Use the correct branch_kind for this account type"
+    }
+  },
+  "exampleValidValidation": {
+    "request": {
+      "account": {
+        "en_name": "Petty Cash",
+        "ar_name": "النقدية الصغيرة",
+        "code": "1002",
+        "account_kind": "petty_cash",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets"
+      }
+    },
+    "validation": [
+      "✓ account_kind 'petty_cash' is valid",
+      "✓ parent_kind 'assets' is valid",
+      "✓ branch_kind 'current_assets' belongs to parent_kind 'assets'",
+      "✓ account_kind 'petty_cash' belongs to branch_kind 'current_assets'",
+      "✓ Code '1002' format is valid",
+      "✓ Name 'النقدية الصغيرة' is valid",
+      "✓ Account is modifiable (locked: false)",
+      "✓ All required fields present"
+    ],
+    "status": "PASS"
+  },
+  "exampleInvalidValidation": {
+    "request": {
+      "account": {
+        "en_name": "Invalid Account",
+        "ar_name": "حساب غير صحيح",
+        "code": "1002",
+        "account_kind": "invalid_kind",
+        "parent_kind": "assets",
+        "branch_kind": "current_assets"
+      }
+    },
+    "validation": [
+      "✗ CRITICAL: account_kind 'invalid_kind' is not valid",
+      "ℹ Valid account_kind values: accounts_receivable, bank_account, petty_cash, ...",
+      "Fix: Update account_kind to one of the 41 valid types"
+    ],
+    "status": "FAIL"
+  }
+}
