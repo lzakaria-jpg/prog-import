@@ -94,6 +94,15 @@ export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
 
     const built = buildQoyodAccountPayload(row);
     if (!built.ok) {
+      if (built.locked) {
+        // [إضافة 2026-09-15] حساب مقفل نظاميًا (systemLockedAccounts) — يُستبعد
+        // من الإرسال فقط (تخطٍّ + تنبيه بعمود "ملاحظة")، بلا إيقاف بقية الدفعة.
+        // قرار المستخدم الصريح: هذا ليس خطأ حقيقي يستحق إيقاف العملية.
+        skipped++;
+        emit({ code: row.code, nameAr: row.nameAr, nameEn: row.nameEn, status: "skip", reason: built.error });
+        if (i < rows.length - 1) await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
+        continue;
+      }
       failed++;
       emit({ code: row.code, nameAr: row.nameAr, nameEn: row.nameEn, status: "error", reason: built.error });
       stoppedEarly = true;

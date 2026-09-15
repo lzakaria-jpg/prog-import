@@ -27,6 +27,13 @@
  ============================================================================
 */
 
+// [إضافة 2026-09-15] مرجع أنواع حسابات قيود الرسمي (config/qoyod-account-types-
+// reference.json) — مصدر الحقيقة الوحيد المعتمد من المستخدم للتحقق من دقة
+// account_kind/parent_kind/branch_kind من الآن فصاعدًا (بدل استنتاجها من شجرة
+// الأداة الداخلية، التي تعارضت معه بـ6 أنواع مستوى3 من أصل 59 — راجع تعليق
+// "مواصفة Qoyod API الرسمية" وQOYOD_KIND_INFO_BY_KIND تحت).
+import qoyodAccountTypesReference from "../../config/qoyod-account-types-reference.json";
+
 // القيم الـ16 المسموح بها فعليًا بحقل "type" عند POST /accounts (من توثيق
 // Qoyod الرسمي على apidoc.qoyod.com، صفحة "Create an account").
 export const QOYOD_ACCOUNT_TYPES = {
@@ -146,9 +153,33 @@ export function mapRowToQoyodType(row) {
 // فقط قد لا تكون الوسم الأدق الممكن لو توفّر بديل أدق مستقبلاً) — راجعها.
 // ============================================================================
 
+// [إضافة 2026-09-15] {account_kind: {parentKind, branchKind}} مبنية مباشرة من
+// المرجع الرسمي (config/qoyod-account-types-reference.json، حقل accountKinds) —
+// هذا الآن المصدر الوحيد لـparent_kind/branch_kind لأي account_kind، بدل
+// اشتقاقهما من فئة مستوى2 الداخلية للأداة (QOYOD_BRANCH_KIND_BY_LEVEL2 تحت،
+// المُبقاة فقط للتحقق من أن فئة مستوى2 معروفة قبل الاستنتاج). طلب المستخدم
+// الصريح 2026-09-15: "أصلحه الحين (اشتقاق branch/parent من الـkind) واضح
+// ومؤكد بالمرجع." — راجع mapRowToQoyodAccountKind تحت لطريقة الاستخدام.
+export const QOYOD_KIND_INFO_BY_KIND = Object.freeze(
+  Object.fromEntries(
+    Object.values(qoyodAccountTypesReference.accountKinds)
+      .flat()
+      .map((k) => [k.kind, { parentKind: k.parent_kind, branchKind: k.branch_kind, nameAr: k.name_ar, nameEn: k.name_en }])
+  )
+);
+
+// [إضافة 2026-09-15] الأنواع الثمانية المقفلة نظاميًا بقيود (systemLockedAccounts
+// بالمرجع) — لا يجوز إنشاؤها عبر API إطلاقًا (Qoyod يديرها تلقائيًا/عبر وحدات
+// خاصة كالبنك). قرار المستخدم الصريح: استبعادها من الإرسال + تنبيه المستخدم،
+// لا استبدالها بأقرب نوع بديل. راجع buildQoyodAccountPayload تحت.
+export const QOYOD_LOCKED_ACCOUNT_KINDS = new Set(qoyodAccountTypesReference.systemLockedAccounts || []);
+
 // parent_kind يُشتَق حصراً من branch_kind (علاقة ثابتة لا لبس فيها، مؤكَّدة من
 // نص التوثيق: "type_of_account auto-set based on parent_kind") — لا حاجة
 // لجدول منفصل من level1، ولا لاستيراد من MergeTool.jsx (طبقة مستقلة نقية).
+// [إبقاء 2026-09-15] لم تعد تُستخدم لاشتقاق parentKind/branchKind النهائيين
+// (ذلك الآن حصرًا عبر QOYOD_KIND_INFO_BY_KIND أعلاه) — أُبقيت فقط كمرجع تاريخي
+// موثَّق لعلاقة branch→parent، بلا أي استخدام فعلي بالكود تحت.
 const QOYOD_PARENT_KIND_BY_BRANCH = {
   current_assets: "assets",
   fixed_assets: "assets",
@@ -305,41 +336,58 @@ export const QOYOD_ACCOUNT_KIND_BY_LEVEL3 = {
 };
 
 // حسابات جذر مستوى1 (الإيرادات/المصاريف بلا فئة مستوى2 - نفس حالات
-// QOYOD_TYPE_BY_LEVEL1_ROOT أعلاه) — تُستخدم فروع عامة تمثّل كل الفئة، بنفس
+// QOYOD_TYPE_BY_LEVEL1_ROOT أعلاه) — account_kind عام يمثّل كل الفئة، بنفس
 // القيم الافتراضية المستخدمة أصلاً لفئتي "الإيرادات الأخرى"/"تكاليف تشغيلية"
 // (QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2) تفادياً لازدواج مصدر الحقيقة.
+// [تبسيط 2026-09-15] branchKind لم تعد تُخزَّن هنا — تُشتَق الآن حصرًا من
+// المرجع عبر QOYOD_KIND_INFO_BY_KIND[accountKind] بـmapRowToQoyodAccountKind.
 const QOYOD_LEVEL1_ROOT_TRIPLE = {
-  "الايرادات": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["الإيرادات الأخرى"], branchKind: "non_operative_revenue" },
-  "المصاريف": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["تكاليف تشغيلية"], branchKind: "operational_cost" },
+  "الايرادات": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["الإيرادات الأخرى"] },
+  "المصاريف": { accountKind: QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2["تكاليف تشغيلية"] },
 };
 
 /**
- * [إضافة 2026-09-14] نظير مواصفة OpenAPI الرسمية لـmapRowToQoyodType أعلاه —
- * يرجّع {accountKind, parentKind, branchKind} أو null لو تعذّر الاستنتاج (نفس
- * منطق مستويات الصف بالضبط: مستوى1 جذر إيرادات/مصاريف، مستوى2 يحمل فئته بحقل
- * type نفسه، مستوى3 فأعمق يستخدم level2Category). دالة نقية، قابلة للاختبار
- * المباشر، لا تُغيّر أي شيء بمنطق الأب/الابن أو الترقيم أو استيراد/تصدير إكسل.
+ * [إضافة 2026-09-14، صُحِّح 2026-09-15] نظير مواصفة OpenAPI الرسمية لـ
+ * mapRowToQoyodType أعلاه — يرجّع {accountKind, parentKind, branchKind} أو
+ * null لو تعذّر الاستنتاج (نفس منطق مستويات الصف بالضبط: مستوى1 جذر
+ * إيرادات/مصاريف، مستوى2 يحمل فئته بحقل type نفسه، مستوى3 فأعمق يستخدم
+ * level2Category). دالة نقية، قابلة للاختبار المباشر، لا تُغيّر أي شيء بمنطق
+ * الأب/الابن أو الترقيم أو استيراد/تصدير إكسل.
+ *
+ * [تصحيح 2026-09-15] طلب المستخدم الصريح: "أصلحه الحين (اشتقاق branch/parent
+ * من الـkind) واضح ومؤكد بالمرجع." — accountKind يُستنتج أولاً بالضبط كما
+ * كان (بلا تغيير، من تصنيف الأداة الداخلي)، ثم parentKind/branchKind يُشتَقان
+ * الآن حصرًا من القيمة الرسمية لهذا الـaccountKind بالمرجع
+ * (QOYOD_KIND_INFO_BY_KIND) بدل اشتقاقهما بشكل مستقل من فئة مستوى2 الداخلية
+ * للأداة — كان هذا يتعارض مع المرجع الرسمي في 6 أنواع من أصل 59 (مثال:
+ * "مجمع الاستهلاك" مصنَّف داخليًا تحت الالتزامات المتداولة، بينما
+ * accumulated_depreciation الرسمي أصوله assets/fixed_assets).
  */
 export function mapRowToQoyodAccountKind(row) {
   const level = Number(row?.level);
 
+  let accountKind;
   if (level === 1) {
     const t = QOYOD_LEVEL1_ROOT_TRIPLE[row?.type];
-    if (!t) return null;
-    return { accountKind: t.accountKind, parentKind: QOYOD_PARENT_KIND_BY_BRANCH[t.branchKind], branchKind: t.branchKind };
+    accountKind = t ? t.accountKind : null;
+  } else {
+    const level2Category = level === 2 ? (row?.type || "") : (row?.level2Category || "");
+    const level3Type = level === 2 ? "" : (row?.type || "");
+    // لا نستنتج account_kind بدون فئة مستوى2 معروفة فعليًا بالأداة (تفادي
+    // تخمين اعتباطي) — QOYOD_BRANCH_KIND_BY_LEVEL2 يُستخدم هنا فقط كفحص
+    // "هل هذه الفئة معروفة؟"، لا كمصدر لقيمة branchKind النهائية (تلك من
+    // المرجع حصرًا تحت).
+    if (!QOYOD_BRANCH_KIND_BY_LEVEL2[level2Category]) return null;
+    accountKind = (level3Type && QOYOD_ACCOUNT_KIND_BY_LEVEL3[level3Type])
+      || QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2[level2Category]
+      || null;
   }
-
-  const level2Category = level === 2 ? (row?.type || "") : (row?.level2Category || "");
-  const level3Type = level === 2 ? "" : (row?.type || "");
-
-  const branchKind = QOYOD_BRANCH_KIND_BY_LEVEL2[level2Category];
-  if (!branchKind) return null;
-
-  const accountKind = (level3Type && QOYOD_ACCOUNT_KIND_BY_LEVEL3[level3Type])
-    || QOYOD_ACCOUNT_KIND_DEFAULT_BY_LEVEL2[level2Category];
   if (!accountKind) return null;
 
-  return { accountKind, parentKind: QOYOD_PARENT_KIND_BY_BRANCH[branchKind], branchKind };
+  const info = QOYOD_KIND_INFO_BY_KIND[accountKind];
+  if (!info) return null; // account_kind غير موجود بالمرجع الرسمي — احتياط أمان، لا يُفترض حدوثه
+
+  return { accountKind, parentKind: info.parentKind, branchKind: info.branchKind };
 }
 
 /**
@@ -362,6 +410,21 @@ export function buildQoyodAccountPayload(row) {
   const qoyodKind = mapRowToQoyodAccountKind(row);
   if (!qoyodType || !qoyodKind) {
     return { ok: false, error: `تعذّر تحديد نوع الحساب المطابق بقيود لـ"${row?.type || row?.level2Category || "—"}"` };
+  }
+
+  // [إضافة 2026-09-15] استبعاد الأنواع المقفلة نظاميًا (systemLockedAccounts
+  // بالمرجع الرسمي) من الإرسال عبر API — قرار المستخدم الصريح: "أستبعده من
+  // الإرسال عبر API (يظهر تنبيه للمستخدم)"، لا استبدالها بأقرب نوع بديل.
+  // Qoyod يدير هذه الحسابات تلقائيًا (مثال: accounts_receivable/accounts_payable
+  // تُنشَأ تلقائيًا من قيود العملاء/الموردين، bank_account فقط عبر وحدة البنك).
+  if (QOYOD_LOCKED_ACCOUNT_KINDS.has(qoyodKind.accountKind)) {
+    const kindInfo = QOYOD_KIND_INFO_BY_KIND[qoyodKind.accountKind];
+    const kindLabel = kindInfo?.nameAr ? `"${kindInfo.nameAr}"` : `"${qoyodKind.accountKind}"`;
+    return {
+      ok: false,
+      locked: true,
+      error: `هذا الحساب من نوع ${kindLabel} — حساب مُدار تلقائيًا بقيود ولا يمكن إنشاؤه عبر API، تم استبعاده من الإرسال.`,
+    };
   }
 
   const payCollectYes = row?.payCollect === "Yes";
