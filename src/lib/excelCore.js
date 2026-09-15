@@ -976,9 +976,36 @@ function findQoyodReportStart(rows) {
   return -1;
 }
 
+// [إضافة 2026-09-15] طلب المستخدم الصريح: اعتماد قالب "دفتر القيود" بعد
+// إضافة 4 أعمدة صريحة للمشروع/الموقع (كل منهما مستوى قيد "افتراضي" ومستوى
+// سطر "خاص بالسطر") — بنفس تسمية الحقول التي تصدّرها الأداة نفسها. بخلاف
+// المشروع القديم (كان يُفترَض دومًا بموضع ثابت row[5])، الأعمدة الأربعة هنا
+// تُكتشَف من نص صف الرأس الفرعي ("الحساب|التفصيل|...") نفسه - "افتراضي"/
+// "خاص" أو "سطر" هما الكلمتان المميِّزتان بين المستويين، لا نص العمود حرفيًا،
+// فتبقى مرنة أمام أي صياغة مشابهة معقولة. صف الرأس الفرعي يتكرر مع كل قيد
+// بهذا التصدير (راجع الصورة المرفقة من المستخدم)، فيُعاد اكتشافه في كل مرة.
+function matchQoyodReportColumnMeaning(cell) {
+  const t = cellText(cell).trim();
+  if (!t) return null;
+  const hasLocation = /موقع/.test(t);
+  const hasProject = /مشروع/.test(t);
+  if (!hasLocation && !hasProject) return null;
+  // [ملاحظة] "افتراضي" فقط يُصنَّف مستوى قيد - أي شيء آخر (بما فيها "المشروع"
+  // المجرّدة بلا أي مؤهِّل، وهو عمود "دفتر القيود" التاريخي المقروء ميدانيًا منذ
+  // البداية) يبقى مستوى سطر افتراضيًا - يحافظ هذا على سلوك الملفات القديمة
+  // بلا أي تغيير (كانت تُقرأ دومًا كمشروع خاص بكل سطر على حدة).
+  const isEntry = /افتراضي/.test(t);
+  if (hasLocation) return isEntry ? "locationEntry" : "locationLine";
+  return isEntry ? "projectEntry" : "projectLine";
+}
+
 function parseQoyodJournalReportSchema(rows) {
   const groups = [];
   let current = null;
+  // [إضافة 2026-09-15] فهارس أعمدة المشروع/الموقع الأربعة لآخر صف رأس فرعي
+  // "الحساب|..." شوهد - null يعني لم يُشاهَد صف رأس فرعي بعد بهذا الملف إطلاقًا
+  // (لا يُفترَض عمليًا، كل قيد بهذا التصدير يسبقه صف رأس فرعي دومًا).
+  let colMap = null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     const c0 = row[0];
@@ -986,11 +1013,18 @@ function parseQoyodJournalReportSchema(rows) {
       const trimmed = c0.trim();
       const m = matchQoyodId(row);
       if (m) {
-        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), project: "", rows: [] };
+        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), project: "", location: "", rows: [] };
         groups.push(current);
         continue;
       }
-      if (trimmed.startsWith("الحساب")) continue;
+      if (trimmed.startsWith("الحساب")) {
+        colMap = { locationEntry: -1, projectEntry: -1, locationLine: -1, projectLine: -1 };
+        row.forEach((cell, idx) => {
+          const meaning = matchQoyodReportColumnMeaning(cell);
+          if (meaning && colMap[meaning] === -1) colMap[meaning] = idx;
+        });
+        continue;
+      }
       if (trimmed === "المجموع" || trimmed.startsWith("المجموع")) { current = null; continue; }
     }
     if (!current) continue;
@@ -1001,23 +1035,31 @@ function parseQoyodJournalReportSchema(rows) {
     const debit = parseAmount(row[2]);
     const credit = parseAmount(row[3]);
     const comment = row[4];
-    // [إصلاح خطأ حقيقي شهده المستخدم] تصدير "دفتر القيود" الأصلي من قيود يضيف
-    // عمودًا سادسًا "المشروع" (F) بعد "التعليقات" — كان يُهمَل بالكامل فتبقى خانة
-    // "مشروع (خاص بالسطر)" فارغة رغم أن الملف نفسه يحمل اسم المشروع صراحةً لكل
-    // سطر. يُقرأ الآن كأي عمود آخر بنفس الصف؛ ملفات أقدم بلا هذا العمود (row[5]
-    // غير معرَّف) تبقى بلا أي تغيير — project تُصبح سلسلة فارغة كالسابق تمامًا.
-    const project = row[5];
+    // [تصحيح 2026-09-15] المشروع/الموقع صارا يُقرآن حصرًا حسب صف الرأس الفرعي
+    // المكتشَف أعلاه (colMap) - لا موضع ثابت. استثناء وحيد للتوافق التاريخي:
+    // ملف قديم بلا أي من الأعمدة الأربعة الصريحة بصف رأسه (كل قيم colMap تبقى
+    // -1) يُعتمَد فيه row[5] كمشروع سطر فقط، بالضبط كالسلوك القديم قبل هذا
+    // التعديل (راجع الإصلاح الأصلي: "دفتر القيود الأصلي من قيود يضيف عمودًا
+    // سادسًا 'المشروع' (F)").
+    const hasExplicitCols = colMap && (colMap.locationEntry !== -1 || colMap.projectEntry !== -1 || colMap.locationLine !== -1 || colMap.projectLine !== -1);
+    const project = hasExplicitCols ? (colMap.projectLine !== -1 ? row[colMap.projectLine] : "") : row[5];
+    const projectEntryCol = hasExplicitCols && colMap.projectEntry !== -1 ? row[colMap.projectEntry] : "";
+    const location = hasExplicitCols && colMap.locationLine !== -1 ? row[colMap.locationLine] : "";
+    const locationEntryCol = hasExplicitCols && colMap.locationEntry !== -1 ? row[colMap.locationEntry] : "";
     const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
     const code = m2 ? normalizeCode(m2[1]) : normalizeCode(accountRaw);
     const accName = m2 ? m2[2].trim() : "";
     const detailTrimmed = (detail && String(detail).trim()) || "";
     const finalComment = (comment && String(comment).trim()) || detailTrimmed || accName;
-    // [إضافة 2026-09-15] أول مشروع غير فارغ عبر أسطر القيد يُعتمَد كافتراضي
-    // القيد نفسه - نفس فلسفة date/desc أعلاه (لا عمود مستوى قيد منفصل معروف
-    // بهذا التصدير تحديدًا، فقط هذا العمود لكل سطر - راجع تعليق "[إصلاح خطأ
-    // حقيقي]" أعلاه).
     const projectTrimmed = (project && String(project).trim()) || "";
-    if (!current.project && projectTrimmed) current.project = projectTrimmed;
+    const projectEntryTrimmed = (projectEntryCol && String(projectEntryCol).trim()) || "";
+    const locationTrimmed = (location && String(location).trim()) || "";
+    const locationEntryTrimmed = (locationEntryCol && String(locationEntryCol).trim()) || "";
+    // [إضافة 2026-09-15] عمود "مستوى القيد" المخصَّص أولى دومًا لتحديد افتراضي
+    // القيد، وإلا أول قيمة غير فارغة من عمود "مستوى السطر" - نفس فلسفة باقي
+    // المخططات (findProjectLocationColumns/groupEntries) تمامًا.
+    if (!current.project && (projectEntryTrimmed || projectTrimmed)) current.project = projectEntryTrimmed || projectTrimmed;
+    if (!current.location && (locationEntryTrimmed || locationTrimmed)) current.location = locationEntryTrimmed || locationTrimmed;
 
     current.rows.push({
       seq: current.seq,
@@ -1041,7 +1083,8 @@ function parseQoyodJournalReportSchema(rows) {
       // بلا أي مطابقة خاطئة واحدة (0 اختلاف عن أي مطابقة كانت تنجح أصلاً).
       detail: detailTrimmed,
       comment: finalComment,
-      project: (project && String(project).trim()) || "",
+      project: projectTrimmed,
+      location: locationTrimmed,
       _rowIndex: i,
     });
   }
