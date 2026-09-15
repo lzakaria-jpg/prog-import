@@ -263,6 +263,25 @@ function rootFromAccountCode(code) {
   return CODE_ROOT_BY_FIRST_DIGIT[d] || "";
 }
 
+// [إضافة 2026-09-15] طول رمز الحساب -> المستوى وفق تعريف قيود القياسي: خانة
+// واحدة = مستوى1، خانتان = مستوى2، وكل مستوى فأعمق يضيف خانتين (4=مستوى3،
+// 6=مستوى4، 8=مستوى5...) - مطابق تمامًا لـfirstChildCodeForParent (يضيف رقمًا
+// واحدًا من مستوى1 إلى 2، وخانتين لكل مستوى بعدها) وqoyodAccountsToFile1Records
+// (مختبَر: "1"،"11"،"1101"،"110101" = مستويات 1-4). بلاغ مستخدم حي 2026-09-15:
+// حساب أب برمز 6 خانات (مثال: "210301") بلا أي حساب وسيط بـ4 خانات موجود فعليًا
+// بالحسابات المجلوبة عبر API (فجوة طبيعية بالبيانات - قيود لا يشترط وجود حساب
+// فعلي بكل طول وسيط) كان يُحسَب مستواه بعدّ الآباء الموجودين فعلاً بالسلسلة
+// (truncation chain) لا بطول رمزه - فينقُص المستوى الحقيقي بمقدار 1 كلما غاب
+// وسيط، وبالتالي أبناؤه أيضًا (شوهد ميدانيًا: قيود نفسه يرفض إضافة الابن كمستوى4
+// ويشترط مستوى5 - أي أن طول الرمز 8 خانات = مستوى5 فعليًا بقيود، بصرف النظر عن
+// أي حساب وسيط موجود أو غائب). هذا الجدول يُستخدم الآن كحدّ أدنى (max مع نتيجة
+// عدّ السلسلة) داخل getLevel تحت - لا يُنقِص مستوى سلسلة حقيقية أعمق فعليًا.
+const QOYOD_LEVEL_BY_CODE_LENGTH = { 1: 1, 2: 2, 4: 3, 6: 4, 8: 5, 10: 6, 12: 7 };
+function levelFromCodeLength(code) {
+  const len = String(code ?? "").trim().length;
+  return QOYOD_LEVEL_BY_CODE_LENGTH[len] || null;
+}
+
 function matchLevel1RootByKeyword(text) {
   if (!text) return null;
   const n = normalizeArabic(text);
@@ -1054,12 +1073,21 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     if (!rec) return null;
     // الأولوية لسلسلة الآباء وليس للمستوى المكتوب بالملف (لأنه أحيانًا يكون خاطئًا)
     const parentRaw = rec.parent ? String(rec.parent).trim() : "";
+    let lvl = null;
     if (parentRaw && parentRaw !== code) {
       const parentLevel = getLevel(parentRaw, guard);
-      if (parentLevel !== null) { const lvl = parentLevel + 1; levelCache.set(code, lvl); return lvl; }
+      if (parentLevel !== null) lvl = parentLevel + 1;
     }
-    if (rec.level !== undefined && rec.level !== "") { const lvl = parseInt(rec.level, 10); if (!isNaN(lvl)) { levelCache.set(code, lvl); return lvl; } }
-    const lvl = String(code).length === 1 ? 1 : 2;
+    // [إضافة 2026-09-15] طول الرمز كحدّ أدنى - يصحّح النقص الناتج عن غياب حساب
+    // وسيط بالبيانات المجلوبة (راجع تعليق levelFromCodeLength) بلا المساس بأي
+    // سلسلة آباء حقيقية أعمق فعليًا (max لا استبدال).
+    const byLength = levelFromCodeLength(code);
+    if (byLength && (lvl === null || byLength > lvl)) lvl = byLength;
+    if (lvl === null && rec.level !== undefined && rec.level !== "") {
+      const explicit = parseInt(rec.level, 10);
+      if (!isNaN(explicit)) lvl = explicit;
+    }
+    if (lvl === null) lvl = String(code).length === 1 ? 1 : 2;
     levelCache.set(code, lvl); return lvl;
   }
 
@@ -1267,6 +1295,15 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     const hierarchyLevel = parentCode ? getLevel(parentCode) : null;
     if (hierarchyLevel !== null) {
       level = hierarchyLevel + 1;
+      // [إضافة 2026-09-15] موقع الحساب الفعلي بالشجرة أولى بالثقة من عمود
+      // "المستوى" بملف العميل (نفس فلسفة الأداة بكل موضع آخر - قد يكون خاطئًا)،
+      // لكن لا يُتجاهل بصمت: تنبيه صريح لو خالف ما كتبه العميل، للمراجعة.
+      if (r2.level) {
+        const explicitLevel = parseInt(r2.level, 10);
+        if (!isNaN(explicitLevel) && explicitLevel !== level) {
+          warnings.push(`المستوى المكتوب بالملف "${explicitLevel}" يخالف موقع الحساب الفعلي بالشجرة (${level}) - تم اعتماد الموقع الفعلي حسب رمز/أب الحساب، يرجى المراجعة`);
+        }
+      }
     } else if (r2.level) {
       const explicitLevel = parseInt(r2.level, 10);
       if (!isNaN(explicitLevel)) level = explicitLevel;
