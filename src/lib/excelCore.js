@@ -320,9 +320,38 @@ export function guessHeaderRowIndex(rows) {
 // — يُستخدَم لتعبئة لوحة "تحديد الأعمدة يدويًا" بقيم افتراضية معقولة، سواء
 // نجح parseEntriesFile تلقائيًا أو فشل. يُرجع فهارس أعمدة (أو -1) لا بيانات
 // مُستخرَجة فعليًا.
+// [إضافة 2026-09-15] المشروع والموقع - طلب المستخدم الصريح: ملفات العملاء
+// أحيانًا تحمل عمودين منفصلين لكل منهما (مستوى القيد كله، ومستوى سطر القيد
+// تحديدًا) بعناوين مختلفة - لذا 4 حقول مستقلة تمامًا هنا (لا حقل واحد "مشروع")
+// حتى يقدر المستخدم يربط كل عمود موجود فعليًا بملفه بحقله الصحيح يدويًا مهما
+// كانت تسميته. التخمين التلقائي أدناه افتراض بسيط لا أكثر (أول عمود مطابق
+// للكلمات المفتاحية يُخمَّن كمستوى سطر - الحالة الأشيع - وأي عمود ثانٍ مشابه
+// يُخمَّن كمستوى القيد)؛ المستخدم يصحّحه يدويًا دومًا من نفس اللوحة بلا قيد.
+function guessTwoLevelColumns(header, keywords) {
+  const matches = [];
+  header.forEach((cell, i) => {
+    const t = cellText(cell).trim().toLowerCase();
+    if (!t) return;
+    if (keywords.some((kw) => t.includes(kw.toLowerCase()))) matches.push(i);
+  });
+  return { line: matches.length > 0 ? matches[0] : -1, entry: matches.length > 1 ? matches[1] : -1 };
+}
+
+const PROJECT_KEYWORDS = ["مشروع", "المشروع", "project"];
+const LOCATION_KEYWORDS = ["موقع", "الموقع", "location", "مخزن", "فرع", "warehouse", "inventory"];
+
+// [إضافة 2026-09-15] مُلخَّص واحد يُستخدَم بكل مخططات التعرّف (A/B/D/E/العام)
+// بدل تكرار نفس منطق guessTwoLevelColumns يدويًا بكل واحد منها.
+function findProjectLocationColumns(header) {
+  const p = guessTwoLevelColumns(header, PROJECT_KEYWORDS);
+  const l = guessTwoLevelColumns(header, LOCATION_KEYWORDS);
+  return { cProjectLine: p.line, cProjectEntry: p.entry, cLocationLine: l.line, cLocationEntry: l.entry };
+}
+
 export function guessEntriesColumnMapping(rows) {
   const headerRowIndex = guessHeaderRowIndex(rows);
   const header = (rows[headerRowIndex] || []).map(cellText);
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
   return {
     headerRowIndex,
     seq: colIndex(header, "تسلسل القيد", "تسلسل القيود", "تسلسل", "رقم القيد", "رقم القيود", "رقم العملية", "رقم السند", "رقم الدفتر", "رقم المستند", "VouchNumber", "VoucherNumber", "Reference"),
@@ -333,6 +362,10 @@ export function guessEntriesColumnMapping(rows) {
     debit: colIndex(header, "مدين", "Debit", "DBAmount", "DebitAmount", "DR"),
     credit: colIndex(header, "دائن", "Credit", "CRAmount", "CreditAmount", "CR"),
     comment: colIndex(header, "التعليقات", "ملاحظات", "ملاحظ", "Notes", "Remark"),
+    projectLine: cProjectLine,
+    projectEntry: cProjectEntry,
+    locationLine: cLocationLine,
+    locationEntry: cLocationEntry,
   };
 }
 
@@ -349,6 +382,10 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
   };
   const cSeq = get("seq"), cDate = get("date"), cDesc = get("desc"), cCode = get("code"),
     cName = get("name"), cDebit = get("debit"), cCredit = get("credit"), cComment = get("comment");
+  // [إضافة 2026-09-15] المشروع/الموقع - كل منهما بعمودين محتملين مستقلين
+  // (مستوى القيد ومستوى السطر) - راجع تعليق guessTwoLevelColumns أعلاه.
+  const cProjectLine = get("projectLine"), cProjectEntry = get("projectEntry");
+  const cLocationLine = get("locationLine"), cLocationEntry = get("locationEntry");
   const flat = [];
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -363,6 +400,10 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
+      project: cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "",
+      projectEntryCol: cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "",
+      location: cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "",
+      locationEntryCol: cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "",
     });
   }
   return groupEntries(flat);
@@ -818,6 +859,9 @@ function parseTemplateSchema(rows, hIdx) {
   const cDebit = colIndex(header, "مدين");
   const cCredit = colIndex(header, "دائن");
   const cComment = colIndex(header, "التعليقات");
+  // [إضافة 2026-09-15] المشروع/الموقع - عمودان محتملان مستقلان لكل منهما
+  // (مستوى القيد ومستوى السطر) - راجع findProjectLocationColumns/guessTwoLevelColumns أعلاه.
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const flat = [];
   for (let i = hIdx + 1; i < rows.length; i++) {
@@ -830,6 +874,10 @@ function parseTemplateSchema(rows, hIdx) {
       code: cCode !== -1 ? normalizeCode(r[cCode]) : "",
       name: cName !== -1 ? cellText(r[cName]).trim() : "",
       contact: cContact !== -1 ? cellText(r[cContact]).trim() : "",
+      project: cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "",
+      projectEntryCol: cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "",
+      location: cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "",
+      locationEntryCol: cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "",
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
@@ -849,6 +897,8 @@ function parseRawLedgerSchema(rows, hIdx) {
   const cNotes = colIndex(header, "ملاحظ");
   const cCCCode = colIndex(header, "رمز مركز");
   const cCCName = colIndex(header, "اسم مركز");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -863,7 +913,7 @@ function parseRawLedgerSchema(rows, hIdx) {
     if (!op) continue;
 
     if (!current || current.seq !== op) {
-      current = { seq: op, date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "", desc: descRaw, rows: [] };
+      current = { seq: op, date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "", desc: descRaw, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && cDate !== -1) {
@@ -878,6 +928,13 @@ function parseRawLedgerSchema(rows, hIdx) {
     let comment = notes;
     if (ccCode) comment = (comment ? comment + " | " : "") + `مركز التكلفة: ${ccCode}${ccName ? " - " + ccName : ""}`;
 
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
+    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
+
     current.rows.push({
       seq: op,
       date: current.date,
@@ -888,6 +945,8 @@ function parseRawLedgerSchema(rows, hIdx) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -927,7 +986,7 @@ function parseQoyodJournalReportSchema(rows) {
       const trimmed = c0.trim();
       const m = matchQoyodId(row);
       if (m) {
-        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), rows: [] };
+        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), project: "", rows: [] };
         groups.push(current);
         continue;
       }
@@ -953,6 +1012,12 @@ function parseQoyodJournalReportSchema(rows) {
     const accName = m2 ? m2[2].trim() : "";
     const detailTrimmed = (detail && String(detail).trim()) || "";
     const finalComment = (comment && String(comment).trim()) || detailTrimmed || accName;
+    // [إضافة 2026-09-15] أول مشروع غير فارغ عبر أسطر القيد يُعتمَد كافتراضي
+    // القيد نفسه - نفس فلسفة date/desc أعلاه (لا عمود مستوى قيد منفصل معروف
+    // بهذا التصدير تحديدًا، فقط هذا العمود لكل سطر - راجع تعليق "[إصلاح خطأ
+    // حقيقي]" أعلاه).
+    const projectTrimmed = (project && String(project).trim()) || "";
+    if (!current.project && projectTrimmed) current.project = projectTrimmed;
 
     current.rows.push({
       seq: current.seq,
@@ -998,6 +1063,12 @@ const COLUMN_KEYWORDS = {
   date: ["تاريخ", "date"],
   desc: ["التفصيل", "الوصف", "تعريف", "البيان", "التعليقات", "description", "details", "notes", "comment", "narration"],
   seq: ["رقم القيد", "رقم العملية", "تسلسل القيد", "voucher", "reference", "رقم المستند", "entry no", "jv no"],
+  // [إضافة 2026-09-15] المشروع/الموقع - هذا المخطط (الملاذ الأخير العام) يربط
+  // معنى واحد فقط بكل عمود (أول عمود مطابق)، فلا يميّز مستوى القيد عن مستوى
+  // السطر هنا كباقي المخططات (راجع findProjectLocationColumns) - قيمة أفضل من
+  // لا شيء؛ لوحة "تحديد الأعمدة يدويًا" تبقى الخيار الكامل دومًا.
+  project: ["مشروع", "project"],
+  location: ["موقع", "location", "مخزن", "فرع", "warehouse", "inventory"],
 };
 const TOTALS_MARKERS = ["المجموع", "الاجمالي", "الإجمالي", "اجمالي", "total", "sum"];
 const DATE_PATTERNS = [
@@ -1089,6 +1160,8 @@ function parseGenericFlexibleSchema(rows) {
       const seqVal = map.seq !== undefined ? cellText(row[map.seq]).trim() : "";
       const rowDate = map.date !== undefined ? normalizeDateGuess(row[map.date]) : "";
       const rowDesc = map.desc !== undefined ? cellText(row[map.desc]).trim() : "";
+      const rowProject = map.project !== undefined ? cellText(row[map.project]).trim() : "";
+      const rowLocation = map.location !== undefined ? cellText(row[map.location]).trim() : "";
 
       // Grouping key: prefer an explicit seq/voucher column; otherwise treat this whole
       // block (between two sub-headers, or the one flat table) as a single entry.
@@ -1099,11 +1172,15 @@ function parseGenericFlexibleSchema(rows) {
           seq: String(seqCounter),
           date: rowDate || blockDate,
           desc: blockTitle || rowDesc,
+          project: "",
+          location: "",
           rows: [],
         };
         localGroups.push(current);
         seqCounter++;
       }
+      if (!current.project && rowProject) current.project = rowProject;
+      if (!current.location && rowLocation) current.location = rowLocation;
 
       const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
       const code = normalizeCode(m2 ? m2[1] : accountRaw);
@@ -1119,6 +1196,8 @@ function parseGenericFlexibleSchema(rows) {
         debit: map.debit !== undefined ? parseAmount(row[map.debit]) : null,
         credit: map.credit !== undefined ? parseAmount(row[map.credit]) : null,
         comment: rowDesc || accName,
+        project: rowProject,
+        location: rowLocation,
         _rowIndex: i,
       });
     }
@@ -1145,6 +1224,8 @@ function parseEnglishExportSchema(rows, hIdx) {
   const cYear = colIndex(header, "Year");
   const cSource = colIndex(header, "Source");
   const cVouchType = colIndex(header, "VouchTypeName", "VoucherType", "Type");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -1162,7 +1243,7 @@ function parseEnglishExportSchema(rows, hIdx) {
 
     const key = op || `row-${i}`;
     if (!current || current.seq !== key) {
-      current = { seq: key, date: dateRaw, desc: desc || name, rows: [] };
+      current = { seq: key, date: dateRaw, desc: desc || name, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && dateRaw) current.date = dateRaw;
@@ -1176,6 +1257,13 @@ function parseEnglishExportSchema(rows, hIdx) {
     if (source) comment = (comment ? comment + " | " : "") + source;
     if (vouchType && vouchType !== "Journal") comment = (comment ? comment + " | " : "") + vouchType;
 
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
+    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
+
     current.rows.push({
       seq: current.seq,
       date: current.date,
@@ -1186,6 +1274,8 @@ function parseEnglishExportSchema(rows, hIdx) {
       debit,
       credit,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -1204,6 +1294,8 @@ function parseArabicFlexibleSchema(rows, hIdx) {
   const cOp = colIndex(header, "رقم العملية", "رقم القيد", "رقم القيود", "رقم السند", "رقم الدفتر", "VouchNumber", "VoucherNumber", "Reference", "رقم المستند");
   const cCCCode = colIndex(header, "رمز مركز", " مركز التكلفة", "CostCenter", "cost_center");
   const cCCName = colIndex(header, "اسم مركز", "اسم مركز التكلفة", "CostCenterName");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -1223,7 +1315,7 @@ function parseArabicFlexibleSchema(rows, hIdx) {
 
     const key = op || `row-${i}`;
     if (!current || current.seq !== key) {
-      current = { seq: key, date: dateRaw, desc: desc || name, rows: [] };
+      current = { seq: key, date: dateRaw, desc: desc || name, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && dateRaw) current.date = dateRaw;
@@ -1233,6 +1325,13 @@ function parseArabicFlexibleSchema(rows, hIdx) {
     const ccName = cCCName !== -1 ? cellText(r[cCCName]).trim() : "";
     let comment = desc || name;
     if (ccCode) comment = (comment ? comment + " | " : "") + `مركز التكلفة: ${ccCode}${ccName ? " - " + ccName : ""}`;
+
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    if (!current.project && (projectEntryCol || project)) current.project = projectEntryCol || project;
+    if (!current.location && (locationEntryCol || location)) current.location = locationEntryCol || location;
 
     current.rows.push({
       seq: current.seq,
@@ -1244,6 +1343,8 @@ function parseArabicFlexibleSchema(rows, hIdx) {
       debit,
       credit,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -1372,16 +1473,24 @@ function groupEntries(flatRows) {
     }
     if (r.seq) {
       if (!current || current.seq !== r.seq) {
-        current = { seq: r.seq, date: r.date, desc: r.desc, rows: [] };
+        current = { seq: r.seq, date: r.date, desc: r.desc, project: "", location: "", rows: [] };
         groups.push(current);
       }
     }
     if (!current) {
-      current = { seq: `?${idx}`, date: r.date, desc: r.desc, rows: [] };
+      current = { seq: `?${idx}`, date: r.date, desc: r.desc, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && r.date) current.date = r.date;
     if (!current.desc && r.desc) current.desc = r.desc;
+    // [إضافة 2026-09-15] مشروع/موقع افتراضي القيد - عمود "مستوى القيد" المخصَّص
+    // (projectEntryCol/locationEntryCol) أولى دومًا، وإلا أول قيمة غير فارغة من
+    // عمود "مستوى السطر" (project/location) تُعتمَد كافتراضي - بنفس فلسفة
+    // date/desc أعلاه بالضبط. لا يمنع أي سطر لاحق من أن يحمل قيمته الخاصة
+    // (تبقى بحقل project/location بكل سطر كما هي، تتجاوز هذا الافتراضي فقط
+    // عند البناء النهائي - راجع qoyodJournalEntryPush.js).
+    if (!current.project && (r.projectEntryCol || r.project)) current.project = r.projectEntryCol || r.project;
+    if (!current.location && (r.locationEntryCol || r.location)) current.location = r.locationEntryCol || r.location;
     current.rows.push({ ...r, _rowIndex: idx });
   });
   return groups;

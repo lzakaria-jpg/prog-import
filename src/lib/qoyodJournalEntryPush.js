@@ -17,15 +17,27 @@
       contact_id (اختياري، فقط لبنود المدينون/الدائنون).
     لا status/حالة للقيد — [قرار صريح من المستخدم 2026-09-13] نظام قيود
       المحاسبي لا يعرف "مسودة" لقيود اليومية، كل قيد يُعتمَد مباشرة عند الإرسال.
-    لا inventory_id — أداة القيود لا تحمل أي مفهوم موقع/مخزن أصلاً (بخلاف أداة
-      فواتير المبيعات)، فلا نرسل حقلاً لا معنى له هنا (اختياري بمخطط الرد، لا
-      رفض متوقَّع لغيابه).
+    inventory_id (الموقع) — [تصحيح 2026-09-15] كان يُفترَض هنا خطأً أن أداة
+      القيود "لا تحمل أي مفهوم موقع/مخزن أصلاً" فلا يُرسَل هذا الحقل إطلاقًا —
+      صحّح المستخدم هذا بمثال طلب POST /journal_entries حقيقي: inventory_id
+      حقل رسمي فعلي، اختياري، على مستوى journal_entry نفسه وعلى مستوى كل بند
+      من debit_amounts/credit_amounts معًا. راجع قسم "الموقع" تحت لتفاصيل الاستنتاج.
 
   المشروع (project_id) — [إضافة، ميزة جديدة بالكامل لهذه الأداة، لم تكن موجودة
   إطلاقًا] مطلوب "على مستوى القيد أو مستوى السطر": entry.project افتراضي لكل
   بنود القيد، وrow.project (لو مُعبَّأ) يتجاوزه لذلك السطر تحديدًا فقط — نفس
   فلسفة fillDownHeaderFields/تجاوز الصف بأداة فواتير المبيعات، بلا حاجة لآلية
   fill-down فعلية هنا (القراءة تكون مباشرة: row.project ?? entry.project).
+
+  الموقع (inventory_id) — [إضافة 2026-09-15] طلب المستخدم الصريح، مؤكَّد بمثال
+  طلب POST /journal_entries حقيقي أرسله المستخدم نفسه: خلافًا لـproject_id
+  (بند فقط)، inventory_id حقل رسمي **على مستوى القيد ذاته وعلى مستوى كل بند
+  معًا** (كلاهما بنفس الطلب الحقيقي المرفق). نفس فلسفة المشروع تمامًا لتحديد
+  قيمة كل بند (entry.location افتراضي، row.location يتجاوزه لسطره فقط)، ثم
+  entry.location (فقط - لا القيمة النهائية لكل بند) يُرسَل أيضًا كـ
+  journal_entry.inventory_id على مستوى القيد كما بالمثال الحقيقي. [تصحيح
+  2026-09-14 بالتعليق القديم أعلى الملف: "أداة القيود لا تحمل أي مفهوم
+  موقع/مخزن أصلاً" — كان خطأً غير مؤكَّد ميدانيًا، صحّحه المستخدم بمثال حي.]
 
   جهة الاتصال (contact_id) — يُعاد استخدام عمود "جهة اتصال/ضريبة/موظف" (row.contact)
   الموجود أصلاً بلا أي تغيير على قيمته أو آلية تعبئته التلقائية (applyAutoContactRules)؛
@@ -73,10 +85,31 @@ function resolveProjectId(value, projectsIndex) {
 }
 
 /**
+ * [إضافة 2026-09-15] نظير resolveProjectId أعلاه تمامًا للموقع (inventory_id) —
+ * نفس منطق المطابقة حرفيًا (byId أولاً، وإلا byName)، فقط رسائل الخطأ تخص
+ * "الموقع" لا "المشروع". locationsIndex بنفس شكل projectsIndex بالضبط
+ * (buildLocationsIndexFromApi بـqoyodJournalRefFetch.js).
+ */
+function resolveLocationId(value, locationsIndex) {
+  if (!locationsIndex || !locationsIndex.loaded) return { ok: true, id: undefined };
+  const typed = String(value || '').trim();
+  if (!typed) return { ok: true, id: undefined };
+  let matched = locationsIndex.byId ? locationsIndex.byId.get(typed) : undefined;
+  if (!matched) {
+    const candidates = (locationsIndex.byName ? locationsIndex.byName.get(typed.toLowerCase()) : undefined) || [];
+    if (candidates.length === 1) matched = candidates[0];
+    else if (candidates.length > 1) return { ok: false, error: `اسم الموقع "${typed}" مطابق لأكثر من موقع بمنشأة العميل — استخدم رقم الموقع بدل الاسم.` };
+  }
+  if (!matched) return { ok: false, error: `تعذّر مطابقة الموقع "${typed}" بأي موقع حقيقي بمنشأة العميل.` };
+  return { ok: true, id: matched.id };
+}
+
+/**
  * يبني حمولة POST /journal_entries من قيد واحد (شكل entry الداخلي: seq, date,
- * desc, project?, rows:[{code, contact, debit, credit, comment, project?}]).
- * يرجّع {ok:true, payload} أو {ok:false, error} — دالة نقية بالكامل، بلا أي
- * إرسال فعلي هنا (فصل البناء عن الإرسال، نفس نمط buildSalesInvoicePayload).
+ * desc, project?, location?, rows:[{code, contact, debit, credit, comment,
+ * project?, location?}]). يرجّع {ok:true, payload} أو {ok:false, error} —
+ * دالة نقية بالكامل، بلا أي إرسال فعلي هنا (فصل البناء عن الإرسال، نفس نمط
+ * buildSalesInvoicePayload).
  *
  * @param {object} entry
  * @param {object} opts
@@ -85,13 +118,21 @@ function resolveProjectId(value, projectsIndex) {
  * @param {Set<string>} opts.debtorsCodes أكواد حسابات "المدينون" المكتشفة
  * @param {Set<string>} opts.creditorsCodes أكواد حسابات "الدائنون" المكتشفة
  * @param {object} [opts.projectsIndex] {loaded, byId, byName} أو غير موجود
+ * @param {object} [opts.locationsIndex] {loaded, byId, byName} أو غير موجود
  */
-export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes } = {}, projectsIndex) {
+export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex } = {}) {
   if (!entry || !entry.rows || !entry.rows.length) return { ok: false, error: 'قيد فارغ' };
 
   const isoDate = dmyToIso(entry.date);
   if (!isoDate) return { ok: false, error: `تعذّر قراءة تاريخ القيد ("${entry.date || '—'}")` };
   if (!entry.desc) return { ok: false, error: 'وصف القيد فارغ' };
+
+  // [إضافة 2026-09-15] موقع افتراضي القيد نفسه (إن وُجد) يُرسَل أيضًا على
+  // مستوى journal_entry ذاته — حقل رسمي منفصل عن inventory_id لكل بند، مؤكَّد
+  // بمثال طلب حقيقي من المستخدم. لا نظير له للمشروع (project_id بند فقط، لا
+  // حقل مقابل على مستوى القيد بالمثال الحقيقي المرفق).
+  const entryLocationResult = resolveLocationId(entry.location, locationsIndex);
+  if (!entryLocationResult.ok) return { ok: false, error: `${entryLocationResult.error} (موقع القيد الافتراضي)` };
 
   const debit_amounts = [];
   const credit_amounts = [];
@@ -107,9 +148,14 @@ export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, credit
     const projectResult = resolveProjectId(projectValue, projectsIndex);
     if (!projectResult.ok) return { ok: false, error: `${projectResult.error} (السطر ${i + 1})` };
 
+    const locationValue = !isBlankValue(r.location) ? r.location : entry.location;
+    const locationResult = resolveLocationId(locationValue, locationsIndex);
+    if (!locationResult.ok) return { ok: false, error: `${locationResult.error} (السطر ${i + 1})` };
+
     const item = { account_id: account.id };
     if (r.comment) item.comment = String(r.comment).trim();
     if (projectResult.id !== undefined) item.project_id = projectResult.id;
+    if (locationResult.id !== undefined) item.inventory_id = locationResult.id;
 
     // contact_id: فقط لبنود المدينين/الدائنين، وفقط لو contact رقم صحيح موجب
     // (رمز ضريبة القيمة المضافة "1"/"2" على حسابات أخرى لا يُفسَّر أبدًا كمعرّف
@@ -131,17 +177,15 @@ export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, credit
     return { ok: false, error: 'القيد بلا بنود مدينة أو دائنة صالحة' };
   }
 
-  return {
-    ok: true,
-    payload: {
-      journal_entry: {
-        description: entry.desc,
-        date: isoDate,
-        debit_amounts,
-        credit_amounts,
-      },
-    },
+  const journal_entry = {
+    description: entry.desc,
+    date: isoDate,
+    debit_amounts,
+    credit_amounts,
   };
+  if (entryLocationResult.id !== undefined) journal_entry.inventory_id = entryLocationResult.id;
+
+  return { ok: true, payload: { journal_entry } };
 }
 
 function isBlankValue(v) {
@@ -161,13 +205,14 @@ function isBlankValue(v) {
  * @param {Set<string>} opts.debtorsCodes
  * @param {Set<string>} opts.creditorsCodes
  * @param {object} [opts.projectsIndex]
+ * @param {object} [opts.locationsIndex]
  * @param {(entry:{seq,status:'success'|'error',reason?,id?}) => void} [opts.onEntry]
  * @param {(current:number, total:number) => void} [opts.onProgress]
  * @param {{current:boolean}} [opts.stoppedRef]
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushJournalEntriesToQoyod(entries, apiKey, opts = {}) {
-  const { chartMap, debtorsCodes, creditorsCodes, projectsIndex, onEntry, onProgress, stoppedRef } = opts;
+  const { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex, onEntry, onProgress, stoppedRef } = opts;
   const resultEntries = [];
   const emit = (e) => { resultEntries.push(e); if (onEntry) onEntry(e); };
 
@@ -182,7 +227,7 @@ export async function pushJournalEntriesToQoyod(entries, apiKey, opts = {}) {
     const entry = entries[i];
     if (onProgress) onProgress(i, entries.length);
 
-    const built = buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes }, projectsIndex);
+    const built = buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex });
     if (!built.ok) {
       failed++;
       emit({ seq: entry.seq, status: 'error', reason: built.error });

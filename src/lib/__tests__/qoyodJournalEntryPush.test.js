@@ -57,7 +57,7 @@ describe('buildJournalEntryPayload', () => {
     const projectsIndex = { loaded: true, byId: new Map([['5', { id: 5, name: 'مشروع الرياض' }]]), byName: new Map() };
 
     it('project على مستوى القيد يُطبَّق على كل البنود افتراضيًا', () => {
-      const built = buildJournalEntryPayload(makeEntry({ project: '5' }), { chartMap }, projectsIndex);
+      const built = buildJournalEntryPayload(makeEntry({ project: '5' }), { chartMap, projectsIndex });
       expect(built.ok).toBe(true);
       expect(built.payload.journal_entry.debit_amounts[0].project_id).toBe(5);
       expect(built.payload.journal_entry.credit_amounts[0].project_id).toBe(5);
@@ -70,14 +70,14 @@ describe('buildJournalEntryPayload', () => {
       });
       const otherProjectsIndex = { loaded: true, byId: new Map([['5', { id: 5, name: 'أ' }], ['9', { id: 9, name: 'ب' }]]), byName: new Map() };
       entry.rows[1].project = '9'; // يتجاوز مشروع القيد (5) لهذا السطر فقط
-      const built = buildJournalEntryPayload(entry, { chartMap }, otherProjectsIndex);
+      const built = buildJournalEntryPayload(entry, { chartMap, projectsIndex: otherProjectsIndex });
       expect(built.ok).toBe(true);
       expect(built.payload.journal_entry.debit_amounts.find((a) => a.account_id === 101).project_id).toBe(5);
       expect(built.payload.journal_entry.debit_amounts.find((a) => a.account_id === 301).project_id).toBe(9);
     });
 
     it('مشروع غير مطابَق لأي مشروع حقيقي (وفهرس المشاريع محمَّل فعلًا) ⇒ خطأ صريح', () => {
-      const built = buildJournalEntryPayload(makeEntry({ project: '999' }), { chartMap }, projectsIndex);
+      const built = buildJournalEntryPayload(makeEntry({ project: '999' }), { chartMap, projectsIndex });
       expect(built.ok).toBe(false);
       expect(built.error).toMatch(/تعذّر مطابقة المشروع/);
     });
@@ -86,6 +86,67 @@ describe('buildJournalEntryPayload', () => {
       const built = buildJournalEntryPayload(makeEntry({ project: '999' }), { chartMap });
       expect(built.ok).toBe(true);
       expect(built.payload.journal_entry.debit_amounts[0]).not.toHaveProperty('project_id');
+    });
+  });
+
+  // [إضافة 2026-09-15] الموقع (inventory_id) — نفس فلسفة المشروع تمامًا لتحديد
+  // قيمة كل بند (افتراضي القيد يُتجاوَز بقيمة السطر)، بفارق جوهري واحد مؤكَّد
+  // بمثال طلب حقيقي من المستخدم: افتراضي القيد نفسه (entry.location وحده - لا
+  // القيمة النهائية لكل بند) يُرسَل أيضًا كـjournal_entry.inventory_id على
+  // مستوى القيد ذاته، بجانب inventory_id لكل بند - لا نظير لهذا بالمشروع.
+  describe('[إضافة] الموقع على مستوى القيد أو مستوى السطر (inventory_id)', () => {
+    const locationsIndex = { loaded: true, byId: new Map([['7', { id: 7, name: 'الفرع الرئيسي' }]]), byName: new Map() };
+
+    it('location على مستوى القيد يُطبَّق على كل البنود افتراضيًا، ويُرسَل أيضًا على مستوى القيد نفسه', () => {
+      const built = buildJournalEntryPayload(makeEntry({ location: '7' }), { chartMap, locationsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.journal_entry.inventory_id).toBe(7);
+      expect(built.payload.journal_entry.debit_amounts[0].inventory_id).toBe(7);
+      expect(built.payload.journal_entry.credit_amounts[0].inventory_id).toBe(7);
+    });
+
+    it('location على مستوى السطر يتجاوز موقع القيد لذلك السطر فقط - لكن موقع القيد نفسه يبقى كما هو بمستوى journal_entry', () => {
+      const entry = makeEntry({
+        location: '7',
+        rows: [makeRow({ code: '11', debit: '100', location: '' }), makeRow({ code: '30', debit: '50', location: '' }), makeRow({ code: '21', credit: '150' })],
+      });
+      const otherLocationsIndex = { loaded: true, byId: new Map([['7', { id: 7, name: 'أ' }], ['3', { id: 3, name: 'ب' }]]), byName: new Map() };
+      entry.rows[1].location = '3'; // يتجاوز موقع القيد (7) لهذا السطر فقط
+      const built = buildJournalEntryPayload(entry, { chartMap, locationsIndex: otherLocationsIndex });
+      expect(built.ok).toBe(true);
+      expect(built.payload.journal_entry.inventory_id).toBe(7);
+      expect(built.payload.journal_entry.debit_amounts.find((a) => a.account_id === 101).inventory_id).toBe(7);
+      expect(built.payload.journal_entry.debit_amounts.find((a) => a.account_id === 301).inventory_id).toBe(3);
+    });
+
+    it('موقع غير مطابَق لأي موقع حقيقي (وفهرس المواقع محمَّل فعلًا) ⇒ خطأ صريح', () => {
+      const built = buildJournalEntryPayload(makeEntry({ location: '999' }), { chartMap, locationsIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/تعذّر مطابقة الموقع/);
+    });
+
+    it('موقع القيد الافتراضي نفسه غير مطابَق ⇒ خطأ صريح حتى لو كل الأسطر بلا location خاص بها', () => {
+      const built = buildJournalEntryPayload(makeEntry({ location: 'غير موجود' }), { chartMap, locationsIndex });
+      expect(built.ok).toBe(false);
+      expect(built.error).toMatch(/تعذّر مطابقة الموقع/);
+      expect(built.error).toMatch(/موقع القيد الافتراضي/);
+    });
+
+    it('بلا فهرس مواقع محمَّل: location تُتجاهَل بصمت (لا خطأ)', () => {
+      const built = buildJournalEntryPayload(makeEntry({ location: '999' }), { chartMap });
+      expect(built.ok).toBe(true);
+      expect(built.payload.journal_entry).not.toHaveProperty('inventory_id');
+      expect(built.payload.journal_entry.debit_amounts[0]).not.toHaveProperty('inventory_id');
+    });
+
+    it('المشروع والموقع معًا على نفس البند بلا تعارض', () => {
+      const built = buildJournalEntryPayload(
+        makeEntry({ project: '5', location: '7', rows: [makeRow({ code: '11', debit: '100' }), makeRow({ code: '21', credit: '100' })] }),
+        { chartMap, projectsIndex: { loaded: true, byId: new Map([['5', { id: 5, name: 'م' }]]), byName: new Map() }, locationsIndex }
+      );
+      expect(built.ok).toBe(true);
+      expect(built.payload.journal_entry.debit_amounts[0].project_id).toBe(5);
+      expect(built.payload.journal_entry.debit_amounts[0].inventory_id).toBe(7);
     });
   });
 

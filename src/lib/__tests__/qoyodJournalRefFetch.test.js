@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  buildChartAccountsFromApi, buildNameRefListFromApi, buildProjectsIndexFromApi, fetchJournalReferencesFromApi,
+  buildChartAccountsFromApi, buildNameRefListFromApi, buildProjectsIndexFromApi, buildLocationsIndexFromApi, fetchJournalReferencesFromApi,
 } from '../qoyodJournalRefFetch.js';
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -61,6 +61,27 @@ describe('buildProjectsIndexFromApi', () => {
   });
 });
 
+// [إضافة 2026-09-15] فهرس مواقع/مخازن منشأة العميل (inventory_id) — طلب
+// المستخدم الصريح، مؤكَّد بمثال طلب POST /journal_entries حقيقي أرسله بنفسه.
+describe('buildLocationsIndexFromApi', () => {
+  it('byId مفتاحه String(id)، byName يجمع تكرارات بنفس الاسم — نفس شكل buildProjectsIndexFromApi تمامًا', () => {
+    const idx = buildLocationsIndexFromApi([{ id: 1, name: 'الفرع الرئيسي' }, { id: 2, name: 'فرع جدة' }]);
+    expect(idx.byId.get('1')).toEqual({ id: 1, name: 'الفرع الرئيسي' });
+    expect(idx.byId.get('2')).toEqual({ id: 2, name: 'فرع جدة' });
+  });
+
+  it('يستخدم name (الإنجليزي، الحقل الأساسي) وإلا ar_name كبديل — مطابق لـGET /inventories الرسمي', () => {
+    const idx = buildLocationsIndexFromApi([{ id: 1, name: 'Main Branch' }, { id: 2, name: '', ar_name: 'فرع بلا اسم إنجليزي' }]);
+    expect(idx.byId.get('1').name).toBe('Main Branch');
+    expect(idx.byId.get('2').name).toBe('فرع بلا اسم إنجليزي');
+  });
+
+  it('يتجاهل عناصر بلا id إطلاقًا', () => {
+    const idx = buildLocationsIndexFromApi([{ id: undefined, name: 'x' }, { id: null, name: 'y' }]);
+    expect(idx.byId.size).toBe(0);
+  });
+});
+
 describe('fetchJournalReferencesFromApi', () => {
   function mockFetchAll(map) {
     return vi.fn(async (path) => {
@@ -70,13 +91,14 @@ describe('fetchJournalReferencesFromApi', () => {
     });
   }
 
-  it('يجمع الأربعة (حسابات/عملاء/موردين/مشاريع) وتُبنى الفهارس بشكل صحيح', async () => {
+  it('يجمع الخمسة (حسابات/عملاء/موردين/مشاريع/مواقع) وتُبنى الفهارس بشكل صحيح', async () => {
     vi.doMock('../../product-upload/io/network.js', () => ({
       fetchAll: mockFetchAll({
         accounts: [{ id: 1, code: '1', name_ar: 'حساب' }],
         customers: [{ id: 10, name: 'عميل' }],
         vendors: [{ id: 20, name: 'مورد' }],
         projects: [{ id: 30, name: 'مشروع' }],
+        inventories: [{ id: 40, name: 'الفرع الرئيسي' }],
       }),
     }));
     vi.resetModules();
@@ -87,7 +109,9 @@ describe('fetchJournalReferencesFromApi', () => {
     expect(result.suppliersRefList).toEqual([{ name: 'مورد', ref: '20' }]);
     expect(result.projectsRef.loaded).toBe(true);
     expect(result.projectsRef.byId.get('30')).toEqual({ id: 30, name: 'مشروع' });
-    expect(result.counts).toEqual({ accounts: 1, customers: 1, vendors: 1, projects: 1 });
+    expect(result.locationsRef.loaded).toBe(true);
+    expect(result.locationsRef.byId.get('40')).toEqual({ id: 40, name: 'الفرع الرئيسي' });
+    expect(result.counts).toEqual({ accounts: 1, customers: 1, vendors: 1, projects: 1, locations: 1 });
   });
 
   it('فشل جلب /accounts يرمي خطأً واضحًا (لا بديل يدوي لهذا المورد بمسار API)', async () => {
@@ -99,13 +123,14 @@ describe('fetchJournalReferencesFromApi', () => {
     await expect(freshFetch('KEY')).rejects.toThrow(/تعذّر جلب شجرة الحسابات/);
   });
 
-  it('فشل جلب /vendors أو /projects لا يوقف الجلب — يُعامَل كقائمة فارغة فقط', async () => {
+  it('فشل جلب /vendors أو /projects أو /inventories لا يوقف الجلب — يُعامَل كقائمة فارغة فقط', async () => {
     vi.doMock('../../product-upload/io/network.js', () => ({
       fetchAll: mockFetchAll({
         accounts: [{ id: 1, code: '1', name_ar: 'حساب' }],
         customers: [],
         vendors: 'error',
         projects: 'error',
+        inventories: 'error',
       }),
     }));
     vi.resetModules();
@@ -113,6 +138,8 @@ describe('fetchJournalReferencesFromApi', () => {
     const result = await freshFetch('KEY');
     expect(result.suppliersRefList).toEqual([]);
     expect(result.projectsRef.byId.size).toBe(0);
+    expect(result.locationsRef.loaded).toBe(true);
+    expect(result.locationsRef.byId.size).toBe(0);
     expect(result.chartAccounts).toHaveLength(1);
   });
 
