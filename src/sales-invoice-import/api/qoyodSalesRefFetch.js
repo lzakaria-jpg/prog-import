@@ -107,6 +107,14 @@ export function buildStockIndexFromApi(apiProducts) {
  * (اسم الموقع كما كتبه المستخدم) إلى inventory_id رقمي مطلوب بإنشاء الفاتورة.
  * لا علاقة له بـtemplate.dropdowns.G (يبقى من الملف المرفوع يدويًا فقط) ولا
  * يقرأه أي كود مطابقة/تحقق — بناء داخلي لمرحلة الإرسال فقط.
+ *
+ * [تحذير معروف، إصلاح جزئي أدناه] هذا المصدر ناقص بطبيعته: كل موقع (inventory)
+ * لا يظهر هنا إلا لو كان لمنتج واحد على الأقل (من ضمن المنتجات المجلوبة) سجل
+ * مخزون فعلي عنده — موقع حقيقي موجود بمنشأة العميل لكن بلا أي منتج مسجَّل عليه
+ * بعد (موقع جديد، أو موقع لا يحتوي حاليًا أي كمية لأي منتج من المنتجات المجلوبة)
+ * يبقى غائبًا هنا تمامًا رغم وجوده الفعلي — راجع buildLocationIdIndexFromInventories
+ * أدناه (المصدر الكامل/الموثوق عبر GET /inventories مباشرة) المُستخدَم الآن
+ * كمصدر رئيسي بـfetchSalesReferencesFromApi، وهذا يبقى فقط احتياطًا إضافيًا.
  */
 export function buildLocationIdIndexFromApi(apiProducts) {
   const byName = new Map();
@@ -119,6 +127,31 @@ export function buildLocationIdIndexFromApi(apiProducts) {
       if (arName && !byName.has(arName)) byName.set(arName, id);
       if (enName && !byName.has(enName)) byName.set(enName, id);
     });
+  });
+  return byName;
+}
+
+/**
+ * [إضافة، إصلاح خطأ حقيقي 2026-09-16] يبني نفس فهرس "اسم الموقع → معرّف
+ * المخزون" لكن من GET /inventories مباشرة — قائمة كل مواقع منشأة العميل
+ * الحقيقية الكاملة (كما تظهر فعليًا بصفحة "المواقع" بواجهة قيود)، بغض النظر
+ * عن وجود أي مخزون مسجَّل عليها أصلًا. هذا هو المصدر الموثوق الآن (راجع تعليق
+ * buildLocationIdIndexFromApi أعلاه لتفصيل الخلل الذي عالجه هذا الإصلاح):
+ * موقع حقيقي موجود بمنشأة العميل لكن بلا أي منتج له مخزون مسجَّل بعد كان
+ * يظهر "ناقصًا" بلوحة الكيانات الناقصة (missingEntitiesPlan)، فيحاول المستخدم
+ * إنشاءه فيُرفَض من قيود فعليًا (422: name/ar_name "has already been taken")
+ * لأنه موجود أصلًا — الحقول (name/ar_name) نفس صيغة GET /accounts (مواصفة
+ * Qoyod الرسمية، قسم Inventories).
+ */
+export function buildLocationIdIndexFromInventories(apiInventories) {
+  const byName = new Map();
+  (apiInventories || []).forEach((inv) => {
+    const id = inv?.id;
+    if (id === undefined || id === null) return;
+    const arName = norm(inv?.ar_name);
+    const enName = norm(inv?.name);
+    if (arName) byName.set(arName, id);
+    if (enName) byName.set(enName, id);
   });
   return byName;
 }
@@ -250,12 +283,27 @@ export async function fetchSalesReferencesFromApi(apiKey) {
     apiTaxes = []; // منشأة بلا ضرائب مُعرَّفة أصلاً (نادر لكن ممكن) — لا يوقف باقي الجلب
   }
 
+  // [إضافة، إصلاح خطأ حقيقي] راجع تعليق رأس buildLocationIdIndexFromInventories —
+  // بلا هذا الجلب، مواقع حقيقية بلا مخزون منتجات مسجَّل بعد كانت تظهر "ناقصة"
+  // بصمت فيحاول المستخدم إنشاءها فتُرفَض (موجودة أصلًا). فشل الجلب هنا تحديدًا
+  // (صلاحية API-KEY لا تشمل المواقع، أو أي خطأ آخر) لا يُفشل الجلب الكامل —
+  // يُتراجَع للمصدر الجزئي القديم (منتجات فقط) بدل إيقاف الأداة بالكامل.
+  let apiInventories;
+  try {
+    apiInventories = await fetchAll('/inventories', key);
+  } catch (e) {
+    apiInventories = [];
+  }
+
   const products = buildProductsIndexFromApi(apiProducts);
   const stock = buildStockIndexFromApi(apiProducts);
   const customers = buildCustomersIndexFromApi(apiCustomers);
   const projects = buildProjectsIndexFromApi(apiProjects);
   const taxes = buildTaxesIndexFromApi(apiTaxes);
-  const locationIdByName = buildLocationIdIndexFromApi(apiProducts);
+  const locationIdByName = new Map([
+    ...buildLocationIdIndexFromApi(apiProducts),
+    ...buildLocationIdIndexFromInventories(apiInventories), // المصدر الموثوق — يُطبَّق أخيرًا فيفوز عند أي تعارض نظري
+  ]);
 
   return {
     productsRef: { loaded: true, raw: null, headers: null, mapping: null, ...products },
