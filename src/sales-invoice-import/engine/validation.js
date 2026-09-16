@@ -17,6 +17,7 @@ import { checkStockSequential } from './stockSimulation.js';
 // وcomputeMissingEntitiesPlan بالهوك (useSalesInvoiceImportEngine.js).
 export const MISSING_PRODUCT_CODE = 'missing_product';
 export const MISSING_CUSTOMER_CODE = 'missing_customer';
+export const MISSING_LOCATION_CODE = 'missing_location';
 
 // refs: {template:{loaded,dropdowns,missingFields}, products:{loaded,bySku,byName}, customers:{loaded,byRef,byName}, stock:{loaded,byKey}}
 export function runValidation(rows, refs = {}){
@@ -45,6 +46,9 @@ export function runValidation(rows, refs = {}){
   const products = refs.products || {loaded:false};
   const customers = refs.customers || {loaded:false};
   const stock = refs.stock || {loaded:false};
+  // [إضافة] فهرس المواقع الحقيقي المجلوب عبر API (نفس locationIdByName المُستخدَم
+  // فعليًا بقيمة الإرسال/computeMissingEntitiesPlan) — راجع تعليق الاستخدام أدناه.
+  const locationIdByName = refs.locationIdByName || null;
   const DATE_SEP = getDateSep();
 
   // تجميع حسب مرجع الفاتورة (A) بالترتيب
@@ -88,9 +92,29 @@ export function runValidation(rows, refs = {}){
 
     // القوائم المنسدلة مقابل القالب
     if(template.loaded){
-      if(!isBlank(row.G) && !template.dropdowns.G.includes(norm(row.G))) addIssue(row.id,'G','err',`السطر ${rn}: الموقع "${row.G}" غير موجود في قائمة المواقع المحمَّلة من القالب.`);
       if(!isBlank(row.V) && !template.dropdowns.V.includes(norm(row.V))) addIssue(row.id,'V','err',`السطر ${rn}: قيمة الضريبة "${row.V}" غير مطابقة لأي فئة ضريبية في القالب.`);
       if(!isBlank(row.H) && template.dropdowns.H.length && !template.dropdowns.H.includes(norm(row.H))) addIssue(row.id,'H','warn',`السطر ${rn}: طريقة الدفع "${row.H}" غير مطابقة للقائمة المحمَّلة (تحقق من كتابتها).`);
+    }
+    // [إصلاح خطأ حقيقي] الموقع (G) — فُصل عمدًا عن كتلة template.loaded أعلاه.
+    // القالب اليدوي إلزامي دومًا بالأداة (راجع readyForStep2 بالهوك)، فقائمة
+    // مواقعه (template.dropdowns.G) تبقى لقطة ثابتة وقت تصدير/رفع ذلك الملف —
+    // أي موقع حقيقي أُضيف لاحقًا بمنشأة العميل (أو أُنشئ للتو عبر لوحة الكيانات
+    // الناقصة بالخطوة 4) لن يظهر بها أبدًا. كان هذا الشرط الوحيد يفرض خطأً
+    // حاجبًا صلبًا (بلا code) يمنع الوصول لتلك اللوحة أصلًا لأي موقع جديد فعليًا
+    // موجود أو قابل للإنشاء — يُلزم المستخدم باختيار موقع خاطئ فقط ليتجاوز
+    // التحقق (بلاغ اختبار حي 2026-09-16). الآن: لو فهرس مواقع حقيقي مجلوب عبر
+    // API متاح (locationIdByName)، هو المصدر المعتمَد (أحدث/أدق من قالب ثابت)
+    // والخطأ يحمل code:'missing_location' (يُستبعَد من stats.hardErr — نفس فلسفة
+    // missing_customer/missing_product بالضبط، فيصل الصف لخطوة المراجعة/الإنشاء
+    // التلقائي). بلا فهرس API (لا جلب أصلاً) يبقى التحقق مقابل القالب الثابت
+    // كما كان تمامًا (خطأ حاجب صلب بلا code — لا مسار إنشاء تلقائي بلا API).
+    if(!isBlank(row.G)){
+      const locName = norm(row.G);
+      if(locationIdByName && locationIdByName.size > 0){
+        if(!locationIdByName.has(locName)) addIssue(row.id,'G','err',`السطر ${rn}: الموقع "${row.G}" غير موجود بمنشأة العميل الحقيقية.`, MISSING_LOCATION_CODE);
+      } else if(template.loaded && !template.dropdowns.G.includes(locName)){
+        addIssue(row.id,'G','err',`السطر ${rn}: الموقع "${row.G}" غير موجود في قائمة المواقع المحمَّلة من القالب.`);
+      }
     }
 
     // المنتج

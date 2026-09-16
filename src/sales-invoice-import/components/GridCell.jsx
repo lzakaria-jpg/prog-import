@@ -38,13 +38,16 @@ export default function GridCell({ row, col, template, customersRef, productsRef
   }
   if (col.type === 'dropdown') {
     let options = (template.loaded ? template.dropdowns[col.dd] : []) || [];
-    // [إضافة] بلا قالب مرفوع، لو فيه بيانات حقيقية مجلوبة عبر API لهذا العمود
-    // بالذات (مواقع لـG، فئات ضريبية حقيقية لـV — وM تشترك dd:'V' فتستفيد
-    // تلقائيًا) نستخدمها كقائمة منسدلة بديلة، بدل النص الحر الافتراضي بلا قالب.
-    if (!template.loaded) {
-      if (col.dd === 'G' && locationOptions && locationOptions.length) options = locationOptions;
-      else if (col.dd === 'V' && taxesRef && taxesRef.loaded && taxesRef.labels && taxesRef.labels.length) options = taxesRef.labels;
-    }
+    // [إصلاح خطأ حقيقي] كان هذا الشرط مقصورًا على !template.loaded — لكن القالب
+    // إلزامي دومًا بالأداة (راجع readyForStep2 بالهوك)، فهذا المسار لم يكن يُنفَّذ
+    // عمليًا إطلاقًا. قائمة القالب الثابتة (template.dropdowns[G/V]) لقطة وقت
+    // رفع ذلك الملف — مواقع/فئات ضريبية أُضيفت لاحقًا بمنشأة العميل (أو أُنشئت
+    // للتو عبر لوحة الكيانات الناقصة بالخطوة 4) لا تظهر بها أبدًا، فتُجبر
+    // المستخدم على اختيار قيمة خاطئة موجودة بالقالب فقط ليتجاوز الخلية (بلاغ
+    // اختبار حي 2026-09-16). القائمة المجلوبة عبر API أحدث/أدق دومًا عند توفرها
+    // — تُفضَّل الآن بغض النظر عن وجود قالب مرفوع.
+    if (col.dd === 'G' && locationOptions && locationOptions.length) options = locationOptions;
+    else if (col.dd === 'V' && taxesRef && taxesRef.loaded && taxesRef.labels && taxesRef.labels.length) options = taxesRef.labels;
     if (col.key === 'S') {
       const yn = options.filter((o) => YES_NO_LOWER.includes(String(o).trim().toLowerCase()));
       options = yn.length ? yn : ['نعم', 'لا'];
