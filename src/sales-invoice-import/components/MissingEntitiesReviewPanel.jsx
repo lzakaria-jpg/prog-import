@@ -422,12 +422,18 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
           {locations.length > 0 && (
             <>
               <h4 style={{ marginTop: 18 }}>📍 {t({ ar: `مواقع غير موجودة (${locations.length})`, en: `Missing locations (${locations.length})` })}</h4>
+              <p className="qsv-hint">
+                {t({
+                  ar: '⚠️ قيود يفرض أن يكون هذا حساب مخزون حقيقي من تصنيف "مخزون" (Inventory) تحديدًا بشجرة الحسابات — لا أي حساب أصول آخر (نقدية، بنك، مدينون...)، وإلا يُرفَض الإنشاء برسالة "Please Select The Inventory Asset Account".',
+                  en: '⚠️ Qoyod requires this to be a real account specifically classified as "Inventory" in the chart of accounts — not any other asset account (cash, bank, receivables...), otherwise creation is rejected with "Please Select The Inventory Asset Account".',
+                })}
+              </p>
               <table className="qsv-send-table">
                 <thead>
                   <tr>
                     <th style={{ width: 32 }}></th>
                     <th>{t({ ar: 'اسم الموقع', en: 'Location name' })}</th>
-                    <th>{t({ ar: 'حساب المخزون/الأصول المرتبط', en: 'Linked inventory/asset account' })}</th>
+                    <th>{t({ ar: 'حساب المخزون (Inventory) المرتبط', en: 'Linked Inventory-classified account' })}</th>
                   </tr>
                 </thead>
                 <tbody>
