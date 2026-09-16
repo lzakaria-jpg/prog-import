@@ -40,6 +40,19 @@ import { api } from '../../product-upload/io/network.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بكل أدوات API الأخرى بالمشروع
 
+// [إضافة، إصلاح خطأ حقيقي] "رد غير متوقع من Qoyod" وحدها كانت تُخفي شكل الرد
+// الفعلي تمامًا عن تقرير الفشل — اختبار حي (POST /inventories نجح فعليًا HTTP-وار
+// بلا استثناء، لكن الشكل المتوقَّع {inventory:{id}} لم يتطابق) احتاج جولة كاملة
+// إضافية فقط لمعرفة السبب. الآن الرد الخام (مقتطَع) يُرفَق دومًا بالرسالة.
+function describeUnexpectedResponse(res) {
+  try {
+    const s = JSON.stringify(res);
+    return s && s.length ? s.substring(0, 300) : String(res);
+  } catch {
+    return String(res);
+  }
+}
+
 function todayIsoDate() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -218,7 +231,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
         created.customers.set(c.name, { id: contact.id, name: c.name });
         emit({ kind: 'customer', ref: c.name, status: 'success', id: contact.id });
       } else {
-        failed++; emit({ kind: 'customer', ref: c.name, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف عميل)' });
+        failed++; emit({ kind: 'customer', ref: c.name, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف عميل): ${describeUnexpectedResponse(res)}` });
       }
     } catch (e) {
       failed++; emit({ kind: 'customer', ref: c.name, status: 'error', reason: e.message || String(e) });
@@ -241,7 +254,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
           created.categories.set(cat.tempId || cat.name, { id: category.id, name: cat.name });
           emit({ kind: 'category', ref: cat.name, status: 'success', id: category.id });
         } else {
-          failed++; emit({ kind: 'category', ref: cat.name, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف فئة)' });
+          failed++; emit({ kind: 'category', ref: cat.name, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف فئة): ${describeUnexpectedResponse(res)}` });
         }
       } catch (e) {
         failed++; emit({ kind: 'category', ref: cat.name, status: 'error', reason: e.message || String(e) });
@@ -263,7 +276,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
           created.units.set(u.tempId || u.name, { id: unit.id, name: u.name });
           emit({ kind: 'unit', ref: u.name, status: 'success', id: unit.id });
         } else {
-          failed++; emit({ kind: 'unit', ref: u.name, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف وحدة)' });
+          failed++; emit({ kind: 'unit', ref: u.name, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف وحدة): ${describeUnexpectedResponse(res)}` });
         }
       } catch (e) {
         failed++; emit({ kind: 'unit', ref: u.name, status: 'error', reason: e.message || String(e) });
@@ -316,7 +329,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
           created.products.set(p.sku, { id: product.id, name: built.payload.name, stocked: built.payload.track_quantity === 1 });
           emit({ kind: 'product', ref: p.sku, status: 'success', id: product.id });
         } else {
-          failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف منتج)' });
+          failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف منتج): ${describeUnexpectedResponse(res)}` });
         }
       } catch (e) {
         failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: e.message || String(e) });
@@ -340,7 +353,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
           created.locations.set(loc.name, { id: inventory.id, name: loc.name });
           emit({ kind: 'location', ref: loc.name, status: 'success', id: inventory.id });
         } else {
-          failed++; emit({ kind: 'location', ref: loc.name, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف موقع)' });
+          failed++; emit({ kind: 'location', ref: loc.name, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف موقع): ${describeUnexpectedResponse(res)}` });
         }
       } catch (e) {
         failed++; emit({ kind: 'location', ref: loc.name, status: 'error', reason: e.message || String(e) });
@@ -390,7 +403,7 @@ export async function pushInventoryAdjustments(items, apiKey, opts = {}) {
           emit({ ref: label, status: 'success', id: adj.id, response: adj });
         } else {
           failed++;
-          emit({ ref: label, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف تعديل مخزون)' });
+          emit({ ref: label, status: 'error', reason: `رد غير متوقع من Qoyod (بلا معرّف تعديل مخزون): ${describeUnexpectedResponse(res)}` });
         }
       } catch (e) {
         failed++;
