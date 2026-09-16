@@ -29,6 +29,19 @@ export default function Step3Validate({ engine }) {
 
       <MissingLocationPanel groups={missingLocationGroups} templateLocations={template.dropdowns.G} onApply={applyMissingLocation} />
 
+      {/* [إضافة] لو "التالي" أصبح متاحًا رغم وجود أخطاء حاجبة ظاهرة (stats.err>0)،
+          فهذا يعني أن كل ما تبقى عملاء/منتجات غير موجودين لكن قابلين للإنشاء
+          تلقائيًا بالخطوة القادمة (راجع stats.hardErr بالهوك) — بلا هذا التوضيح
+          قد يظن المستخدم أن الزر تفعّل خطأً رغم شارة الأخطاء الحمراء أعلاه. */}
+      {stats.hardErr === 0 && stats.err > 0 && (
+        <div className="qsv-note-box" style={{ marginBottom: 14 }}>
+          {t({
+            ar: `الأخطاء الحاجبة الظاهرة (${stats.err}) كلها عملاء و/أو منتجات غير موجودين بمنشأة العميل الحقيقية — يمكن إنشاؤهم تلقائيًا بالخطوة التالية (بعد مراجعتك وموافقتك الصريحة)، لذلك زر "التالي" متاح رغم ذلك.`,
+            en: `All the visible blocking errors (${stats.err}) are customers and/or products that don't exist yet on the client's real Qoyod company — they can be auto-created in the next step (after your explicit review and approval), which is why "Next" is enabled despite the count shown above.`,
+          })}
+        </div>
+      )}
+
       <h3>{t({ ar: 'قائمة الملاحظات (اضغط على أي ملاحظة للانتقال للسطر مباشرة في الجدول)', en: 'Notes list (click any note to jump directly to its row in the table)' })}</h3>
       <IssuesList issues={issues} onJumpToRow={(rowId) => gridRef.current && gridRef.current.scrollToRow(rowId)} />
 
@@ -44,7 +57,7 @@ export default function Step3Validate({ engine }) {
         <button type="button" className="qsv-btn secondary" onClick={() => goToStep(2)}>→ {t({ ar: 'رجوع للإدخال', en: 'Back to entry' })}</button>
         <div className="qsv-right">
           <button type="button" className="qsv-btn secondary" onClick={() => revalidateNow()}>🔄 {t({ ar: 'إعادة التحقق', en: 'Re-validate' })}</button>
-          <button type="button" className="qsv-btn" disabled={stats.err > 0} onClick={() => goToStep(4)}>{t({ ar: 'التالي: تحميل الملف الجاهز ←', en: 'Next: download the ready file →' })}</button>
+          <button type="button" className="qsv-btn" disabled={stats.hardErr > 0} onClick={() => goToStep(4)}>{t({ ar: 'التالي: تحميل الملف الجاهز ←', en: 'Next: download the ready file →' })}</button>
         </div>
       </div>
     </div>

@@ -198,6 +198,52 @@ describe("applyInvoiceImportMapping — [إضافة، غير مؤكَّد ميد
   });
 });
 
+describe("applyInvoiceImportMapping — [إضافة] فئة/وحدة المنتج (mapping._category/._unit)", () => {
+  it("يُخزَّنان خامًا (بلا مطابقة هنا) على row.categoryRef/row.unitRef لكل بند على حدة", () => {
+    const headers = ['Ref', 'Qty', 'Price', 'SKU', 'Cat', 'Unit'];
+    const rawRows = [
+      ['INV-1', '2', '50', 'SKU-1', 'إلكترونيات', 'قطعة'],
+      ['INV-1', '1', '30', 'SKU-2', 'أثاث', 'كرتون'],
+    ];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', N: 'SKU', _category: 'Cat', _unit: 'Unit' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].categoryRef).toBe('إلكترونيات');
+    expect(importedRows[0].unitRef).toBe('قطعة');
+    expect(importedRows[1].categoryRef).toBe('أثاث');
+    expect(importedRows[1].unitRef).toBe('كرتون');
+  });
+
+  it("[تمييز مهم] لا علاقة لـ_unit بعمود القالب الرسمي Q (وحدة التحويل) — كلاهما مستقلان تمامًا", () => {
+    const headers = ['Ref', 'Qty', 'Price', 'SKU', 'ConvUnit', 'BaseUnit'];
+    const rawRows = [['INV-1', '2', '50', 'SKU-1', 'كرتون', 'قطعة']];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', N: 'SKU', Q: 'ConvUnit', _unit: 'BaseUnit' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].Q).toBe('كرتون'); // وحدة تحويل بند فاتورة — عمود قالب رسمي عادي
+    expect(importedRows[0].unitRef).toBe('قطعة'); // الوحدة الأساسية للمنتج عند إنشائه — حقل مساعد مستقل
+  });
+
+  it("بلا mapping._category/._unit أصلًا: لا categoryRef/unitRef على أي صف", () => {
+    const headers = ['Ref', 'Qty'];
+    const rawRows = [['INV-1', '2']];
+    const mapping = { A: 'Ref', P: 'Qty' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].categoryRef).toBeUndefined();
+    expect(importedRows[0].unitRef).toBeUndefined();
+  });
+
+  it("لا تُنشَر عبر fillDownHeaderFields — كل بند يحمل فئته/وحدته الخاصة فقط (بخلاف projectRef)", () => {
+    const headers = ['Ref', 'Qty', 'Price', 'SKU', 'Cat'];
+    const rawRows = [
+      ['INV-1', '2', '50', 'SKU-1', 'إلكترونيات'],
+      ['INV-1', '1', '30', 'SKU-2', ''],
+    ];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', N: 'SKU', _category: 'Cat' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].categoryRef).toBe('إلكترونيات');
+    expect(importedRows[1].categoryRef).toBeUndefined();
+  });
+});
+
 describe("applyInvoiceImportMapping — تعبئة رأس الفاتورة وتصفية الصفوف الفارغة", () => {
   it("يُطبَّق fillDownHeaderFields على النتيجة النهائية عبر صفوف نفس المرجع", () => {
     const headers = ['Ref', 'Qty', 'Price', 'Date', 'Cust', 'Loc', 'SKU'];

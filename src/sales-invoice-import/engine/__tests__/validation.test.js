@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups } from "../validation.js";
+import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups, computeMissingEntitiesPlan, MISSING_CUSTOMER_CODE, MISSING_PRODUCT_CODE } from "../validation.js";
 import { createRow } from "../rows.js";
 
 function validRow(overrides) {
@@ -227,5 +227,121 @@ describe("getStockShortageDraftGroups — [إضافة] فواتير نقص ال�
     const refs = { stock: { loaded: true, raw: [['SKU-1', 'الرياض', 10]], byKey: new Map([['SKU-1||الرياض', 10]]) } };
     const { byRow } = runValidation(rows, refs);
     expect(getStockShortageDraftGroups(rows, byRow)).toEqual([]);
+  });
+});
+
+describe("runValidation — [إضافة] code:'missing_customer'/'missing_product' فقط بمسار المرجعيات المجلوبة عبر API", () => {
+  it("منتج غير موجود بفهرس مجلوب عبر API (raw===null) ⇒ code:'missing_product'", () => {
+    const row = validRow({ N: 'SKU-GHOST' });
+    const refs = { products: { loaded: true, raw: null, bySku: new Map(), byName: new Map() } };
+    const { byRow } = runValidation([row], refs);
+    expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(true);
+  });
+
+  it("منتج غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ بلا code إطلاقًا", () => {
+    const row = validRow({ N: 'SKU-GHOST' });
+    const refs = { products: { loaded: true, raw: [['x']], bySku: new Map(), byName: new Map() } };
+    const { byRow } = runValidation([row], refs);
+    expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(false);
+    expect(byRow[row.id].N[0].sev).toBe('err');
+  });
+
+  it("عميل غير موجود بفهرس مجلوب عبر API (raw===null) ⇒ code:'missing_customer'", () => {
+    const row = validRow({ C: 'CUST-GHOST' });
+    const refs = { customers: { loaded: true, raw: null, byRef: new Map(), byName: new Map() } };
+    const { byRow } = runValidation([row], refs);
+    expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(true);
+  });
+
+  it("عميل غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ بلا code إطلاقًا", () => {
+    const row = validRow({ C: 'CUST-GHOST' });
+    const refs = { customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() } };
+    const { byRow } = runValidation([row], refs);
+    expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(false);
+  });
+
+  it("اسم عميل مكرر (تعارض، لا 'غير موجود') ⇒ بلا code حتى بمسار API", () => {
+    const row = validRow({ C: 'اسم مكرر' });
+    const refs = {
+      customers: {
+        loaded: true, raw: null, byRef: new Map(),
+        byName: new Map([[normKeyLike('اسم مكرر'), [{ ref: 'C-1', name: 'اسم مكرر' }, { ref: 'C-2', name: 'اسم مكرر' }]]]),
+      },
+    };
+    const { byRow } = runValidation([row], refs);
+    expect(byRow[row.id].C.some((i) => i.code)).toBe(false);
+    expect(byRow[row.id].C[0].sev).toBe('err');
+  });
+});
+
+// مساعد صغير محليًا لبناء نفس مفتاح normKey المستخدَم فعليًا بـbyName (بلا استيراده
+// مباشرة هنا لإبقاء الاختبار مستقلًا عن تفاصيل normKey الداخلية بقدر الإمكان؛ يكفي
+// أن يكون مطابقًا لنفس السلوك: إزالة الفراغات وتوحيد الحالة، وهو ما يفعله المصدر).
+function normKeyLike(s) {
+  return String(s).replace(/\s+/g, '').toLowerCase();
+}
+
+describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات الناقصة القابلة للإنشاء التلقائي", () => {
+  it("يجمع العملاء/المنتجات الناقصين من issuesByRow، مُجمَّعين حسب القيمة المكتوبة", () => {
+    const rows = [
+      validRow({ id: 1, A: 'INV-1', C: 'CUST-X', N: 'SKU-X' }),
+      validRow({ id: 2, A: 'INV-1', C: 'CUST-X', N: 'SKU-Y' }), // نفس العميل الناقص، منتج ناقص آخر
+    ];
+    const refs = {
+      customers: { loaded: true, raw: null, byRef: new Map(), byName: new Map() },
+      products: { loaded: true, raw: null, bySku: new Map(), byName: new Map() },
+    };
+    const { byRow } = runValidation(rows, refs);
+    const plan = computeMissingEntitiesPlan(rows, byRow, {});
+    expect(plan.customers).toHaveLength(1);
+    expect(plan.customers[0]).toMatchObject({ typedName: 'CUST-X', rowIds: [1, 2] });
+    expect(plan.products.map((p) => p.typedSku).sort()).toEqual(['SKU-X', 'SKU-Y']);
+  });
+
+  it("يلتقط categoryFromFile/unitFromFile من row.categoryRef/row.unitRef عند وجودها", () => {
+    const row = validRow({ id: 1, N: 'SKU-X' });
+    row.categoryRef = 'إلكترونيات';
+    row.unitRef = 'قطعة';
+    const refs = { products: { loaded: true, raw: null, bySku: new Map(), byName: new Map() } };
+    const { byRow } = runValidation([row], refs);
+    const plan = computeMissingEntitiesPlan([row], byRow, {});
+    expect(plan.products[0].categoryFromFile).toBe('إلكترونيات');
+    expect(plan.products[0].unitFromFile).toBe('قطعة');
+  });
+
+  it("لا يلتقط أي عميل/منتج بلا code (مسار ملف مرجعي مرفوع يدويًا)", () => {
+    const row = validRow({ C: 'CUST-X', N: 'SKU-X' });
+    const refs = {
+      customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() },
+      products: { loaded: true, raw: [['x']], bySku: new Map(), byName: new Map() },
+    };
+    const { byRow } = runValidation([row], refs);
+    const plan = computeMissingEntitiesPlan([row], byRow, {});
+    expect(plan.customers).toEqual([]);
+    expect(plan.products).toEqual([]);
+  });
+
+  it("مواقع: يرصد أي row.G غير موجود بـlocationIdByName، فقط لو الفهرس محمَّل وغير فارغ", () => {
+    const rows = [validRow({ id: 1, G: 'موقع غير معروف' })];
+    const { byRow } = runValidation(rows, {});
+    const locationIdByName = new Map([['الرياض', 1]]);
+    const plan = computeMissingEntitiesPlan(rows, byRow, { locationIdByName });
+    expect(plan.locations).toHaveLength(1);
+    expect(plan.locations[0].typedName).toBe('موقع غير معروف');
+  });
+
+  it("مواقع: بلا locationIdByName محمَّل (بمسار الرفع اليدوي) ⇒ لا مواقع ناقصة تُرصَد إطلاقًا", () => {
+    const rows = [validRow({ id: 1, G: 'موقع غير معروف' })];
+    const { byRow } = runValidation(rows, {});
+    const plan = computeMissingEntitiesPlan(rows, byRow, {});
+    expect(plan.locations).toEqual([]);
+  });
+
+  it("موقع صحيح موجود بالفهرس ⇒ لا يظهر بقائمة المواقع الناقصة", () => {
+    const rows = [validRow({ id: 1, G: 'الرياض' })];
+    const { byRow } = runValidation(rows, {});
+    const locationIdByName = new Map([['الرياض', 1]]);
+    const plan = computeMissingEntitiesPlan(rows, byRow, { locationIdByName });
+    expect(plan.locations).toEqual([]);
   });
 });
