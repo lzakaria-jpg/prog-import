@@ -57,10 +57,22 @@ export async function api(method, path, body, apiKey) {
 // كاملاً بـFATAL قبل إنشاء أي شيء. الآن 404 يُعامَل كقائمة فارغة فتستمر الأداة
 // (تُنشئ كل الفئات/الوحدات/المنتجات من الصفر بلا مشكلة)؛ أي خطأ آخر (401/500...)
 // يُرمى كالمعتاد.
-export async function fetchAll(path, apiKey) {
+// [إضافة] حد أقصى دفاعي لعدد الصفحات — شجرة حسابات/منتجات حقيقية لعميل كبير قد
+// تبلغ آلاف السطور فتحتاج عشرات الصفحات فعلاً (بطيء لكن طبيعي، معالَج بـonPage
+// أدناه لإظهار تقدّم حي بدل شاشة تبدو معلّقة)؛ لكن لو استجابة API لأي سبب لم
+// تتناقص أبداً (خطأ بجهة قيود، أو أي افتراض هنا غير صحيح مستقبلاً) فبلا هذا الحد
+// تدخل الحلقة في تكرار لا نهائي حرفياً — نفس فئة الخطأ التي وقعت فعلاً سابقاً مع
+// /projects (راجع التعليق أسفل). 500 صفحة × 100 = 50,000 سطر، أكبر من أي دليل
+// حسابات/منتجات واقعي بمنشأة واحدة.
+const MAX_FETCH_ALL_PAGES = 500;
+
+export async function fetchAll(path, apiKey, { onPage } = {}) {
   let all = [];
   let page = 1;
   while (true) {
+    if (page > MAX_FETCH_ALL_PAGES) {
+      throw new Error(`fetchAll(${path}): تجاوز الحد الأقصى لعدد الصفحات (${MAX_FETCH_ALL_PAGES}) — توقف الجلب لمنع تكرار لا نهائي.`);
+    }
     let res;
     try {
       res = await api("GET", `${path}?page=${page}&per_page=100`, null, apiKey);
@@ -81,6 +93,7 @@ export async function fetchAll(path, apiKey) {
     const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
     if (!items.length) break;
     all.push(...items);
+    if (onPage) onPage(all.length, page);
     if (items.length < 100) break;
     page++;
   }

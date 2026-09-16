@@ -36,14 +36,15 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
   const [revenueAccountId, setRevenueAccountId] = useState('');
   const [expenseAccountId, setExpenseAccountId] = useState('');
   const [ackImpact, setAckImpact] = useState(false);
+  const [accountsProgress, setAccountsProgress] = useState(0);
 
   useEffect(() => {
     if (!showTopUp || !apiKey || accounts.length) return;
     let cancelled = false;
     (async () => {
-      setAccountsBusy(true); setAccountsError('');
+      setAccountsBusy(true); setAccountsError(''); setAccountsProgress(0);
       try {
-        const accs = await fetchAll('/accounts', apiKey);
+        const accs = await fetchAll('/accounts', apiKey, { onPage: (n) => !cancelled && setAccountsProgress(n) });
         if (!cancelled) setAccounts(accs || []);
       } catch (e) {
         if (!cancelled) setAccountsError(e.message || String(e));
@@ -116,7 +117,11 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                     en: 'Accounting warning: a real, permanent inventory adjustment entry (POST /inventory_adjustments) will be created in the client\'s live books, for the exact missing quantity of each product/location — this genuinely affects the revenue and expense accounts chosen below, and cannot be undone automatically from this tool. Make sure you understand the accounting impact before continuing.',
                   })}
                 </div>
-                {accountsBusy && <p className="qsv-hint">⏳ {t({ ar: 'جارٍ جلب دليل الحسابات...', en: 'Fetching chart of accounts...' })}</p>}
+                {accountsBusy && (
+                  <p className="qsv-hint">
+                    ⏳ {t({ ar: `جارٍ جلب دليل الحسابات... (${accountsProgress} حساب حتى الآن)`, en: `Fetching chart of accounts... (${accountsProgress} so far)` })}
+                  </p>
+                )}
                 {accountsError && <div className="qsv-note-box err">{accountsError}</div>}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                   <div style={{ flex: '1 1 220px' }}>
