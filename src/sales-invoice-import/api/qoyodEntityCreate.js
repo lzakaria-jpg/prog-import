@@ -71,10 +71,8 @@ export function buildUnitCreatePayload(name) {
 /**
  * name قد يغيب من صف الفاتورة (فقط O/وصف المنتج أو _productName الاختياريان قد يحملانه) —
  * نسقط دومًا على sku كاسم احتياطي (Qoyod يتطلب name دومًا، ولا نتركه فارغًا أبدًا).
- * track_quantity=1 (منتج مخزَّن) وsale_item=true وpurchase_item=true ثابتة دومًا لكل
- * منتج يُنشأ من هنا — تبسيط مقصود لا خيار له بالإصدار الأول (v1): المنتج يُباع فعليًا
- * على هذه الفاتورة (sale_item منطقي)، وتغذية المخزون لاحقًا لا معنى لها بلا تتبع كمية
- * (track_quantity)، فبقية القيم البديلة (منتج غير مخزَّن) خارج نطاق هذه الميزة أصلًا.
+ * sale_item=true ثابتة دومًا لكل منتج يُنشأ من هنا (المنتج يُباع فعليًا على هذه
+ * الفاتورة — لا معنى لإنشائه هنا لولا ذلك).
  *
  * [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية (ProductInput) تصف
  * selling_price/buying_price/tax_id/cogs_account_id/sales_account_id كحقول
@@ -89,17 +87,26 @@ export function buildUnitCreatePayload(name) {
  * (MissingEntitiesReviewPanel)، وtax_id من فئة الضريبة الحقيقية بالفاتورة (أو
  * الافتراضي الاحتياطي للدفعة لو الملف بلا فئة مطابقة).
  *
- * [إضافة، توجيه محاسبي صريح من المستخدم 2026-09-16] منتج مخزَّن (track_quantity=1،
- * الحالة الوحيدة المدعومة هنا — راجع أعلاه) يجب أن يكون purchase_item=true وجوبًا
- * (لا يُشترى؟ لا معنى لتتبع كميته أصلًا) — وهو ما يفرضه هذا الإصدار فعلًا بلا أي
- * تغيير مطلوب. حساب الإيراد (sales_account_id) وحساب التكلفة (cogs_account_id)
- * مطلوبان معًا دومًا لأي منتج يُباع ويُشترى معًا (حالة كل منتج يُنشأ من هنا).
+ * [إضافة، توجيه محاسبي صريح من المستخدم 2026-09-16] مخزون/غير مخزون صار خيارًا
+ * صريحًا لكل منتج بلوحة المراجعة (كان مفروضًا "مخزَّن دومًا" بالإصدار السابق —
+ * تبسيط v1 تجاوزه المستخدم بقاعدة محاسبية صريحة): منتج مخزَّن (stocked!==false)
+ * ⇒ track_quantity=1 وpurchase_item=true وجوبًا (لا معنى لتتبع كمية منتج لا
+ * يُشترى أبدًا). منتج غير مخزَّن ⇒ track_quantity=0 وpurchase_item خيار المستخدم
+ * الصريح (purchaseItem، افتراضيًا true توافقًا مع السلوك السابق) — قد يُباع فقط
+ * أو يُباع ويُشترى معًا، حسب طبيعته الحقيقية. حساب الإيراد (sales_account_id)
+ * وحساب التكلفة (cogs_account_id) مطلوبان دومًا بغض النظر عن الحالة.
  */
-export function buildProductCreatePayload({ sku, name, categoryId, unitId, sellingPrice, buyingPrice, taxId, cogsAccountId, salesAccountId } = {}) {
+export function buildProductCreatePayload({ sku, name, categoryId, unitId, sellingPrice, buyingPrice, taxId, cogsAccountId, salesAccountId, stocked, purchaseItem } = {}) {
   const s = (sku || '').trim();
   if (!s) return { ok: false, error: 'كود المنتج مفقود' };
   const n = (name || '').trim() || s;
-  const payload = { sku: s, name: n, track_quantity: 1, sale_item: true, purchase_item: true };
+  const isStocked = stocked !== false;
+  const payload = {
+    sku: s, name: n,
+    track_quantity: isStocked ? 1 : 0,
+    sale_item: true,
+    purchase_item: isStocked ? true : (purchaseItem !== false),
+  };
   if (categoryId !== undefined && categoryId !== null) payload.category_id = categoryId;
   if (unitId !== undefined && unitId !== null) payload.product_unit_type_id = unitId;
   payload.selling_price = typeof sellingPrice === 'number' && !isNaN(sellingPrice) ? sellingPrice : 0;
@@ -110,10 +117,15 @@ export function buildProductCreatePayload({ sku, name, categoryId, unitId, selli
   return { ok: true, payload };
 }
 
+// [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية تصف ar_name كحقل
+// اختياري (name وحده مطلوب) — لكن منشأة العميل الحقيقية رفضت POST /inventories
+// فعليًا (422: "ar_name: Can't be blank"). اسم الموقع بالملف عربي دومًا عمليًا
+// (ملفات عملاء سعوديين) فلا معنى لطلب اسم عربي منفصل من المستخدم — نُرسِل نفس
+// الاسم لكلا الحقلين (name/ar_name) بدل ترك ar_name فارغًا.
 export function buildLocationCreatePayload({ name, accountId } = {}) {
   const n = (name || '').trim();
   if (!n) return { ok: false, error: 'اسم الموقع مفقود' };
-  const payload = { name: n };
+  const payload = { name: n, ar_name: n };
   if (accountId !== undefined && accountId !== null) payload.account_id = accountId;
   return { ok: true, payload };
 }
@@ -149,7 +161,7 @@ export function buildInventoryAdjustmentPayload({ inventoryId, revenueAccountId,
  *   customers: [{name}],                          — عملاء مُحدَّدون للإنشاء
  *   newCategories: [{tempId, name}],                — فئات جديدة يُنشئها المستخدم بهذه الدفعة
  *   newUnits: [{tempId, name}],                      — وحدات جديدة كذلك
- *   products: [{sku, name, categoryId?, categoryTempId?, unitId?, unitTempId?, sellingPrice, taxId?}],
+ *   products: [{sku, name, categoryId?, categoryTempId?, unitId?, unitTempId?, sellingPrice, taxId?, stocked?, purchaseItem?}],
  *   locations: [{name, accountId}],
  *   defaultBuyingPrice: number,                      — سعر تكلفة افتراضي لكل منتجات الدفعة (راجع buildProductCreatePayload)
  *   defaultCogsAccountId: number,                     — حساب تكلفة المبيعات (COGS) الافتراضي لكل منتجات الدفعة
@@ -292,6 +304,8 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
         taxId: p.taxId,
         cogsAccountId: plan.defaultCogsAccountId,
         salesAccountId: plan.defaultSalesAccountId,
+        stocked: p.stocked,
+        purchaseItem: p.purchaseItem,
       });
       if (!built.ok) { failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: built.error }); tick(); if (!stopped()) await wait(); continue; }
       try {
@@ -299,7 +313,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
         const product = res && res.product;
         if (product && product.id != null) {
           sent++;
-          created.products.set(p.sku, { id: product.id, name: built.payload.name });
+          created.products.set(p.sku, { id: product.id, name: built.payload.name, stocked: built.payload.track_quantity === 1 });
           emit({ kind: 'product', ref: p.sku, status: 'success', id: product.id });
         } else {
           failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف منتج)' });

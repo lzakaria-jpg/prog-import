@@ -66,6 +66,15 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
   const [buyingPriceDraft, setBuyingPriceDraft] = useState('0');
   const [defaultTaxLabel, setDefaultTaxLabel] = useState('');
 
+  // [إضافة، توجيه محاسبي صريح من المستخدم] مخزون/غير مخزون لكل منتج على حدة
+  // (لا افتراضي مشترك للدفعة — منتجات نفس الملف قد تخلط خدمات واشتراكات غير
+  // مخزَّنة مع منتجات مادية مخزَّنة). افتراضيًا مخزَّن (توافقًا مع السلوك السابق).
+  // راجع تعليق رأس buildProductCreatePayload بـqoyodEntityCreate.js للقاعدة الكاملة.
+  const [productStocked, setProductStocked] = useState({}); // typedSku -> boolean
+  const [productPurchaseItem, setProductPurchaseItem] = useState({}); // typedSku -> boolean، يُستخدَم فقط لو !stocked
+  const isStocked = (sku) => productStocked[sku] !== false;
+  const isPurchaseItem = (sku) => productPurchaseItem[sku] !== false;
+
   // [إضافة] خيارات SearchableSelect — تُبنى مرة واحدة من القوائم المجلوبة، تُعاد
   // حسابها فقط عند تغيّرها فعليًا (accounts/categories/units).
   const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
@@ -234,6 +243,8 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
       entry.sellingPrice = typeof p.sellingPriceFromFile === 'number' ? p.sellingPriceFromFile : 0;
       const taxEntry = effectiveTaxEntry(p);
       if (taxEntry) entry.taxId = taxEntry.id;
+      entry.stocked = isStocked(p.typedSku);
+      if (!entry.stocked) entry.purchaseItem = isPurchaseItem(p.typedSku);
       return entry;
     });
 
@@ -352,6 +363,8 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                     <th>{t({ ar: 'الوحدة', en: 'Unit' })}</th>
                     <th>{t({ ar: 'سعر البيع', en: 'Selling price' })}</th>
                     {hasRealTaxes && <th>{t({ ar: 'الضريبة', en: 'Tax' })}</th>}
+                    <th>{t({ ar: 'مخزون؟', en: 'Stocked?' })}</th>
+                    <th>{t({ ar: 'يُشترى أيضًا؟', en: 'Also purchasable?' })}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -359,6 +372,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                     const catName = effectiveCategoryName(p);
                     const unitName = effectiveUnitName(p);
                     const taxEntry = effectiveTaxEntry(p);
+                    const stocked = isStocked(p.typedSku);
                     return (
                       <tr key={p.typedSku}>
                         <td><input type="checkbox" checked={checkedProducts.has(p.typedSku)} onChange={() => toggle(setCheckedProducts)(p.typedSku)} /></td>
@@ -372,6 +386,25 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                             {taxEntry ? `${p.taxLabelFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${taxEntry.rate}%` : t({ ar: '⚠️ بلا مطابقة', en: '⚠️ no match' })}
                           </td>
                         )}
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={stocked}
+                            onChange={(e) => setProductStocked((prev) => ({ ...prev, [p.typedSku]: e.target.checked }))}
+                            title={t({ ar: 'مخزَّن ⇒ يشترى إجباريًا ويحتاج تغذية مخزون افتتاحي عند الحاجة', en: 'Stocked ⇒ purchasable is mandatory, may need opening stock top-up' })}
+                          />
+                        </td>
+                        <td>
+                          {stocked
+                            ? <span className="qsv-hint">{t({ ar: 'إجباري (مخزَّن)', en: 'Mandatory (stocked)' })}</span>
+                            : (
+                              <input
+                                type="checkbox"
+                                checked={isPurchaseItem(p.typedSku)}
+                                onChange={(e) => setProductPurchaseItem((prev) => ({ ...prev, [p.typedSku]: e.target.checked }))}
+                              />
+                            )}
+                        </td>
                       </tr>
                     );
                   })}
