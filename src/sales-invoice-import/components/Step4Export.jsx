@@ -113,7 +113,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
       const inventoryId = engine.locationIdByName ? engine.locationIdByName.get(n.loc) : undefined;
       if (!product || product.id == null || inventoryId === undefined) return;
       if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, ref: n.loc, lineItems: [] });
-      byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall });
+      byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall, rate: n.rate });
     });
     const result = await engine.topUpStockAndFinish(apiKeyInput.trim(), Array.from(byInventory.values()), { status: sendStatus });
     if (result && result.failed > 0) setShowTopUpFailureWarning(true);

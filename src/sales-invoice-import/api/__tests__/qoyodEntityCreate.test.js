@@ -115,34 +115,43 @@ describe('buildLocationCreatePayload', () => {
 });
 
 describe('buildInventoryAdjustmentPayload', () => {
-  it('يبني حمولة كاملة، actual_quantity نصًا لا رقمًا', () => {
+  it('يبني حمولة كاملة، actual_quantity/rate نصًا لا رقمًا، description ثابت', () => {
     const built = buildInventoryAdjustmentPayload({
       inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, date: '2026-09-16',
-      lineItems: [{ productId: 10, quantity: 5 }],
+      lineItems: [{ productId: 10, quantity: 5, rate: 100 }],
     });
     expect(built).toEqual({
       ok: true,
       payload: {
         inventory_adjustment: {
           inventory_id: 1, revenue_account_id: 2, expense_account_id: 3, date: '2026-09-16', status: 'Completed',
-          line_items: [{ product_id: 10, actual_quantity: '5' }],
+          description: 'تغذية مخزون افتتاحي — استيراد فواتير مبيعات',
+          line_items: [{ product_id: 10, actual_quantity: '5', rate: '100' }],
         },
       },
     });
   });
   it('يستخدم تاريخ اليوم افتراضيًا لو بلا date', () => {
-    const built = buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1 }] });
+    const built = buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1, rate: 10 }] });
     expect(built.ok).toBe(true);
     expect(built.payload.inventory_adjustment.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
   it('يفشل بلا inventory_id', () => {
-    expect(buildInventoryAdjustmentPayload({ revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1 }] }).ok).toBe(false);
+    expect(buildInventoryAdjustmentPayload({ revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1, rate: 10 }] }).ok).toBe(false);
   });
   it('يفشل بلا حسابي إيراد/مصروف', () => {
-    expect(buildInventoryAdjustmentPayload({ inventoryId: 1, lineItems: [{ productId: 1, quantity: 1 }] }).ok).toBe(false);
+    expect(buildInventoryAdjustmentPayload({ inventoryId: 1, lineItems: [{ productId: 1, quantity: 1, rate: 10 }] }).ok).toBe(false);
   });
   it('يفشل بلا بنود', () => {
     expect(buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [] }).ok).toBe(false);
+  });
+  // [إضافة، إصلاح خطأ حقيقي، اختبار حي 2026-09-16] راجع تعليق رأس الدالة —
+  // POST /inventory_adjustments رفض فعليًا بلا rate>0 (القيمة المحاسبية تصير
+  // صفرًا: "internal_line_items.value: Must be greater than 0").
+  it('يفشل لو rate مفقود أو صفر أو سالب لأي بند — لا نرسل طلبًا مصيره الرفض المؤكَّد', () => {
+    expect(buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1 }] }).ok).toBe(false);
+    expect(buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1, rate: 0 }] }).ok).toBe(false);
+    expect(buildInventoryAdjustmentPayload({ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1, rate: -5 }] }).ok).toBe(false);
   });
 });
 
@@ -299,7 +308,7 @@ describe('pushInventoryAdjustments', () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ inventory_adjustment: { id: 9 } }) });
     const entries = [];
     const result = await pushInventoryAdjustments(
-      [{ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 5, quantity: 4 }] }],
+      [{ inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 5, quantity: 4, rate: 50 }] }],
       'KEY',
       { onEntry: (e) => entries.push(e) },
     );
@@ -327,8 +336,8 @@ describe('pushInventoryAdjustments', () => {
       return { ok: true, status: 200, text: async () => JSON.stringify({ inventory_adjustment: { id: 2 } }) };
     });
     const items = [
-      { inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1 }] },
-      { inventoryId: 2, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 2, quantity: 2 }] },
+      { inventoryId: 1, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 1, quantity: 1, rate: 10 }] },
+      { inventoryId: 2, revenueAccountId: 2, expenseAccountId: 3, lineItems: [{ productId: 2, quantity: 2, rate: 10 }] },
     ];
     const result = await pushInventoryAdjustments(items, 'KEY');
     expect(result.sent).toBe(1);

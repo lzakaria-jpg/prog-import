@@ -93,8 +93,17 @@ export function checkStockSequential(rows, {productsIndex, stockIndex, newSkus, 
 // موقع آخر غائب من الفهرس (موجود مسبقًا لكن بلا بيانات مخزون لسبب آخر — حالة
 // غامضة حقًا) يبقى بسلوكه الأصلي بلا تغيير (يُتجاهَل هنا، يبقى تحذيرًا فقط
 // بـcheckStockSequential) — تمييز مقصود، لا نفترض صفرًا لمنتج/موقع قائم فعليًا.
+// [إضافة، إصلاح خطأ حقيقي، اختبار حي 2026-09-16] POST /inventory_adjustments
+// رفض فعليًا (422: "internal_line_items.value: Must be greater than 0") بلا
+// حقل rate (سعر التكلفة للوحدة — "also sets value"، أي القيمة المحاسبية
+// المُرحَّلة لحسابَي الإيراد/المصروف = rate × الكمية) — بلا rate تصير القيمة
+// صفرًا فيُرفَض الطلب بالكامل، فلا تُنشأ تغذية المخزون رغم موافقة المستخدم
+// الصريحة عليها. فاتورة المبيعات لا تحمل بيانات تكلفة حقيقية (سعر شراء) —
+// نستخدم سعر الوحدة (بيع) من أول ظهور لهذا المنتج/الموقع بالملف كقيمة احتياطية
+// معقولة (نفس فلسفة sellingPriceFromFile بـcomputeMissingEntitiesPlan تمامًا)،
+// بدل طلب مدخل إضافي من المستخدم لكل تعديل.
 export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus, newLocations} = {}){
-  const needs = new Map(); // sku||loc -> {sku, loc, shortfall}
+  const needs = new Map(); // sku||loc -> {sku, loc, shortfall, rate}
   if(!stockIndex || stockIndex.raw !== null) return [];
   const running = new Map();
   rows.forEach(row=>{
@@ -117,7 +126,10 @@ export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus, ne
       running.set(key, 0);
       const existing = needs.get(key);
       if(existing) existing.shortfall += shortfall;
-      else needs.set(key, {sku, loc, shortfall});
+      else {
+        const price = parseFloat(row.R);
+        needs.set(key, {sku, loc, shortfall, rate: isNaN(price) || price<=0 ? 0 : price});
+      }
     }
   });
   return Array.from(needs.values());
