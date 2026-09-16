@@ -94,9 +94,16 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
     engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus, ...decision });
   };
 
+  // [إضافة] تنبيه صريح لو فشلت تغذية مخزون واحدة أو أكثر فعليًا — راجع تعليق
+  // topUpStockAndFinish بالهوك: لا يُكمَل للإرسال تلقائيًا بعد الآن عند أي فشل
+  // (بلاغ اختبار حي: فواتير أُنشئت Draft بصمت رغم "تأكيد التغذية"، لأن التغذية
+  // نفسها فشلت بلا أي تنبيه).
+  const [showTopUpFailureWarning, setShowTopUpFailureWarning] = useState(false);
+
   // [إضافة] المسار الثالث بلوحة نقص المخزون: تغذية المخزون تلقائيًا عبر
   // POST /inventory_adjustments (كمية النقص الفعلية بالضبط، مُجمَّعة حسب الموقع
-  // لتقليل عدد الطلبات)، ثم إرسال كل الفواتير بالحالة المطلوبة أصلًا (لا Draft قسرًا).
+  // لتقليل عدد الطلبات)، ثم إرسال كل الفواتير بالحالة المطلوبة أصلًا (لا Draft قسرًا)
+  // — فقط لو نجحت التغذية بالكامل (راجع topUpStockAndFinish بالهوك).
   const handleTopUpConfirm = async ({ revenueAccountId, expenseAccountId }) => {
     setShowStockReview(false);
     const needs = engine.getStockTopUpPlan();
@@ -108,8 +115,9 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
       if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, ref: n.loc, lineItems: [] });
       byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall });
     });
-    setShowSendModal(true);
-    await engine.topUpStockAndFinish(apiKeyInput.trim(), Array.from(byInventory.values()), { status: sendStatus });
+    const result = await engine.topUpStockAndFinish(apiKeyInput.trim(), Array.from(byInventory.values()), { status: sendStatus });
+    if (result && result.failed > 0) setShowTopUpFailureWarning(true);
+    else setShowSendModal(true);
   };
 
   // [إضافة] تقرير Excel لنتائج إنشاء الكيانات الناقصة و/أو تغذية المخزون —
@@ -187,6 +195,30 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
               )}
               <button type="button" className="qsv-btn" onClick={() => { setShowEntityFailureWarning(false); setShowMissingEntities(true); }}>
                 {t({ ar: 'مراجعة الكيانات الناقصة مرة أخرى', en: 'Review missing entities again' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showTopUpFailureWarning && (
+        <div className="qsv-modal-overlay" role="dialog" aria-modal="true" onClick={() => setShowTopUpFailureWarning(false)}>
+          <div className="qsv-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>⚠️ {t({ ar: 'فشلت تغذية المخزون — لم تُرسَل الفواتير', en: 'Stock top-up failed — invoices were not sent' })}</h3>
+            <p className="qsv-hint">
+              {t({
+                ar: 'تعذّر إنشاء تعديل مخزون واحد أو أكثر (POST /inventory_adjustments) بمنشأة العميل الحقيقية — لو أُرسلت الفواتير رغم ذلك لكانت أُنشئت كمسودة صامتة (المخزون الحقيقي لم يزد فعليًا). لم يُرسَل شيء بعد. راجع سبب الفشل بالتقرير، ثم أعد المحاولة من لوحة مراجعة نقص المخزون.',
+                en: 'One or more inventory adjustments (POST /inventory_adjustments) failed to be created on the client\'s real company — had the invoices been sent anyway, they would have been created as silent drafts (real stock never actually increased). Nothing has been sent yet. Check the reason in the report, then retry from the stock shortage review panel.',
+              })}
+            </p>
+            <div className="qsv-modal-actions" style={{ marginTop: 14, flexWrap: 'wrap', gap: 8 }}>
+              <button type="button" className="qsv-btn ghost" onClick={() => setShowTopUpFailureWarning(false)}>{t({ ar: 'إغلاق', en: 'Close' })}</button>
+              {hasEntityCreateReport && (
+                <button type="button" className="qsv-btn secondary" disabled={reportBusy} onClick={downloadEntityReport}>
+                  🧩 {t({ ar: 'تحميل تقرير التغذية', en: 'Download top-up report' })}
+                </button>
+              )}
+              <button type="button" className="qsv-btn" onClick={() => { setShowTopUpFailureWarning(false); setShowStockReview(true); }}>
+                {t({ ar: 'إعادة محاولة تغذية المخزون', en: 'Retry stock top-up' })}
               </button>
             </div>
           </div>
