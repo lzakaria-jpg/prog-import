@@ -592,6 +592,14 @@ export default function useSalesInvoiceImportEngine() {
     });
     setStockTopUpResult(result);
     setStockTopUpBusy(false);
+    // [إصلاح خطأ حقيقي] كان الإرسال يكمل دومًا حتى لو فشلت تغذية مخزون واحدة أو
+    // أكثر فعليًا (422 من قيود، مثلًا) — الفواتير تُرسَل رغم ذلك، والمخزون
+    // الحقيقي لم يزد فعليًا، فتُنشأ الفواتير كمسودة صامتة بلا أي تنبيه بأن سبب
+    // ذلك تحديدًا هو فشل التغذية نفسها (بلاغ اختبار حي: فواتير مُنشأة بنجاح
+    // لكن Draft رغم "تأكيد التغذية"). الآن: أي فشل يوقف الإرسال التلقائي —
+    // النتيجة (result.failed/entries) تبقى متاحة للمستدعي (Step4Export.jsx)
+    // ليعرض تنبيهًا صريحًا بدل المتابعة بصمت.
+    if (result.failed > 0 || result.fatalError) return result;
     return sendInvoicesViaApi(key, sendOpts);
   }, [sendInvoicesViaApi]);
 
