@@ -320,9 +320,38 @@ export function guessHeaderRowIndex(rows) {
 // — يُستخدَم لتعبئة لوحة "تحديد الأعمدة يدويًا" بقيم افتراضية معقولة، سواء
 // نجح parseEntriesFile تلقائيًا أو فشل. يُرجع فهارس أعمدة (أو -1) لا بيانات
 // مُستخرَجة فعليًا.
+// [إضافة 2026-09-15] المشروع والموقع - طلب المستخدم الصريح: ملفات العملاء
+// أحيانًا تحمل عمودين منفصلين لكل منهما (مستوى القيد كله، ومستوى سطر القيد
+// تحديدًا) بعناوين مختلفة - لذا 4 حقول مستقلة تمامًا هنا (لا حقل واحد "مشروع")
+// حتى يقدر المستخدم يربط كل عمود موجود فعليًا بملفه بحقله الصحيح يدويًا مهما
+// كانت تسميته. التخمين التلقائي أدناه افتراض بسيط لا أكثر (أول عمود مطابق
+// للكلمات المفتاحية يُخمَّن كمستوى سطر - الحالة الأشيع - وأي عمود ثانٍ مشابه
+// يُخمَّن كمستوى القيد)؛ المستخدم يصحّحه يدويًا دومًا من نفس اللوحة بلا قيد.
+function guessTwoLevelColumns(header, keywords) {
+  const matches = [];
+  header.forEach((cell, i) => {
+    const t = cellText(cell).trim().toLowerCase();
+    if (!t) return;
+    if (keywords.some((kw) => t.includes(kw.toLowerCase()))) matches.push(i);
+  });
+  return { line: matches.length > 0 ? matches[0] : -1, entry: matches.length > 1 ? matches[1] : -1 };
+}
+
+const PROJECT_KEYWORDS = ["مشروع", "المشروع", "project"];
+const LOCATION_KEYWORDS = ["موقع", "الموقع", "location", "مخزن", "فرع", "warehouse", "inventory"];
+
+// [إضافة 2026-09-15] مُلخَّص واحد يُستخدَم بكل مخططات التعرّف (A/B/D/E/العام)
+// بدل تكرار نفس منطق guessTwoLevelColumns يدويًا بكل واحد منها.
+function findProjectLocationColumns(header) {
+  const p = guessTwoLevelColumns(header, PROJECT_KEYWORDS);
+  const l = guessTwoLevelColumns(header, LOCATION_KEYWORDS);
+  return { cProjectLine: p.line, cProjectEntry: p.entry, cLocationLine: l.line, cLocationEntry: l.entry };
+}
+
 export function guessEntriesColumnMapping(rows) {
   const headerRowIndex = guessHeaderRowIndex(rows);
   const header = (rows[headerRowIndex] || []).map(cellText);
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
   return {
     headerRowIndex,
     seq: colIndex(header, "تسلسل القيد", "تسلسل القيود", "تسلسل", "رقم القيد", "رقم القيود", "رقم العملية", "رقم السند", "رقم الدفتر", "رقم المستند", "VouchNumber", "VoucherNumber", "Reference"),
@@ -333,6 +362,10 @@ export function guessEntriesColumnMapping(rows) {
     debit: colIndex(header, "مدين", "Debit", "DBAmount", "DebitAmount", "DR"),
     credit: colIndex(header, "دائن", "Credit", "CRAmount", "CreditAmount", "CR"),
     comment: colIndex(header, "التعليقات", "ملاحظات", "ملاحظ", "Notes", "Remark"),
+    projectLine: cProjectLine,
+    projectEntry: cProjectEntry,
+    locationLine: cLocationLine,
+    locationEntry: cLocationEntry,
   };
 }
 
@@ -349,6 +382,10 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
   };
   const cSeq = get("seq"), cDate = get("date"), cDesc = get("desc"), cCode = get("code"),
     cName = get("name"), cDebit = get("debit"), cCredit = get("credit"), cComment = get("comment");
+  // [إضافة 2026-09-15] المشروع/الموقع - كل منهما بعمودين محتملين مستقلين
+  // (مستوى القيد ومستوى السطر) - راجع تعليق guessTwoLevelColumns أعلاه.
+  const cProjectLine = get("projectLine"), cProjectEntry = get("projectEntry");
+  const cLocationLine = get("locationLine"), cLocationEntry = get("locationEntry");
   const flat = [];
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -363,6 +400,10 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
+      project: cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "",
+      projectEntryCol: cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "",
+      location: cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "",
+      locationEntryCol: cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "",
     });
   }
   return groupEntries(flat);
@@ -818,6 +859,9 @@ function parseTemplateSchema(rows, hIdx) {
   const cDebit = colIndex(header, "مدين");
   const cCredit = colIndex(header, "دائن");
   const cComment = colIndex(header, "التعليقات");
+  // [إضافة 2026-09-15] المشروع/الموقع - عمودان محتملان مستقلان لكل منهما
+  // (مستوى القيد ومستوى السطر) - راجع findProjectLocationColumns/guessTwoLevelColumns أعلاه.
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const flat = [];
   for (let i = hIdx + 1; i < rows.length; i++) {
@@ -830,6 +874,10 @@ function parseTemplateSchema(rows, hIdx) {
       code: cCode !== -1 ? normalizeCode(r[cCode]) : "",
       name: cName !== -1 ? cellText(r[cName]).trim() : "",
       contact: cContact !== -1 ? cellText(r[cContact]).trim() : "",
+      project: cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "",
+      projectEntryCol: cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "",
+      location: cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "",
+      locationEntryCol: cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "",
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
@@ -849,6 +897,8 @@ function parseRawLedgerSchema(rows, hIdx) {
   const cNotes = colIndex(header, "ملاحظ");
   const cCCCode = colIndex(header, "رمز مركز");
   const cCCName = colIndex(header, "اسم مركز");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -863,7 +913,7 @@ function parseRawLedgerSchema(rows, hIdx) {
     if (!op) continue;
 
     if (!current || current.seq !== op) {
-      current = { seq: op, date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "", desc: descRaw, rows: [] };
+      current = { seq: op, date: cDate !== -1 ? normalizeDateGuess(r[cDate]) : "", desc: descRaw, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && cDate !== -1) {
@@ -878,6 +928,19 @@ function parseRawLedgerSchema(rows, hIdx) {
     let comment = notes;
     if (ccCode) comment = (comment ? comment + " | " : "") + `مركز التكلفة: ${ccCode}${ccName ? " - " + ccName : ""}`;
 
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
+
     current.rows.push({
       seq: op,
       date: current.date,
@@ -888,6 +951,8 @@ function parseRawLedgerSchema(rows, hIdx) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -917,9 +982,36 @@ function findQoyodReportStart(rows) {
   return -1;
 }
 
+// [إضافة 2026-09-15] طلب المستخدم الصريح: اعتماد قالب "دفتر القيود" بعد
+// إضافة 4 أعمدة صريحة للمشروع/الموقع (كل منهما مستوى قيد "افتراضي" ومستوى
+// سطر "خاص بالسطر") — بنفس تسمية الحقول التي تصدّرها الأداة نفسها. بخلاف
+// المشروع القديم (كان يُفترَض دومًا بموضع ثابت row[5])، الأعمدة الأربعة هنا
+// تُكتشَف من نص صف الرأس الفرعي ("الحساب|التفصيل|...") نفسه - "افتراضي"/
+// "خاص" أو "سطر" هما الكلمتان المميِّزتان بين المستويين، لا نص العمود حرفيًا،
+// فتبقى مرنة أمام أي صياغة مشابهة معقولة. صف الرأس الفرعي يتكرر مع كل قيد
+// بهذا التصدير (راجع الصورة المرفقة من المستخدم)، فيُعاد اكتشافه في كل مرة.
+function matchQoyodReportColumnMeaning(cell) {
+  const t = cellText(cell).trim();
+  if (!t) return null;
+  const hasLocation = /موقع/.test(t);
+  const hasProject = /مشروع/.test(t);
+  if (!hasLocation && !hasProject) return null;
+  // [ملاحظة] "افتراضي" فقط يُصنَّف مستوى قيد - أي شيء آخر (بما فيها "المشروع"
+  // المجرّدة بلا أي مؤهِّل، وهو عمود "دفتر القيود" التاريخي المقروء ميدانيًا منذ
+  // البداية) يبقى مستوى سطر افتراضيًا - يحافظ هذا على سلوك الملفات القديمة
+  // بلا أي تغيير (كانت تُقرأ دومًا كمشروع خاص بكل سطر على حدة).
+  const isEntry = /افتراضي/.test(t);
+  if (hasLocation) return isEntry ? "locationEntry" : "locationLine";
+  return isEntry ? "projectEntry" : "projectLine";
+}
+
 function parseQoyodJournalReportSchema(rows) {
   const groups = [];
   let current = null;
+  // [إضافة 2026-09-15] فهارس أعمدة المشروع/الموقع الأربعة لآخر صف رأس فرعي
+  // "الحساب|..." شوهد - null يعني لم يُشاهَد صف رأس فرعي بعد بهذا الملف إطلاقًا
+  // (لا يُفترَض عمليًا، كل قيد بهذا التصدير يسبقه صف رأس فرعي دومًا).
+  let colMap = null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     const c0 = row[0];
@@ -927,11 +1019,18 @@ function parseQoyodJournalReportSchema(rows) {
       const trimmed = c0.trim();
       const m = matchQoyodId(row);
       if (m) {
-        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), rows: [] };
+        current = { seq: m[1], desc: m[2].trim(), date: normalizeDateGuess(m[3]), project: "", location: "", rows: [] };
         groups.push(current);
         continue;
       }
-      if (trimmed.startsWith("الحساب")) continue;
+      if (trimmed.startsWith("الحساب")) {
+        colMap = { locationEntry: -1, projectEntry: -1, locationLine: -1, projectLine: -1 };
+        row.forEach((cell, idx) => {
+          const meaning = matchQoyodReportColumnMeaning(cell);
+          if (meaning && colMap[meaning] === -1) colMap[meaning] = idx;
+        });
+        continue;
+      }
       if (trimmed === "المجموع" || trimmed.startsWith("المجموع")) { current = null; continue; }
     }
     if (!current) continue;
@@ -942,17 +1041,34 @@ function parseQoyodJournalReportSchema(rows) {
     const debit = parseAmount(row[2]);
     const credit = parseAmount(row[3]);
     const comment = row[4];
-    // [إصلاح خطأ حقيقي شهده المستخدم] تصدير "دفتر القيود" الأصلي من قيود يضيف
-    // عمودًا سادسًا "المشروع" (F) بعد "التعليقات" — كان يُهمَل بالكامل فتبقى خانة
-    // "مشروع (خاص بالسطر)" فارغة رغم أن الملف نفسه يحمل اسم المشروع صراحةً لكل
-    // سطر. يُقرأ الآن كأي عمود آخر بنفس الصف؛ ملفات أقدم بلا هذا العمود (row[5]
-    // غير معرَّف) تبقى بلا أي تغيير — project تُصبح سلسلة فارغة كالسابق تمامًا.
-    const project = row[5];
+    // [تصحيح 2026-09-15] المشروع/الموقع صارا يُقرآن حصرًا حسب صف الرأس الفرعي
+    // المكتشَف أعلاه (colMap) - لا موضع ثابت. استثناء وحيد للتوافق التاريخي:
+    // ملف قديم بلا أي من الأعمدة الأربعة الصريحة بصف رأسه (كل قيم colMap تبقى
+    // -1) يُعتمَد فيه row[5] كمشروع سطر فقط، بالضبط كالسلوك القديم قبل هذا
+    // التعديل (راجع الإصلاح الأصلي: "دفتر القيود الأصلي من قيود يضيف عمودًا
+    // سادسًا 'المشروع' (F)").
+    const hasExplicitCols = colMap && (colMap.locationEntry !== -1 || colMap.projectEntry !== -1 || colMap.locationLine !== -1 || colMap.projectLine !== -1);
+    const project = hasExplicitCols ? (colMap.projectLine !== -1 ? row[colMap.projectLine] : "") : row[5];
+    const projectEntryCol = hasExplicitCols && colMap.projectEntry !== -1 ? row[colMap.projectEntry] : "";
+    const location = hasExplicitCols && colMap.locationLine !== -1 ? row[colMap.locationLine] : "";
+    const locationEntryCol = hasExplicitCols && colMap.locationEntry !== -1 ? row[colMap.locationEntry] : "";
     const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
     const code = m2 ? normalizeCode(m2[1]) : normalizeCode(accountRaw);
     const accName = m2 ? m2[2].trim() : "";
     const detailTrimmed = (detail && String(detail).trim()) || "";
     const finalComment = (comment && String(comment).trim()) || detailTrimmed || accName;
+    const projectTrimmed = (project && String(project).trim()) || "";
+    const projectEntryTrimmed = (projectEntryCol && String(projectEntryCol).trim()) || "";
+    const locationTrimmed = (location && String(location).trim()) || "";
+    const locationEntryTrimmed = (locationEntryCol && String(locationEntryCol).trim()) || "";
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "خاص بالسطر" كانت تُرفَع
+    // خطأً لتصبح "افتراضي القيد" أيضًا حين يكون عمود "افتراضي" فارغًا لذلك
+    // السطر - فتُرسَل مرتين (كافتراضي قيد + كقيمة سطر) رغم القصد الصريح
+    // بوجود عمودين منفصلين. افتراضي القيد يُشتَق الآن حصرًا من عمود "افتراضي"
+    // (لو موجود بصف الرأس الفرعي)، ولا يُشتَق أبدًا من عمود "خاص بالسطر" -
+    // يبقى فارغًا لو ما كتبه العميل صراحةً بعموده الخاص.
+    if (!current.project && projectEntryTrimmed) current.project = projectEntryTrimmed;
+    if (!current.location && locationEntryTrimmed) current.location = locationEntryTrimmed;
 
     current.rows.push({
       seq: current.seq,
@@ -976,7 +1092,8 @@ function parseQoyodJournalReportSchema(rows) {
       // بلا أي مطابقة خاطئة واحدة (0 اختلاف عن أي مطابقة كانت تنجح أصلاً).
       detail: detailTrimmed,
       comment: finalComment,
-      project: (project && String(project).trim()) || "",
+      project: projectTrimmed,
+      location: locationTrimmed,
       _rowIndex: i,
     });
   }
@@ -998,6 +1115,12 @@ const COLUMN_KEYWORDS = {
   date: ["تاريخ", "date"],
   desc: ["التفصيل", "الوصف", "تعريف", "البيان", "التعليقات", "description", "details", "notes", "comment", "narration"],
   seq: ["رقم القيد", "رقم العملية", "تسلسل القيد", "voucher", "reference", "رقم المستند", "entry no", "jv no"],
+  // [إضافة 2026-09-15] المشروع/الموقع - هذا المخطط (الملاذ الأخير العام) يربط
+  // معنى واحد فقط بكل عمود (أول عمود مطابق)، فلا يميّز مستوى القيد عن مستوى
+  // السطر هنا كباقي المخططات (راجع findProjectLocationColumns) - قيمة أفضل من
+  // لا شيء؛ لوحة "تحديد الأعمدة يدويًا" تبقى الخيار الكامل دومًا.
+  project: ["مشروع", "project"],
+  location: ["موقع", "location", "مخزن", "فرع", "warehouse", "inventory"],
 };
 const TOTALS_MARKERS = ["المجموع", "الاجمالي", "الإجمالي", "اجمالي", "total", "sum"];
 const DATE_PATTERNS = [
@@ -1089,6 +1212,8 @@ function parseGenericFlexibleSchema(rows) {
       const seqVal = map.seq !== undefined ? cellText(row[map.seq]).trim() : "";
       const rowDate = map.date !== undefined ? normalizeDateGuess(row[map.date]) : "";
       const rowDesc = map.desc !== undefined ? cellText(row[map.desc]).trim() : "";
+      const rowProject = map.project !== undefined ? cellText(row[map.project]).trim() : "";
+      const rowLocation = map.location !== undefined ? cellText(row[map.location]).trim() : "";
 
       // Grouping key: prefer an explicit seq/voucher column; otherwise treat this whole
       // block (between two sub-headers, or the one flat table) as a single entry.
@@ -1099,11 +1224,18 @@ function parseGenericFlexibleSchema(rows) {
           seq: String(seqCounter),
           date: rowDate || blockDate,
           desc: blockTitle || rowDesc,
+          project: "",
+          location: "",
           rows: [],
         };
         localGroups.push(current);
         seqCounter++;
       }
+      // [تصحيح 2026-09-15] هذا المخطط العام لا يميّز "مستوى قيد" عن "مستوى سطر"
+      // لعمود المشروع/الموقع (معنى واحد فقط لكل عمود - راجع COLUMN_KEYWORDS) -
+      // فلا يُشتَق أي "افتراضي قيد" هنا إطلاقًا تفاديًا لبلاغ مستخدم حي: قيمة
+      // سطر واحد كانت تُرفَع خطأً لتصبح افتراضي القيد كله وتُرسَل مرتين. القيمة
+      // تبقى خاصة بسطرها فقط (project/location أدناه على كل صف كما هي).
 
       const m2 = /^([^\s-]+)\s*-\s*(.+)/.exec(accountRaw);
       const code = normalizeCode(m2 ? m2[1] : accountRaw);
@@ -1119,6 +1251,8 @@ function parseGenericFlexibleSchema(rows) {
         debit: map.debit !== undefined ? parseAmount(row[map.debit]) : null,
         credit: map.credit !== undefined ? parseAmount(row[map.credit]) : null,
         comment: rowDesc || accName,
+        project: rowProject,
+        location: rowLocation,
         _rowIndex: i,
       });
     }
@@ -1145,6 +1279,8 @@ function parseEnglishExportSchema(rows, hIdx) {
   const cYear = colIndex(header, "Year");
   const cSource = colIndex(header, "Source");
   const cVouchType = colIndex(header, "VouchTypeName", "VoucherType", "Type");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -1162,7 +1298,7 @@ function parseEnglishExportSchema(rows, hIdx) {
 
     const key = op || `row-${i}`;
     if (!current || current.seq !== key) {
-      current = { seq: key, date: dateRaw, desc: desc || name, rows: [] };
+      current = { seq: key, date: dateRaw, desc: desc || name, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && dateRaw) current.date = dateRaw;
@@ -1176,6 +1312,19 @@ function parseEnglishExportSchema(rows, hIdx) {
     if (source) comment = (comment ? comment + " | " : "") + source;
     if (vouchType && vouchType !== "Journal") comment = (comment ? comment + " | " : "") + vouchType;
 
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
+
     current.rows.push({
       seq: current.seq,
       date: current.date,
@@ -1186,6 +1335,8 @@ function parseEnglishExportSchema(rows, hIdx) {
       debit,
       credit,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -1204,6 +1355,8 @@ function parseArabicFlexibleSchema(rows, hIdx) {
   const cOp = colIndex(header, "رقم العملية", "رقم القيد", "رقم القيود", "رقم السند", "رقم الدفتر", "VouchNumber", "VoucherNumber", "Reference", "رقم المستند");
   const cCCCode = colIndex(header, "رمز مركز", " مركز التكلفة", "CostCenter", "cost_center");
   const cCCName = colIndex(header, "اسم مركز", "اسم مركز التكلفة", "CostCenterName");
+  // [إضافة 2026-09-15] راجع findProjectLocationColumns أعلاه
+  const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
 
   const groups = [];
   let current = null;
@@ -1223,7 +1376,7 @@ function parseArabicFlexibleSchema(rows, hIdx) {
 
     const key = op || `row-${i}`;
     if (!current || current.seq !== key) {
-      current = { seq: key, date: dateRaw, desc: desc || name, rows: [] };
+      current = { seq: key, date: dateRaw, desc: desc || name, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && dateRaw) current.date = dateRaw;
@@ -1233,6 +1386,19 @@ function parseArabicFlexibleSchema(rows, hIdx) {
     const ccName = cCCName !== -1 ? cellText(r[cCCName]).trim() : "";
     let comment = desc || name;
     if (ccCode) comment = (comment ? comment + " | " : "") + `مركز التكلفة: ${ccCode}${ccName ? " - " + ccName : ""}`;
+
+    const project = cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "";
+    const projectEntryCol = cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "";
+    const location = cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "";
+    const locationEntryCol = cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "";
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: قيمة عمود "مستوى السطر" كانت تُرفَع
+    // خطأً لتصبح افتراضي القيد أيضًا حين يكون عمود "مستوى القيد" فارغًا لذلك
+    // السطر تحديدًا - فتُرسَل القيمة مرتين (مرة كافتراضي القيد، ومرة كقيمة
+    // خاصة بالسطر) رغم أن الملف يملك عمودين منفصلين عمدًا لتمييز المستويين.
+    // افتراضي القيد الآن يُشتَق حصرًا من عمود "مستوى القيد" المخصَّص، ولا يُشتَق
+    // إطلاقًا من عمود "مستوى السطر" حين يوجد عمود قيد منفصل فعليًا بالملف.
+    if (!current.project && projectEntryCol) current.project = projectEntryCol;
+    if (!current.location && locationEntryCol) current.location = locationEntryCol;
 
     current.rows.push({
       seq: current.seq,
@@ -1244,6 +1410,8 @@ function parseArabicFlexibleSchema(rows, hIdx) {
       debit,
       credit,
       comment,
+      project,
+      location,
       _rowIndex: i,
     });
   }
@@ -1372,16 +1540,25 @@ function groupEntries(flatRows) {
     }
     if (r.seq) {
       if (!current || current.seq !== r.seq) {
-        current = { seq: r.seq, date: r.date, desc: r.desc, rows: [] };
+        current = { seq: r.seq, date: r.date, desc: r.desc, project: "", location: "", rows: [] };
         groups.push(current);
       }
     }
     if (!current) {
-      current = { seq: `?${idx}`, date: r.date, desc: r.desc, rows: [] };
+      current = { seq: `?${idx}`, date: r.date, desc: r.desc, project: "", location: "", rows: [] };
       groups.push(current);
     }
     if (!current.date && r.date) current.date = r.date;
     if (!current.desc && r.desc) current.desc = r.desc;
+    // [تصحيح 2026-09-15] بلاغ مستخدم حي: مشروع/موقع افتراضي القيد كان يُشتَق
+    // خطأً من عمود "مستوى السطر" (project/location) حين يكون عمود "مستوى
+    // القيد" المخصَّص فارغًا لذلك السطر - فتُرسَل القيمة مرتين (كافتراضي قيد +
+    // كقيمة سطر) رغم أن الملف يملك عمودين منفصلين عمدًا. الآن يُشتَق حصرًا من
+    // عمود "مستوى القيد" (projectEntryCol/locationEntryCol) إن وُجد بالملف -
+    // لا يُشتَق أبدًا من عمود "مستوى السطر" (project/location)، الذي يبقى
+    // خاصًا بسطره فقط دومًا (يُستخدَم عند البناء النهائي - راجع qoyodJournalEntryPush.js).
+    if (!current.project && r.projectEntryCol) current.project = r.projectEntryCol;
+    if (!current.location && r.locationEntryCol) current.location = r.locationEntryCol;
     current.rows.push({ ...r, _rowIndex: idx });
   });
   return groups;
