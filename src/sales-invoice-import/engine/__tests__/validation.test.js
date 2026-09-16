@@ -134,10 +134,16 @@ describe("runValidation — الموقع (G) مقابل locationIdByName الح�
     expect(byRow[row.id].G[0].code).toBeUndefined();
   });
 
-  it("locationIdByName فارغة (Map بلا عناصر) ⇒ تُعامَل كـ'غير متاحة'، التحقق يبقى مقابل القالب الثابت", () => {
+  // [إصلاح خطأ حقيقي 2026-09-16] منشأة عميل حقيقية بلا أي موقع مُعرَّف بعد
+  // (GET /inventories يرجع مصفوفة فارغة فعليًا — ليس خطأ جلب) ترجع Map فارغة
+  // صالحة، لا "لا فهرس إطلاقًا". كان الشرط القديم (`.size > 0`) يعامل هذي الحالة
+  // كـ"بلا API"، فيتراجع التحقق صمتًا للقالب الثابت (أو لا يتحقق شيء بلا قالب) —
+  // الموقع لا يُرصَد كناقص إطلاقًا رغم كونه فعليًا غير موجود بقيود (بلاغ اختبار
+  // حي: "لم يتعرف على الموقع نهائيًا رغم أنه من المفترض يتعرف عليه ويضيفه كجديد").
+  it("locationIdByName فارغة (Map بلا عناصر، منشأة بلا أي موقع بعد) ⇒ تُعامَل كفهرس API حقيقي، خطأ بكود missing_location", () => {
     const row = validRow({ G: 'مدينة غير معروفة' });
     const { byRow } = runValidation([row], { template, locationIdByName: new Map() });
-    expect(byRow[row.id].G[0].code).toBeUndefined();
+    expect(byRow[row.id].G[0]).toMatchObject({ sev: 'err', code: MISSING_LOCATION_CODE });
   });
 });
 
@@ -288,7 +294,7 @@ describe("getStockShortageDraftGroups — [إضافة] فواتير نقص ال�
   });
 });
 
-describe("runValidation — [إضافة] code:'missing_customer'/'missing_product' فقط بمسار المرجعيات المجلوبة عبر API", () => {
+describe("runValidation — code:'missing_customer'/'missing_product'", () => {
   it("منتج غير موجود بفهرس مجلوب عبر API (raw===null) ⇒ code:'missing_product'", () => {
     const row = validRow({ N: 'SKU-GHOST' });
     const refs = { products: { loaded: true, raw: null, bySku: new Map(), byName: new Map() } };
@@ -296,6 +302,10 @@ describe("runValidation — [إضافة] code:'missing_customer'/'missing_produc
     expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(true);
   });
 
+  // [ثابت] المنتج يبقى مقصورًا على راجعت API فقط: منتج مصدره ملف يدوي لا يملك
+  // معرّف Qoyod حقيقي حتى للسجلات المطابقة فعلًا (buildProductsIndex لا يحمل
+  // id)، فمسار الإرسال عبر API معطَّل جوهريًا لأي منتج مصدره ملف يدوي بغض
+  // النظر عن الإنشاء التلقائي — بخلاف العميل (راجع أدناه).
   it("منتج غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ بلا code إطلاقًا", () => {
     const row = validRow({ N: 'SKU-GHOST' });
     const refs = { products: { loaded: true, raw: [['x']], bySku: new Map(), byName: new Map() } };
@@ -311,11 +321,19 @@ describe("runValidation — [إضافة] code:'missing_customer'/'missing_produc
     expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(true);
   });
 
-  it("عميل غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ بلا code إطلاقًا", () => {
+  // [تصحيح 2026-09-16، بلاغ اختبار حي] بخلاف المنتج أعلاه، العميل يعمل بلا مشكلة
+  // حتى لو فهرسه مصدره ملف مرفوع يدويًا — buildCustomersIndex (اليدوي) ينتج نفس
+  // شكل {ref, name, active} تمامًا مثل المسار عبر API (خلافًا للمنتج الذي يفتقد
+  // id تمامًا بالمسار اليدوي)، وcontact_id بالإرسال أصلًا رقم صريح بعمود C لا
+  // يعتمد على مصدر الفهرس. جلسة مختلطة حقيقية (عملاء مرفوعون يدويًا + بقية
+  // البيانات مجلوبة عبر API) كانت تُحجَب عن الإنشاء التلقائي للعميل رغم توفر
+  // مفتاح API فعليًا وقابلية الإنشاء الحقيقية — لا مبرر لتقييدها بمصدر الفهرس.
+  it("عميل غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ يحمل code أيضًا الآن (خلافًا للمنتج)", () => {
     const row = validRow({ C: 'CUST-GHOST' });
     const refs = { customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() } };
     const { byRow } = runValidation([row], refs);
-    expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(false);
+    expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(true);
+    expect(byRow[row.id].C[0].msg).toContain('ملف العملاء المرفوع');
   });
 
   it("اسم عميل مكرر (تعارض، لا 'غير موجود') ⇒ بلا code حتى بمسار API", () => {
@@ -382,7 +400,7 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     expect(plan.products[0].taxLabelFromFile).toBe('15%');
   });
 
-  it("لا يلتقط أي عميل/منتج بلا code (مسار ملف مرجعي مرفوع يدويًا)", () => {
+  it("مسار ملف مرجعي مرفوع يدويًا: العميل يُلتقط الآن (يحمل code)، والمنتج لا يُلتقط (بلا code)", () => {
     const row = validRow({ C: 'CUST-X', N: 'SKU-X' });
     const refs = {
       customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() },
@@ -390,7 +408,7 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     };
     const { byRow } = runValidation([row], refs);
     const plan = computeMissingEntitiesPlan([row], byRow, {});
-    expect(plan.customers).toEqual([]);
+    expect(plan.customers).toHaveLength(1);
     expect(plan.products).toEqual([]);
   });
 
@@ -408,6 +426,17 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     const { byRow } = runValidation(rows, {});
     const plan = computeMissingEntitiesPlan(rows, byRow, {});
     expect(plan.locations).toEqual([]);
+  });
+
+  // [إصلاح خطأ حقيقي 2026-09-16] راجع تعليق اختبار runValidation المقابل —
+  // منشأة بلا أي موقع مُعرَّف بعد ترجع locationIdByName كـMap فارغة صالحة (ليس
+  // null)، ويجب أن تُرصَد المواقع الناقصة بنفس منطق الفهرس غير الفارغ تمامًا.
+  it("مواقع: locationIdByName فارغة (منشأة بلا أي موقع بعد) ⇒ تُرصَد كموقع ناقص أيضًا", () => {
+    const rows = [validRow({ id: 1, G: 'موقع غير معروف' })];
+    const { byRow } = runValidation(rows, { locationIdByName: new Map() });
+    const plan = computeMissingEntitiesPlan(rows, byRow, { locationIdByName: new Map() });
+    expect(plan.locations).toHaveLength(1);
+    expect(plan.locations[0].typedName).toBe('موقع غير معروف');
   });
 
   it("موقع صحيح موجود بالفهرس ⇒ لا يظهر بقائمة المواقع الناقصة", () => {

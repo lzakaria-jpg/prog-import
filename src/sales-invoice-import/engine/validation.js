@@ -108,9 +108,17 @@ export function runValidation(rows, refs = {}){
     // missing_customer/missing_product بالضبط، فيصل الصف لخطوة المراجعة/الإنشاء
     // التلقائي). بلا فهرس API (لا جلب أصلاً) يبقى التحقق مقابل القالب الثابت
     // كما كان تمامًا (خطأ حاجب صلب بلا code — لا مسار إنشاء تلقائي بلا API).
+    // [إصلاح خطأ حقيقي 2026-09-16] الشرط كان `locationIdByName.size > 0`: منشأة
+    // عميل حقيقية بلا أي موقع مُعرَّف بعد أصلاً (GET /inventories يرجع مصفوفة
+    // فارغة فعليًا، ليس خطأ جلب) كانت تُعامَل كأنها "لا فهرس API إطلاقًا"،
+    // فيتراجع التحقق صمتًا لقائمة القالب الثابتة (أو لا يتحقق شيء بلا قالب
+    // مرفوع أصلاً) — الموقع المكتوب بالملف لا يُرصَد كناقص إطلاقًا ولا يظهر
+    // بلوحة الإنشاء التلقائي رغم كونه فعليًا غير موجود بقيود. الفارق الصحيح هو
+    // "أُجلِب الفهرس عبر API؟" (locationIdByName !== null، بصرف النظر عن حجمه)
+    // لا "هل حجمه > 0؟" — نفس نمط stockIndex.raw===null بـstockSimulation.js.
     if(!isBlank(row.G)){
       const locName = norm(row.G);
-      if(locationIdByName && locationIdByName.size > 0){
+      if(locationIdByName){
         if(!locationIdByName.has(locName)) addIssue(row.id,'G','err',`السطر ${rn}: الموقع "${row.G}" غير موجود بمنشأة العميل الحقيقية.`, MISSING_LOCATION_CODE);
       } else if(template.loaded && !template.dropdowns.G.includes(locName)){
         addIssue(row.id,'G','err',`السطر ${rn}: الموقع "${row.G}" غير موجود في قائمة المواقع المحمَّلة من القالب.`);
@@ -138,9 +146,19 @@ export function runValidation(rows, refs = {}){
           // لا إنشاء تلقائي، مشكلة مختلفة تمامًا عن "غير موجود إطلاقًا".
           addIssue(row.id,'C','err',`السطر ${rn}: الاسم "${row.C}" مكرر لأكثر من عميل — اختر الرقم المرجعي الصحيح من: ${dup.map(x=>x.ref).join('، ')}`);
         } else {
-          // [إضافة] code:'missing_customer' فقط لو فهرس العملاء مجلوب عبر API — نفس فلسفة
-          // missing_product أعلاه بالضبط.
-          addIssue(row.id,'C','err',`السطر ${rn}: الرقم المرجعي للعميل "${row.C}" غير موجود في ملف العملاء المرفوع.`, customers.raw===null ? MISSING_CUSTOMER_CODE : undefined);
+          // [تصحيح 2026-09-16، بلاغ اختبار حي] code:'missing_customer' كان مقصورًا
+          // على customers.raw===null (فهرس عملاء مجلوب عبر API) — لكن الإنشاء
+          // التلقائي فعليًا لا يعتمد على مصدر فهرس العملاء إطلاقًا، بل على وجود
+          // مفتاح API حقيقي بالخطوة 4 (المُستخدَم دومًا لإرسال الفواتير بغض النظر
+          // عن مصدر أي فهرس بالخطوة 1) — جلسة مختلطة حقيقية (عملاء مرفوعون يدويًا
+          // + بقية البيانات مجلوبة عبر API) كانت تُحجَب عن الإنشاء التلقائي
+          // للعميل رغم توفر مفتاح API فعليًا وقابلية الإنشاء الحقيقية. الآن
+          // code:'missing_customer' يُطبَّق دومًا؛ رسالة النص فقط تبقى تفرّق
+          // المصدر (ملف مرفوع/منشأة حقيقية) لتوضيح السبب للمستخدم لا لمنع الإنشاء.
+          const msg = customers.raw===null
+            ? `السطر ${rn}: العميل "${row.C}" غير موجود بمنشأة العميل الحقيقية.`
+            : `السطر ${rn}: الرقم المرجعي للعميل "${row.C}" غير موجود في ملف العملاء المرفوع.`;
+          addIssue(row.id,'C','err',msg, MISSING_CUSTOMER_CODE);
         }
       }
       else if(c.active===false) addIssue(row.id,'C','warn',`السطر ${rn}: العميل "${c.name||row.C}" مُسجَّل كغير نشط.`);
@@ -313,7 +331,8 @@ export function getStockShortageDraftGroups(rows, issuesByRow){
 //  - مواقع: حالة مستقلة تمامًا وغير مرتبطة بـissues إطلاقًا (لا تحقق مسبق للموقع
 //    بمسار API أصلًا — راجع تعليق رأس الأداة/الخطة)؛ تُفحَص هنا مباشرة مقابل
 //    locationIdByName (يُمرَّر بوسيط منفصل)، بنفس شرط بوابة stockShortageGroups
-//    (المسار المجلوب عبر API فقط — locationIdByName غير فارغ يعني ذلك).
+//    (المسار المجلوب عبر API فقط — locationIdByName !== null يعني ذلك، بصرف
+//    النظر عن حجمه: منشأة بلا أي موقع مُعرَّف بعد ترجع فهرسًا فارغًا صالحًا).
 export function computeMissingEntitiesPlan(rows, issuesByRow, {locationIdByName} = {}){
   const customers = new Map(); // normKey(typedName) -> {typedName, rowIds}
   const products = new Map(); // normKey(typedSku) -> {typedSku, typedName, rowIds, categoryFromFile, unitFromFile, sellingPriceFromFile, taxLabelFromFile}
@@ -356,7 +375,7 @@ export function computeMissingEntitiesPlan(rows, issuesByRow, {locationIdByName}
       }
       products.get(key).rowIds.push(row.id);
     }
-    if(locationIdByName && locationIdByName.size){
+    if(locationIdByName){
       const typedName = norm(row.G);
       if(typedName && !locationIdByName.has(typedName)){
         const key = normKey(typedName);
