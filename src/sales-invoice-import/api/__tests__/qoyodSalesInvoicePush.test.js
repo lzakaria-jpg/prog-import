@@ -207,7 +207,7 @@ describe('pushSalesInvoicesToQoyod', () => {
       productsIndex, locationIdByName, onEntry: (e) => entries.push(e),
     });
     expect(result).toMatchObject({ total: 1, sent: 1, failed: 0, stoppedEarly: false });
-    expect(entries).toEqual([{ ref: 'INV-1', status: 'success', id: 229, total: '115.0', response: { id: 229, total: '115.0' } }]);
+    expect(entries).toEqual([{ ref: 'INV-1', kind: 'invoice', status: 'success', id: 229, total: '115.0', response: { id: 229, total: '115.0' } }]);
   });
 
   it('فشل فاتورة واحدة (رفض API) لا يوقف باقي الفواتير المستقلة', async () => {
@@ -261,5 +261,94 @@ describe('pushSalesInvoicesToQoyod', () => {
     expect(result.failed).toBe(1);
     expect(result.sent).toBe(1);
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  // [إضافة] سندات القبض المرتبطة بفواتير (receiptsByRef) — راجع تعليق رأس
+  // engine/receipts.js. صف "سند قبض" لا يحمل بند منتج/موقع حقيقي (docType فقط
+  // يميّزه) — makeReceiptRow يبني صفًا بهذا الشكل، منفصلًا عن makeRow (فاتورة).
+  function makeReceiptRow(overrides) {
+    return { id: 'rc1', A: 'INV-1', C: '205', docType: 'سند قبض', D: '11/09/2026', G: '', N: '', P: '', R: '', S: '', ...overrides };
+  }
+
+  it('فاتورة + سند قبض بنفس المرجع، الفاتورة تُنشأ Approved فعليًا ⇒ POST /invoice_payments يُستدعى بعد نجاح الفاتورة', async () => {
+    const calls = [];
+    global.fetch = vi.fn().mockImplementation(async (url, opts) => {
+      calls.push({ url, body: opts?.body ? JSON.parse(opts.body) : null });
+      if (String(url).includes('/invoices')) return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 229, total: '115.0', status: 'Approved' } }) };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ receipt: { id: 77 } }) };
+    });
+    const receiptsByRef = new Map([['INV-1', [{ rowId: 'rc1', date: '11/09/2026', amount: 500, accountId: 12 }]]]);
+    const entries = [];
+    const result = await pushSalesInvoicesToQoyod([makeRow(), makeReceiptRow()], 'KEY', {
+      productsIndex, locationIdByName, receiptsByRef, onEntry: (e) => entries.push(e),
+    });
+    expect(result.sent).toBe(2); // فاتورة + سند
+    expect(result.failed).toBe(0);
+    expect(calls.some((c) => String(c.url).includes('/invoice_payments') && c.body.invoice_payment.invoice_id === 229 && c.body.invoice_payment.amount === '500')).toBe(true);
+    const receiptEntry = entries.find((e) => e.kind === 'receipt');
+    expect(receiptEntry).toMatchObject({ ref: 'INV-1', rowId: 'rc1', status: 'success', id: 77 });
+  });
+
+  it('الفاتورة رجعت Draft فعليًا رغم النجاح ⇒ سند القبض يفشل صراحةً، بلا أي استدعاء POST /invoice_payments', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      if (String(url).includes('/invoices')) return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 229, status: 'Draft' } }) };
+      throw new Error('لا يجب استدعاء /invoice_payments لفاتورة Draft');
+    });
+    const receiptsByRef = new Map([['INV-1', [{ rowId: 'rc1', date: '11/09/2026', amount: 500, accountId: 12 }]]]);
+    const entries = [];
+    const result = await pushSalesInvoicesToQoyod([makeRow(), makeReceiptRow()], 'KEY', {
+      productsIndex, locationIdByName, receiptsByRef, onEntry: (e) => entries.push(e),
+    });
+    expect(result.sent).toBe(1); // الفاتورة فقط
+    expect(result.failed).toBe(1); // السند فشل
+    const receiptEntry = entries.find((e) => e.kind === 'receipt');
+    expect(receiptEntry.status).toBe('error');
+    expect(receiptEntry.reason).toContain('Draft');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('فشل إنشاء الفاتورة نفسها ⇒ سند القبض المرتبط بها يفشل بسبب صريح، بلا محاولة دفع', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 422, text: async () => 'Validation failed' });
+    const receiptsByRef = new Map([['INV-1', [{ rowId: 'rc1', date: '11/09/2026', amount: 500, accountId: 12 }]]]);
+    const entries = [];
+    const result = await pushSalesInvoicesToQoyod([makeRow(), makeReceiptRow()], 'KEY', {
+      productsIndex, locationIdByName, receiptsByRef, onEntry: (e) => entries.push(e),
+    });
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(2); // الفاتورة + السند كلاهما فشلا
+    const receiptEntry = entries.find((e) => e.kind === 'receipt');
+    expect(receiptEntry.reason).toContain('فشل إنشاء الفاتورة');
+  });
+
+  it('عدة سندات قبض لنفس مرجع الفاتورة (دفعات جزئية) ⇒ كل واحد يُنشأ بطلب POST منفصل', async () => {
+    let paymentCalls = 0;
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      if (String(url).includes('/invoices')) return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 229, status: 'Approved' } }) };
+      paymentCalls++;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ receipt: { id: 100 + paymentCalls } }) };
+    });
+    const receiptsByRef = new Map([['INV-1', [
+      { rowId: 'rc1', date: '01/01/2026', amount: 100, accountId: 12 },
+      { rowId: 'rc2', date: '15/01/2026', amount: 200, accountId: 12 },
+    ]]]);
+    const result = await pushSalesInvoicesToQoyod([makeRow(), makeReceiptRow({ id: 'rc1' }), makeReceiptRow({ id: 'rc2' })], 'KEY', {
+      productsIndex, locationIdByName, receiptsByRef,
+    });
+    expect(paymentCalls).toBe(2);
+    expect(result.sent).toBe(3); // فاتورة + سندان
+  });
+
+  it('صف "سند قبض" لا يفسد بناء حمولة الفاتورة نفسها (يُستبعَد قبل buildSalesInvoicePayload)', async () => {
+    const calls = [];
+    global.fetch = vi.fn().mockImplementation(async (url, opts) => {
+      calls.push(opts?.body ? JSON.parse(opts.body) : null);
+      return { ok: true, status: 201, text: async () => JSON.stringify({ invoice: { id: 229, status: 'Approved' } }) };
+    });
+    // ترتيب الملف الخام: سند القبض قبل سطر الفاتورة (حالة حقيقية شوهدت بالملف المرفق)
+    const rows = [makeReceiptRow(), makeRow()];
+    const result = await pushSalesInvoicesToQoyod(rows, 'KEY', { productsIndex, locationIdByName });
+    expect(result.failed).toBe(0);
+    expect(calls[0].invoice.line_items).toHaveLength(1);
+    expect(calls[0].invoice.line_items[0].product_id).toBe(1);
   });
 });

@@ -182,6 +182,26 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       const unitVal = norm(rowGet(r, headers, unitH));
       if(unitVal) row.unitRef = unitVal;
     }
+    // [إضافة] سندات القبض المرتبطة بفواتير — راجع تعليق رأس engine/receipts.js.
+    // الثلاثة تُخزَّن خامًا بلا أي مطابقة هنا (نفس نمط projectRef/categoryRef/unitRef
+    // تمامًا)؛ لا تُضاف لـHEADER_FILL_KEYS بـrows.js عمدًا: docType يميّز الصف نفسه
+    // (لا يصح نشره لصفوف أخرى بنفس المرجع)، وpaymentAmount/paymentAccountCode قيمتا
+    // سند بعينه (قد تتكرر أكثر من دفعة جزئية لنفس مرجع الفاتورة، كل واحدة بقيمها).
+    const docTypeH = mapping._docType;
+    if(docTypeH){
+      const docTypeVal = norm(rowGet(r, headers, docTypeH));
+      if(docTypeVal) row.docType = docTypeVal;
+    }
+    const paymentAmountH = mapping._paymentAmount;
+    if(paymentAmountH){
+      const paymentAmountVal = norm(rowGet(r, headers, paymentAmountH));
+      if(paymentAmountVal) row.paymentAmount = normalizeNumericText(paymentAmountVal);
+    }
+    const paymentAccountCodeH = mapping._paymentAccountCode;
+    if(paymentAccountCodeH){
+      const paymentAccountCodeVal = norm(rowGet(r, headers, paymentAccountCodeH));
+      if(paymentAccountCodeVal) row.paymentAccountCode = paymentAccountCodeVal;
+    }
     const lineTotalVal = lineTotalH ? parseFloat(norm(rowGet(r, headers, lineTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const grandTotalVal = grandTotalH ? parseFloat(norm(rowGet(r, headers, grandTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const qty = parseFloat(row.P);

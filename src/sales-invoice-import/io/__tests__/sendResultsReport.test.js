@@ -64,4 +64,24 @@ describe("buildSendResultsReportRows", () => {
     const { dataRows } = buildSendResultsReportRows(rows, [], t);
     expect(dataRows.length).toBe(0);
   });
+
+  // [إضافة] صف "سند قبض" يشارك نفس مرجع الفاتورة (row.A) — entries المرحلتين
+  // (kind:'invoice' وkind:'receipt') تحمل نفس ref، فمطابقة entryByRef القديمة
+  // (مفتاحها ref فقط) كانت ستُخفي إحداهما بصمت. صف السند يُطابَق بـrowId صراحةً.
+  it("سند قبض بنفس مرجع فاتورته: حالته الخاصة تظهر بصف مستقل، لا تُخفي/تُخفى بحالة الفاتورة", () => {
+    const invRow = createRow(1, { A: 'INV-1', N: 'SKU-1' });
+    const rcRow = createRow(2, { A: 'INV-1', docType: 'سند قبض', N: '', P: '', R: '', S: '', G: '' });
+    const entries = [
+      { ref: 'INV-1', kind: 'invoice', status: 'success', id: 229, total: '500' },
+      { ref: 'INV-1', kind: 'receipt', rowId: 2, status: 'error', reason: 'حساب الدفع غير مطابَق' },
+    ];
+    const { dataRows } = buildSendResultsReportRows([invRow, rcRow], entries, t);
+    expect(dataRows).toHaveLength(2);
+    const [invoiceDataRow, receiptDataRow] = dataRows;
+    expect(invoiceDataRow.isFailed).toBe(false);
+    expect(invoiceDataRow.values[COLUMNS.length]).toBe('نجح');
+    expect(receiptDataRow.isFailed).toBe(true);
+    expect(receiptDataRow.values[COLUMNS.length]).toContain('فشل');
+    expect(receiptDataRow.values[COLUMNS.length + 1]).toBe('حساب الدفع غير مطابَق');
+  });
 });

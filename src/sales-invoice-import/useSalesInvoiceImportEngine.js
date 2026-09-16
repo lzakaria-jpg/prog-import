@@ -20,6 +20,7 @@ import { buildProductsIndex, buildStockIndex, buildCustomersIndex } from './engi
 import { guessInvoiceImportMapping, applyInvoiceImportMapping } from './engine/invoiceImportMapping.js';
 import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups, computeMissingEntitiesPlan } from './engine/validation.js';
 import { getStockTopUpNeeds } from './engine/stockSimulation.js';
+import { isReceiptRow, computeReceiptsPlan } from './engine/receipts.js';
 import { applyPastedGrid } from './engine/paste.js';
 
 import { parseTemplateFile } from './io/template.js';
@@ -441,11 +442,21 @@ export default function useSalesInvoiceImportEngine() {
     [rows, issues, locationIdByName],
   );
 
+  // [إضافة] سندات القبض المرتبطة بفواتير ضمن نفس الملف (عمود "النوع") — راجع
+  // تعليق رأس engine/receipts.js. تُستخدَم لعرض لوحة مراجعة حسابات الدفع بالخطوة 4
+  // (PaymentAccountsReviewPanel) قبل الإرسال، ولبناء receiptsByRef المُمرَّر لـ
+  // sendInvoicesViaApi أدناه.
+  const receiptsPlan = useMemo(() => computeReceiptsPlan(rows), [rows]);
+
   // kind: 'all' | 'validOnly' — يطابق downloadRowsAsXlsx(state.rows) مقابل downloadRowsAsXlsx(getValidOnlyRows()).
   const exportFinal = useCallback(async (kind) => {
     setExportBusy(true); setExportError('');
     try {
-      const subset = kind === 'validOnly' ? validOnlyRows : rows;
+      // [إضافة] صفوف "سند قبض" لا تنتمي لقالب قيود الرسمي إطلاقًا (لا حقل به
+      // يمثّلها) — الملف اليدوي مخصَّص حصرًا للفواتير، فتُستبعَد هنا دومًا بصرف
+      // النظر عن kind (لا تظهر بأي ملف يدوي، بغض النظر عن صحتها من عدمه).
+      const baseSubset = kind === 'validOnly' ? validOnlyRows : rows;
+      const subset = baseSubset.filter((r) => !isReceiptRow(r));
       const blob = await generateFinalXlsx(subset, template);
       revokePrevExportUrl();
       const result = triggerXlsxDownload(blob, kind === 'validOnly' ? '_partial' : '');
@@ -470,7 +481,12 @@ export default function useSalesInvoiceImportEngine() {
   // stockShortageGroups) أو "إرسال جزء منها فقط" (المراجع غير المحدَّدة). forceDraftRefs
   // يُمرَّر مباشرة لـpushSalesInvoicesToQoyod (راجع تعليق رأسه). بلا الاثنين
   // (الاستخدام الافتراضي بلا فواتير محفوفة بالمخاطر)، السلوك كما كان تمامًا.
-  const sendInvoicesViaApi = useCallback(async (key, { status, excludeRefs, forceDraftRefs } = {}) => {
+  // [إضافة] receiptsByRef: نفس بنية opts.receiptsByRef بـpushSalesInvoicesToQoyod
+  // (Map<ref, Array<{rowId,date,amount,accountId}>>) — تُبنى بلوحة مراجعة حسابات
+  // الدفع (PaymentAccountsReviewPanel، راجع Step4Export.jsx) بعد مطابقة كود حساب
+  // كل سند بحساب حقيقي؛ بلا تمريرها (الاستخدام الافتراضي، لا سندات بالملف أصلًا)،
+  // السلوك كما كان تمامًا.
+  const sendInvoicesViaApi = useCallback(async (key, { status, excludeRefs, forceDraftRefs, receiptsByRef } = {}) => {
     apiSendStoppedRef.current.current = false;
     setApiSendBusy(true); setApiSendResult(null); setApiSendEntries([]); setApiSendProgress({ current: 0, total: 0 });
     const targetRows = excludeRefs && excludeRefs.size ? rows.filter((r) => !excludeRefs.has(norm(r.A))) : rows;
@@ -481,6 +497,7 @@ export default function useSalesInvoiceImportEngine() {
       taxesIndex: taxesRef,
       status,
       forceDraftRefs,
+      receiptsByRef,
       stoppedRef: apiSendStoppedRef.current,
       onProgress: (current, total) => setApiSendProgress({ current, total }),
       onEntry: (entry) => setApiSendEntries((prev) => [...prev, entry]),
@@ -697,7 +714,7 @@ export default function useSalesInvoiceImportEngine() {
 
     // [إضافة] الكيانات الناقصة القابلة للإنشاء التلقائي (عملاء/منتجات/مواقع) +
     // تغذية المخزون — راجع تعليقات resolveMissingEntities/topUpStockAndFinish أعلاه.
-    locationIdByName, missingEntitiesPlan,
+    locationIdByName, missingEntitiesPlan, receiptsPlan,
     entityCreateBusy, entityCreateResult, entityCreateEntries, entityCreateProgress, resolveMissingEntities, stopEntityCreate,
     stockTopUpBusy, stockTopUpResult, stockTopUpEntries, stockTopUpProgress, topUpStockAndFinish, stopStockTopUp, getStockTopUpPlan,
 

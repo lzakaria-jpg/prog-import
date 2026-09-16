@@ -10,6 +10,7 @@ import { parseDateParts, formatDateParts, getDateSep } from './dates.js';
 import { normKey } from './text.js';
 import { groupRowsByInvoiceRef } from './grouping.js';
 import { checkStockSequential } from './stockSimulation.js';
+import { isReceiptRow } from './receipts.js';
 
 // [إضافة] أكواد addIssue لتمييز "منتج/عميل غير موجود لكن قابل للإنشاء تلقائيًا عبر API"
 // (فقط بمسار الفهارس المجلوبة عبر API — راجع تعليقات الاستخدام أدناه) عن باقي
@@ -63,12 +64,30 @@ export function runValidation(rows, refs = {}){
 
   rows.forEach((row, idx)=>{
     const rn = idx+1;
+    const isReceipt = isReceiptRow(row);
+    if(isBlank(row.A)) addIssue(row.id,'A','err',`السطر ${rn}: "مرجع الفاتورة" إلزامي.`);
+    if(row.A && norm(row.A).length>191) addIssue(row.id,'A','warn',`السطر ${rn}: مرجع الفاتورة يتجاوز 191 حرفًا (تنبيه فقط، ليس مانعًا فعليًا من الخادم).`);
+
+    // التواريخ: يجب أن تكون مقروءة وبصيغة القالب المختارة — يشمل صف "سند قبض"
+    // أيضًا (D هنا هو تاريخ السند نفسه لذلك الصف، لا تاريخ إصدار الفاتورة).
+    COLUMNS.filter(c=>c.type==='date').forEach(c=>{
+      if(isBlank(row[c.key])) return;
+      const p = parseDateParts(row[c.key]);
+      if(!p){ addIssue(row.id,c.key,'err',`السطر ${rn}: تعذر قراءة "${c.name}" كتاريخ صحيح ("${row[c.key]}") — استخدم صيغة يوم${DATE_SEP}شهر${DATE_SEP}سنة.`); return; }
+      const expected = formatDateParts(p);
+      if(norm(row[c.key]) !== expected) addIssue(row.id,c.key,'warn',`السطر ${rn}: سيتم كتابة "${c.name}" في الملف النهائي بصيغة ${expected}.`);
+    });
+
+    // [إضافة] صف "سند قبض" (عمود النوع، راجع تعليق رأس engine/receipts.js) لا
+    // يحمل أي بند منتج (N/P/R/S/V/T/U/K) ولا موقعًا (G) إطلاقًا بطبيعته — تطبيق
+    // كل الفحوصات أدناه عليه كان يولّد أخطاء حاجبة وهمية (كل حقل بند "إلزامي
+    // وفارغ") حتى مع بلاغ حي أن الصف صحيح تمامًا. الفحوصات الخاصة بسند القبض
+    // نفسه (قيمة الدفعة/حساب الدفع) أدناه بعد فحص العميل المشترك.
+    if(!isReceipt){
     // إلزامي على مستوى البند
     lineItemRequiredCols.forEach(k=>{
       if(isBlank(row[k])) addIssue(row.id,k,'err',`السطر ${rn}: حقل "${COLUMNS.find(c=>c.key===k).name}" إلزامي ولا يمكن تركه فارغًا.`);
     });
-    if(isBlank(row.A)) addIssue(row.id,'A','err',`السطر ${rn}: "مرجع الفاتورة" إلزامي.`);
-    if(row.A && norm(row.A).length>191) addIssue(row.id,'A','warn',`السطر ${rn}: مرجع الفاتورة يتجاوز 191 حرفًا (تنبيه فقط، ليس مانعًا فعليًا من الخادم).`);
 
     // أرقام
     const P = parseFloat(row.P), R = parseFloat(row.R), T = row.T?parseFloat(row.T):null, U = row.U?parseFloat(row.U):null, K = row.K?parseFloat(row.K):null;
@@ -80,15 +99,6 @@ export function runValidation(rows, refs = {}){
     if(!isBlank(row.T) && !isBlank(row.U)) { addIssue(row.id,'T','err',`السطر ${rn}: لا يجوز تعبئة نسبة الخصم وقيمة الخصم معًا لنفس البند.`); addIssue(row.id,'U','err',`السطر ${rn}: لا يجوز تعبئة نسبة الخصم وقيمة الخصم معًا لنفس البند.`); }
 
     if(!isBlank(row.S) && !['نعم','لا'].includes(norm(row.S))) addIssue(row.id,'S','err',`السطر ${rn}: "شامل الضريبة؟" يجب أن تكون نعم أو لا فقط.`);
-
-    // التواريخ: يجب أن تكون مقروءة وبصيغة القالب المختارة
-    COLUMNS.filter(c=>c.type==='date').forEach(c=>{
-      if(isBlank(row[c.key])) return;
-      const p = parseDateParts(row[c.key]);
-      if(!p){ addIssue(row.id,c.key,'err',`السطر ${rn}: تعذر قراءة "${c.name}" كتاريخ صحيح ("${row[c.key]}") — استخدم صيغة يوم${DATE_SEP}شهر${DATE_SEP}سنة.`); return; }
-      const expected = formatDateParts(p);
-      if(norm(row[c.key]) !== expected) addIssue(row.id,c.key,'warn',`السطر ${rn}: سيتم كتابة "${c.name}" في الملف النهائي بصيغة ${expected}.`);
-    });
 
     // القوائم المنسدلة مقابل القالب
     if(template.loaded){
@@ -145,7 +155,11 @@ export function runValidation(rows, refs = {}){
       }
       else if(p.sellable===false) addIssue(row.id,'N','err',`السطر ${rn}: المنتج "${p.name||row.N}" غير قابل للبيع (حالته "لا" في تقرير المنتجات) ولا يمكن اعتماده ضمن الاستيراد.`);
     }
-    // العميل
+    } // !isReceipt — نهاية فحوصات بند/موقع الفاتورة العادية، لا تُطبَّق على صف سند قبض.
+
+    // العميل — يُطبَّق على الصفين معًا (فاتورة/سند قبض): سند القبض يحتاج نفس
+    // مطابقة العميل الحقيقي (contact_id يُشتق من الفاتورة فعليًا وقت الإرسال،
+    // لكن فحص وجود العميل هنا مفيد بذاته لسند مستقل قد يُكتَب بعميل خاطئ).
     if(!isBlank(row.C) && customers.loaded){
       const c = customers.byRef.get(norm(row.C));
       if(!c){
@@ -172,22 +186,38 @@ export function runValidation(rows, refs = {}){
       }
       else if(c.active===false) addIssue(row.id,'C','warn',`السطر ${rn}: العميل "${c.name||row.C}" مُسجَّل كغير نشط.`);
     }
+
+    // [إضافة] حقول سند القبض الإلزامية (تاريخه، قيمته، حساب الدفع) — راجع
+    // تعليق رأس engine/receipts.js. مطابقة حساب الدفع بحساب حقيقي (كود مقابل
+    // id) لا تحدث هنا — تحدث بلوحة مراجعة مخصَّصة قبل الإرسال الفعلي (نفس فلسفة
+    // "الأخطاء الحاجبة" هنا مقصورة على "هل القيمة موجودة وصالحة الشكل؟" فقط).
+    if(isReceipt){
+      if(isBlank(row.D)) addIssue(row.id,'D','err',`السطر ${rn}: تاريخ سند القبض إلزامي.`);
+      const amt = parseFloat(row.paymentAmount);
+      if(isBlank(row.paymentAmount) || isNaN(amt) || amt<=0) addIssue(row.id,'paymentAmount','err',`السطر ${rn}: قيمة الدفعة (سند القبض) يجب أن تكون رقمًا أكبر من صفر.`);
+      if(isBlank(row.paymentAccountCode)) addIssue(row.id,'paymentAccountCode','err',`السطر ${rn}: حساب الدفع إلزامي لسند القبض.`);
+    }
   });
 
   // قاعدة تطابق/تفريغ بيانات الرأس داخل كل مجموعة مرجع
   groups.forEach((rowsInGroup, key)=>{
     if(key.startsWith('__blank__')) return; // الفواتير بمرجع فارغ لها تحقق مستقل أدناه
-    if(rowsInGroup.length>=2){
+    // [إضافة] صفوف "سند قبض" (راجع engine/receipts.js) تُستبعَد من فحصَي تطابق/
+    // إلزامية حقول الرأس أدناه — D لسند القبض هو تاريخه هو (يختلف طبيعيًا عن
+    // تاريخ إصدار الفاتورة نفسها بنفس المرجع)، وG لا معنى له إطلاقًا لسند قبض
+    // (لا موقع/مخزون لسند مالي). فحوصها الخاصة تمت أعلاه (كتلة isReceipt).
+    const invoiceRowsInGroup = rowsInGroup.filter(r=>!isReceiptRow(r));
+    if(invoiceRowsInGroup.length>=2){
       HEADER_COLS.forEach(hk=>{
-        const values = rowsInGroup.map(r=>norm(r[hk]));
+        const values = invoiceRowsInGroup.map(r=>norm(r[hk]));
         const nonBlank = values.filter(v=>v!=='');
         if(nonBlank.length===0) return;
         const allBlankAfterFirst = values.slice(1).every(v=>v==='');
         const allIdentical = values.every(v=>v===values[0]);
         if(!allBlankAfterFirst && !allIdentical){
-          rowsInGroup.forEach((r,i)=>{
+          invoiceRowsInGroup.forEach((r,i)=>{
             if(i===0) return;
-            if(norm(r[hk]) !== '' && norm(r[hk]) !== norm(rowsInGroup[0][hk])){
+            if(norm(r[hk]) !== '' && norm(r[hk]) !== norm(invoiceRowsInGroup[0][hk])){
               const rn = (rowIndexById.get(r.id) ?? rows.indexOf(r))+1;
               addIssue(r.id, hk, 'err', `السطر ${rn}: قيمة "${COLUMNS.find(c=>c.key===hk).name}" تختلف عن السطر الأول لنفس مرجع الفاتورة (${key}). اتركها فارغة أو طابقها تمامًا.`);
             }
@@ -195,13 +225,22 @@ export function runValidation(rows, refs = {}){
         }
       });
     }
+    // [إضافة] سند قبض بمرجع لا يقابله أي سطر فاتورة فعلي بنفس الملف — خطأ صريح
+    // بدل رسالة "G ناقصة" المضلِّلة (لا يوجد G أصلًا لسند قبض بمفرده).
+    if(invoiceRowsInGroup.length===0){
+      rowsInGroup.forEach(r=>{
+        const rn = (rowIndexById.get(r.id) ?? rows.indexOf(r))+1;
+        addIssue(r.id, 'A', 'err', `السطر ${rn}: سند قبض بمرجع "${key}" لا يقابله أي سطر فاتورة فعلي بنفس الملف — أضِف سطور الفاتورة أو صحّح المرجع.`);
+      });
+      return;
+    }
     // تحقق من الحقول الإلزامية على مستوى الفاتورة (تحسب من أول قيمة غير فارغة بالمجموعة)
     // يجب أن يعمل هذا التحقق حتى لو كانت الفاتورة مكوّنة من سطر واحد فقط
     ['C','D','G'].forEach(hk=>{
-      const hasAny = rowsInGroup.some(r=>!isBlank(r[hk]));
+      const hasAny = invoiceRowsInGroup.some(r=>!isBlank(r[hk]));
       if(!hasAny){
-        const rn = (rowIndexById.get(rowsInGroup[0].id) ?? rows.indexOf(rowsInGroup[0]))+1;
-        addIssue(rowsInGroup[0].id, hk, 'err', `مجموعة الفاتورة "${key}" (بدءًا من السطر ${rn}): حقل "${COLUMNS.find(c=>c.key===hk).name}" إلزامي ولم يُعبَّأ في أي سطر من المجموعة.`);
+        const rn = (rowIndexById.get(invoiceRowsInGroup[0].id) ?? rows.indexOf(invoiceRowsInGroup[0]))+1;
+        addIssue(invoiceRowsInGroup[0].id, hk, 'err', `مجموعة الفاتورة "${key}" (بدءًا من السطر ${rn}): حقل "${COLUMNS.find(c=>c.key===hk).name}" إلزامي ولم يُعبَّأ في أي سطر من المجموعة.`);
       }
     });
   });

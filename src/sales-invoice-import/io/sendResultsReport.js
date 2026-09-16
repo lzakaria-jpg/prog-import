@@ -15,6 +15,7 @@
 import ExcelJS from 'exceljs';
 import { COLUMNS, COL_KEYS } from '../engine/constants.js';
 import { groupRowsByInvoiceRef } from '../engine/grouping.js';
+import { isReceiptRow } from '../engine/receipts.js';
 
 const RED_ARGB = 'FFFF0000';
 const THICK_RED = { style: 'thick', color: { argb: RED_ARGB } };
@@ -49,21 +50,28 @@ function formatSuccessResponseForReport(response, t) {
 }
 
 /**
- * entries: [{ref, status:'success'|'error', reason?, id?, total?, response?}] كما
- * تُنتجها pushSalesInvoicesToQoyod (ref = مرجع الفاتورة row.A بعد التطبيع).
+ * entries: [{ref, status:'success'|'error', reason?, id?, total?, response?, kind?, rowId?}]
+ * كما تُنتجها pushSalesInvoicesToQoyod (ref = مرجع الفاتورة row.A بعد التطبيع).
  * فواتير بلا مرجع (__blank__) لم تُرسَل أصلًا فتُستبعَد من التقرير بالكامل؛
  * فواتير لها مرجع لكن بلا نتيجة (لم تُحاول — استُبعدت من دفعة الإرسال أو أُوقف
  * الإرسال قبلها) تظهر بحالة "لم تُرسَل" بلا حدود حمراء (ليست فشلاً، فقط لم تُجرَّب).
  * [إضافة] عمود "سبب الفشل" يعرض الآن رد قيود الكامل للفواتير الناجحة أيضًا (لا
  * فقط سبب الفشل للفاشلة) — راجع formatSuccessResponseForReport أعلاه.
+ * [إضافة] صفوف "سند قبض" (kind:'receipt' بـentries، راجع engine/receipts.js) —
+ * أكثر من سند قد يشترك بنفس مرجع الفاتورة (دفعات جزئية متعددة)، فـentryByRef
+ * (مفتاحه ref فقط) كان سيُخفي/يُستبدَل بينها وبين نتيجة الفاتورة نفسها بصمت.
+ * سجلّات السندات تُطابَق بـrowId الصريح بدل ref لهذا السبب تحديدًا.
  */
 export function buildSendResultsReportRows(rows, entries, t) {
-  const entryByRef = new Map((entries || []).map((e) => [e.ref, e]));
+  const invoiceEntries = (entries || []).filter((e) => e.kind !== 'receipt');
+  const entryByRef = new Map(invoiceEntries.map((e) => [e.ref, e]));
+  const receiptEntryByRowId = new Map((entries || []).filter((e) => e.kind === 'receipt').map((e) => [e.rowId, e]));
   const groups = groupRowsByInvoiceRef(rows);
 
   const successLabel = t({ ar: 'نجح', en: 'Success' });
   const failedLabel = t({ ar: 'فشل', en: 'Failed' });
   const notSentLabel = t({ ar: 'لم تُرسَل', en: 'Not sent' });
+  const receiptPrefix = t({ ar: '[سند قبض] ', en: '[Receipt] ' });
 
   const header = [...COLUMNS.map((c) => c.name), t({ ar: 'حالة الإرسال', en: 'Send status' }), t({ ar: 'سبب الفشل', en: 'Failure reason' })];
   const dataRows = []; // {values, isFailed}
@@ -75,6 +83,17 @@ export function buildSendResultsReportRows(rows, entries, t) {
     const statusLabel = !entry ? notSentLabel : (entry.status === 'success' ? successLabel : failedLabel);
     const detail = isFailed ? (entry.reason || '') : (entry && entry.status === 'success' ? formatSuccessResponseForReport(entry.response, t) : '');
     rowsInGroup.forEach((row) => {
+      if (isReceiptRow(row)) {
+        const rEntry = receiptEntryByRowId.get(row.id);
+        const rFailed = !!rEntry && rEntry.status === 'error';
+        const rStatus = !rEntry ? notSentLabel : (rEntry.status === 'success' ? successLabel : failedLabel);
+        const rDetail = rEntry ? (rEntry.status === 'success' ? `${t({ ar: 'رقم سند القبض بقيود', en: 'Qoyod receipt #' })}: ${rEntry.id}` : (rEntry.reason || '')) : '';
+        dataRows.push({
+          values: [...COL_KEYS.map((k) => row[k] ?? ''), `${receiptPrefix}${rStatus}`, rDetail],
+          isFailed: rFailed,
+        });
+        return;
+      }
       dataRows.push({
         values: [...COL_KEYS.map((k) => row[k] ?? ''), statusLabel, detail],
         isFailed,
