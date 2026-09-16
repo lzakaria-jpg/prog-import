@@ -20,9 +20,10 @@ function actionSelectValue(row) {
 }
 
 /** جدول المراجعة: كل خانة قابلة للتعديل، والملاحظات تُعاد حسابها فور أي تغيير — نافذة تمرير لملفات كبيرة (راجع bill-import/components/ReviewTable.jsx لنفس الأسلوب) */
-export default function ReviewTable({ eng, filter }) {
+export default function ReviewTable({ eng, visibleKeys }) {
   const { t } = useLanguage();
-  const list = eng.rows.filter((r) => (filter === 'all' ? true : filter === 'err' ? rowErr(r) : r.issues.length > 0));
+  // visibleKeys = لقطة مفاتيح الصفوف المختارة بالتصنيف (Step3Review)، أو null = الكل
+  const list = visibleKeys ? eng.rows.filter((r) => visibleKeys.has(r.i)) : eng.rows;
   const vt = useTableVirtualization(list.length);
   const visibleList = vt.shouldVirtualize ? list.slice(vt.startIndex, vt.endIndex) : list;
 

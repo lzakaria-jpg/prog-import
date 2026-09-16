@@ -1,12 +1,43 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
+import { rowErr, rowWarn } from '../lib/validation.js';
 import ReviewTable from './ReviewTable.jsx';
+
+/** هل ينطبق التصنيف المطلوب على هذا الصف؟ */
+export function rowMatchesFilter(row, filter) {
+  if (filter === 'err') return rowErr(row);
+  if (filter === 'warn') return rowWarn(row);
+  if (filter === 'ok') return !rowErr(row) && !rowWarn(row);
+  if (filter === 'pending') return !rowErr(row) && (row.action === null || row.action === undefined);
+  return true;
+}
 
 /** الخطوة ٣: نتيجة الربط والتحقق، مع كشف التكرار بالاسم والتعديل التفاعلي */
 export default function Step3Review({ eng }) {
   const { t } = useLanguage();
   const [filter, setFilter] = useState('all');
+  // [إضافة 2026-09-16] لقطة الصفوف لحظة اختيار التصنيف: بدونها كان الصف يختفي
+  // من الجدول فور تصحيحه (لأنه لم يعد ضمن "الأخطاء")، وربما أثناء الكتابة داخل
+  // خانته. اللقطة تُبقيه ظاهراً بحالته الجديدة (جاهز) حتى تحديث القائمة يدوياً.
+  const [snapshot, setSnapshot] = useState(null);
   const s = eng.stats;
+
+  const applyFilter = useCallback((f) => {
+    setFilter(f);
+    setSnapshot(f === 'all' ? null : new Set(eng.rows.filter((r) => rowMatchesFilter(r, f)).map((r) => r.i)));
+  }, [eng.rows]);
+
+  const fixedCount = useMemo(() => {
+    if (!snapshot) return 0;
+    return eng.rows.filter((r) => snapshot.has(r.i) && !rowMatchesFilter(r, filter)).length;
+  }, [snapshot, filter, eng.rows, eng.stats]);
+
+  const chip = (key, label, count, cls) => (
+    <button type="button" className={cls} aria-pressed={filter === key} disabled={key !== 'all' && !count}
+      onClick={() => applyFilter(key)}>
+      <span>{label}</span><span className="n">{count}</span>
+    </button>
+  );
 
   return (
     <section>
@@ -14,16 +45,38 @@ export default function Step3Review({ eng }) {
         <h2>{t({ ar: 'المراجعة والتعديل', en: 'Review & edit' })}</h2>
         <p className="hint">
           {t({
-            ar: 'عدّل أي خانة مباشرة في الجدول. لو ظهر تكرار بالاسم (تام أو مشابه جداً) مقابل عميل/مورد موجود فعلاً، اختر صراحةً: إنشاء جديد، أو تحديث الموجود، أو تجاوز الصف.',
-            en: 'Edit any cell directly in the table. If a name duplicate appears (exact or very similar) against an existing contact, explicitly choose: create new, update the existing one, or skip the row.',
+            ar: 'عدّل أي خانة مباشرة في الجدول — يُعاد فحص صفها فوراً وحده. اضغط أي تصنيف بالأسفل لعرض صفوفه فقط. لو ظهر تكرار بالاسم (تام أو مشابه جداً) مقابل عميل/مورد موجود فعلاً، اختر صراحةً: إنشاء جديد، أو تحديث الموجود، أو تجاوز الصف.',
+            en: 'Edit any cell directly in the table — only its own row is re-checked, instantly. Click any category below to show just those rows. If a name duplicate appears (exact or very similar) against an existing contact, explicitly choose: create new, update the existing one, or skip the row.',
           })}
         </p>
 
-        <div className={`qci-msg ${s.bad ? 'err' : s.warn ? 'warn' : 'ok'}`}>
-          <b>{s.total}</b> {t({ ar: 'صف — سليم:', en: 'row(s) — clean:' })} <b>{s.ok}</b> ·
-          {' '}{t({ ar: 'ملاحظات:', en: 'notes:' })} <b>{s.warn}</b> · {t({ ar: 'أخطاء مانعة:', en: 'blocking errors:' })} <b>{s.bad}</b>
-          {s.pendingDecision > 0 && <> · {t({ ar: 'بانتظار قرار التكرار:', en: 'awaiting duplicate decision:' })} <b>{s.pendingDecision}</b></>}
+        <div className="qci-filters">
+          {chip('all', t({ ar: 'كل الصفوف', en: 'All rows' }), s.total, '')}
+          {chip('err', t({ ar: 'أخطاء مانعة', en: 'Blocking errors' }), s.bad, 'f-err')}
+          {chip('warn', t({ ar: 'ملاحظات', en: 'Notes' }), s.warn, 'f-warn')}
+          {chip('pending', t({ ar: 'بانتظار قرار التكرار', en: 'Awaiting duplicate decision' }), s.pendingDecision, '')}
+          {chip('ok', t({ ar: 'سليم', en: 'Clean' }), s.ok, 'f-ok')}
         </div>
+
+        {filter !== 'all' && (
+          <div className="qci-msg info">
+            {t({
+              ar: `عرض ${snapshot ? snapshot.size : 0} صفاً حسب التصنيف المختار`,
+              en: `Showing ${snapshot ? snapshot.size : 0} row(s) for the selected category`,
+            })}
+            {fixedCount > 0 && (
+              <>
+                {' — '}
+                <b>{t({ ar: `${fixedCount} منها تم إصلاحها`, en: `${fixedCount} of them are now fixed` })}</b>
+                {' '}
+                <button type="button" className="qci-btn ghost" style={{ padding: '3px 10px', fontSize: 12.5, marginInlineStart: 6 }}
+                  onClick={() => applyFilter(filter)}>
+                  {t({ ar: 'إخفاء المُصلَّحة', en: 'Hide fixed rows' })}
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {!eng.connected && (
           <div className="qci-msg warn">
@@ -35,20 +88,12 @@ export default function Step3Review({ eng }) {
         )}
 
         <div className="qci-toolbar">
-          <label className="f">
-            <span>{t({ ar: 'عرض', en: 'View' })}</span>
-            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="all">{t({ ar: 'كل الصفوف', en: 'All rows' })}</option>
-              <option value="bad">{t({ ar: 'الصفوف ذات الملاحظات فقط', en: 'Rows with notes only' })}</option>
-              <option value="err">{t({ ar: 'الأخطاء المانعة فقط', en: 'Blocking errors only' })}</option>
-            </select>
-          </label>
           <div className="sp" />
           <button className="qci-btn ghost" onClick={() => eng.revalidate()}>{t({ ar: 'إعادة الفحص', en: 'Re-check' })}</button>
           <button className="qci-btn" onClick={() => eng.setStep(4)}>{t({ ar: 'المتابعة للتصدير/الإرسال', en: 'Continue to export/send' })}</button>
         </div>
 
-        <ReviewTable eng={eng} filter={filter} />
+        <ReviewTable eng={eng} visibleKeys={snapshot} />
       </div>
     </section>
   );

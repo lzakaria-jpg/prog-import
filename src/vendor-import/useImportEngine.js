@@ -8,7 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../language.jsx';
 import { readWorkbook, sheetToAoa, guessHeaderRow, buildHeaders, buildRows } from './lib/clientFile.js';
 import { autoMap } from './lib/mapping.js';
-import { validateAll, rowErr, rowWarn, rowReadyForApi } from './lib/validation.js';
+import { validateAll, validateRowWithDuplicates, rowErr, rowWarn, rowReadyForApi } from './lib/validation.js';
+import { buildContactIndex } from './lib/duplicateMatch.js';
 import { suggestRefs } from './lib/refSuggest.js';
 import { fetchExistingContacts } from './lib/api.js';
 import { exportContacts, errorReportBlob, saveBlob, stamp } from './lib/exporter.js';
@@ -124,39 +125,59 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     });
   }, []);
 
+  // فهرس جهات الاتصال للمطابقة السريعة — يُبنى مرة واحدة لكل قائمة مجلوبة، لا
+  // لكل صف ولا لكل ضغطة زر (راجع تعليق buildContactIndex بـduplicateMatch.js).
+  const contactIndex = useMemo(() => buildContactIndex(existingContacts), [existingContacts]);
+
   const runMatch = useCallback(() => {
     const body = aoa.slice(headerRow + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
     if (!body.length) return note('client', 'err', t({ ar: 'لا توجد صفوف بيانات بعد صف العناوين.', en: 'No data rows found after the header row.' }));
     const built = buildRows(aoa, headerRow, map);
     const { rows: withRefs, basis } = suggestRefs(built, { key: 'ref' });
     setRefBasis(basis);
-    validateAll(withRefs, existingContacts);
+    validateAll(withRefs, existingContacts, contactIndex);
     setRows(withRefs);
     setMaxStep((s) => Math.max(s, 3));
     setStep(3);
-  }, [aoa, headerRow, map, existingContacts, note, t]);
+  }, [aoa, headerRow, map, existingContacts, contactIndex, note, t]);
 
   /* ---------- الخطوة ٣: المراجعة ---------- */
+  /** فحص شامل لكل الصفوف — زر "إعادة الفحص" فقط، لا يُستدعى عند تعديل خانة */
   const revalidate = useCallback((mutate) => {
     setRows((prev) => {
       const next = prev.slice();
       if (mutate) mutate(next);
-      validateAll(next, existingContacts);
+      validateAll(next, existingContacts, contactIndex);
       return next;
     });
     setTick((x) => x + 1);
-  }, [existingContacts]);
+  }, [existingContacts, contactIndex]);
 
-  const updateRow = useCallback((row, patch) => revalidate((list) => {
-    const r = list.find((x) => x === row);
-    if (r) Object.assign(r, patch);
-  }), [revalidate]);
+  /**
+   * [إصلاح بطء مبلَّغ ميدانياً 2026-09-16] تعديل خانة واحدة يُعيد فحص صفها فقط،
+   * لا كل صفوف الملف — نتيجة أي صف مستقلة تماماً عن بقية الصفوف هنا (بخلاف
+   * bill-import حيث تُجمَّع البنود بفواتير وتتأثر ببعضها).
+   */
+  const updateRow = useCallback((row, patch) => {
+    setRows((prev) => {
+      const next = prev.slice();
+      const r = next.find((x) => x === row);
+      if (r) { Object.assign(r, patch); validateRowWithDuplicates(r, contactIndex); }
+      return next;
+    });
+    setTick((x) => x + 1);
+  }, [contactIndex]);
 
   /** قرار المستخدم الصريح لصف عليه تكرار بالاسم: إنشاء جديد / تحديث الموجود (بمعرّفه) / تجاوز */
-  const setRowAction = useCallback((row, action, targetId) => revalidate((list) => {
-    const r = list.find((x) => x === row);
-    if (r) { r.action = action; r.updateTargetId = action === 'update' ? (targetId ?? (r.dupExact ? r.dupExact.id : null)) : null; }
-  }), [revalidate]);
+  const setRowAction = useCallback((row, action, targetId) => {
+    setRows((prev) => {
+      const next = prev.slice();
+      const r = next.find((x) => x === row);
+      if (r) { r.action = action; r.updateTargetId = action === 'update' ? (targetId ?? (r.dupExact ? r.dupExact.id : null)) : null; }
+      return next;
+    });
+    setTick((x) => x + 1);
+  }, []);
 
   /* ---------- الخطوة ٤: التصدير/الإرسال ---------- */
   const goodRows = useMemo(() => rows.filter((r) => !rowErr(r)), [rows, tick]);
@@ -164,6 +185,14 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
   const sendableRows = useMemo(() => rows.filter(rowReadyForApi), [rows, tick]);
   const pendingDecisionRows = useMemo(() => rows.filter((r) => !rowErr(r) && (r.action === null || r.action === undefined)), [rows, tick]);
   const canSendViaApi = connected;
+
+  const stats = useMemo(() => ({
+    total: rows.length,
+    bad: badRows.length,
+    warn: rows.filter(rowWarn).length,
+    ok: rows.filter((r) => !rowErr(r) && !rowWarn(r)).length,
+    pendingDecision: pendingDecisionRows.length,
+  }), [rows, tick, badRows, pendingDecisionRows]);
 
   const doExport = useCallback(async (kind) => {
     const list = kind === 'valid' ? goodRows : rows;
@@ -223,13 +252,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     rows, refBasis,
     apiSending, apiSendProgress, apiSendResult,
     goodRows, badRows, sendableRows, pendingDecisionRows, canSendViaApi,
-    stats: {
-      total: rows.length,
-      bad: rows.filter(rowErr).length,
-      warn: rows.filter(rowWarn).length,
-      ok: rows.filter((r) => !rowErr(r) && !rowWarn(r)).length,
-      pendingDecision: pendingDecisionRows.length,
-    },
+    stats,
     setStep, setCustomerName,
     connect, saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,
     loadClientFile, changeSheet, changeHeaderRow, assign, ignoreColumn, runMatch,

@@ -32,7 +32,7 @@ export default function Step4Export({ eng }) {
           <button className="qci-btn" disabled={!good.length} onClick={() => eng.doExport('valid')}>{t({ ar: 'تحميل الصفوف السليمة فقط', en: 'Download valid rows only' })}</button>
           <button className="qci-btn ghost" disabled={!bad.length} onClick={() => eng.doExport('errors')}>{t({ ar: 'تحميل تقرير الأخطاء', en: 'Download the error report' })}</button>
           {eng.canSendViaApi && (
-            <button className="qci-btn" style={{ background: 'var(--qci-ok)', borderColor: 'var(--qci-ok)' }}
+            <button className="qci-btn go"
               disabled={!eng.sendableRows.length || eng.apiSending} onClick={handleSendViaApi}>
               🚀 {eng.apiSending
                 ? t({ ar: `جارٍ الإرسال (${eng.apiSendProgress.current}/${eng.apiSendProgress.total})...`, en: `Sending (${eng.apiSendProgress.current}/${eng.apiSendProgress.total})...` })

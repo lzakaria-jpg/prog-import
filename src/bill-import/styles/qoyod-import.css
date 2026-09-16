@@ -91,14 +91,18 @@
 .qbi-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
 
 /* الأزرار */
-.qbi-btn { background: var(--qbi-accent); color: #fff; border: 1px solid var(--qbi-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
-.qbi-btn:hover { background: var(--qbi-accent-dark); border-color: var(--qbi-accent-dark); }
-.qbi-btn.ghost { background: #fff; color: var(--qbi-accent); border-color: var(--qbi-accent); }
-.qbi-btn.ghost:hover { background: var(--qbi-accent-soft); }
-.qbi-btn.dark { background: var(--qbi-ink); border-color: var(--qbi-ink); }
-.qbi-btn.danger { background: #fff; color: var(--qbi-err); border-color: var(--qbi-err); }
-.qbi-btn.danger:hover { background: var(--qbi-err-soft); }
-.qbi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* [إصلاح تباين مبلَّغ ميدانياً 2026-09-16] إعادة الضبط أعلاه
+   (.qbi button {color: inherit}) أسبقيتها (0,1,1) تفوق .qbi-btn المجردة (0,1,0)،
+   فكانت تُلغي color:#fff بكل الأزرار: الزر الداكن (.dark) نصه بنفس لون خلفيته
+   حرفياً (#0F172A على #0F172A) فغير مقروء إطلاقاً، والكحلي بتباين رديء. */
+.qbi .qbi-btn { background: var(--qbi-accent); color: #fff; border: 1px solid var(--qbi-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
+.qbi .qbi-btn:hover { background: var(--qbi-accent-dark); border-color: var(--qbi-accent-dark); }
+.qbi .qbi-btn.ghost { background: #fff; color: var(--qbi-accent); border-color: var(--qbi-accent); }
+.qbi .qbi-btn.ghost:hover { background: var(--qbi-accent-soft); }
+.qbi .qbi-btn.dark { background: var(--qbi-ink); border-color: var(--qbi-ink); color: #fff; }
+.qbi .qbi-btn.danger { background: #fff; color: var(--qbi-err); border-color: var(--qbi-err); }
+.qbi .qbi-btn.danger:hover { background: var(--qbi-err-soft); }
+.qbi .qbi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .qbi-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 
 /* منطقة الإفلات */
