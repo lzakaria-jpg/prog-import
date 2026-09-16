@@ -239,8 +239,14 @@ export function runValidation(rows, refs = {}){
   }
 
   // التحقق التراكمي من كفاية المخزون (محاكاة الاستهلاك التسلسلي) — انظر stockSimulation.js
+  // [إصلاح خطأ حقيقي] newSkus/newLocations (منتجات/مواقع أُنشئت هذه الجلسة عبر
+  // resolveMissingEntities) — راجع تعليق رأس getStockTopUpNeeds بـstockSimulation.js.
+  // بلا تمريرها هنا، منتج/موقع جديد كليًا لا يظهر له أي تحذير نقص كمية (code:
+  // 'stock_shortage_draft')، فـstockShortageGroups يخرج فارغًا ولوحة "تغذية
+  // المخزون تلقائيًا" لا تظهر أصلًا — الفاتورة تُرسَل مباشرة وتُنشأ كمسودة صامتة
+  // (draft_if_out_of_stock) بلا أي تنبيه أو خيار للمستخدم.
   if(stock.loaded){
-    checkStockSequential(rows, {productsIndex: products.loaded ? products : null, stockIndex: stock}).forEach(iss=>{
+    checkStockSequential(rows, {productsIndex: products.loaded ? products : null, stockIndex: stock, newSkus: refs.newSkus, newLocations: refs.newLocations}).forEach(iss=>{
       addIssue(iss.rowId, iss.colKey, iss.sev, iss.msg, iss.code);
     });
   }

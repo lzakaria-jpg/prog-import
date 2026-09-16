@@ -7,7 +7,18 @@
 
 import { norm } from './text.js';
 
-export function checkStockSequential(rows, {productsIndex, stockIndex} = {}){
+// [إضافة] مفتاح (كود منتج + موقع) غائب عن تقرير المخزون قد يكون فعلًا "لا بيانات
+// غامضة" (منتج/موقع قائمان لكن بلا تقرير كمية لسبب ما)، أو قد يكون مؤكَّدًا صفرًا:
+// المنتج أو الموقع أُنشئ للتو هذه الجلسة (عبر resolveMissingEntities) فلا يملك أي
+// سجل مخزون سابق بالتعريف — راجع تعليق getStockTopUpNeeds أسفله لتفصيل الخطأ
+// الذي عالجه هذا التمييز أصلًا (كان يشمل newSkus فقط، لا newLocations).
+function resolveInitialAvail(key, sku, loc, stockIndex, newSkus, newLocations){
+  if(stockIndex.byKey.has(key)) return stockIndex.byKey.get(key);
+  if((newSkus && newSkus.has(sku)) || (newLocations && newLocations.has(loc))) return 0;
+  return null;
+}
+
+export function checkStockSequential(rows, {productsIndex, stockIndex, newSkus, newLocations} = {}){
   const issues = []; // {rowId, colKey:'P', sev:'warn'|'err', msg}
   if(!stockIndex) return issues;
   const running = new Map(); // sku||loc -> remaining
@@ -22,8 +33,7 @@ export function checkStockSequential(rows, {productsIndex, stockIndex} = {}){
     if(prod && prod.stocked===false) return;
     const key = sku+'||'+loc;
     if(!running.has(key)){
-      const avail = stockIndex.byKey.has(key) ? stockIndex.byKey.get(key) : null;
-      running.set(key, avail===null ? null : avail);
+      running.set(key, resolveInitialAvail(key, sku, loc, stockIndex, newSkus, newLocations));
     }
     const rem = running.get(key);
     if(rem===null){
@@ -61,17 +71,21 @@ export function checkStockSequential(rows, {productsIndex, stockIndex} = {}){
 // (stockIndex.raw===null) — بلا هذا الشرط لا يوجد رقم مخزون حقيقي (inventory_id)
 // لنرسل له تعديل مخزون أصلًا، ولا معنى لتغذية آلية بلا API فعلي.
 //
-// [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (عبر resolveMissingEntities) لا
-// يملك أي مدخل بـstockIndex.byKey إطلاقًا (الفهرس بُني من جلب /products قبل
-// إنشائه) — بلا newSkus، كان "لا مدخل" يُعامَل كـ"لا تتوفر بيانات" (rem=null)
-// فيُتجاهَل تمامًا هنا (needs تبقى فارغة له)، فيبقى معتمدًا على draft_if_out_of_stock
-// الصامت بدل التغذية الفعلية — يناقض صراحةً هدف الميزة (ضمان فاتورة معتمدة
-// لمنتج جديد، لا مسودة صامتة). الآن: مدخل غائب لكود منتج ضمن newSkus (أُنشئ
-// حديثًا، نعرف يقينًا أن رصيده صفر قبل أي إنشاء) يُعامَل كـ0 فيُحسَب نقصه كاملًا؛
-// أي منتج آخر غائب من الفهرس (موجود مسبقًا لكن بلا بيانات مخزون لسبب آخر — حالة
+// [إصلاح خطأ حقيقي] منتج (أو موقع) أُنشئ للتو هذه الجلسة (عبر resolveMissingEntities)
+// لا يملك أي مدخل بـstockIndex.byKey إطلاقًا (الفهرس بُني من جلب /products قبل
+// إنشائه) — بلا newSkus/newLocations، كان "لا مدخل" يُعامَل كـ"لا تتوفر بيانات"
+// (rem=null) فيُتجاهَل تمامًا هنا (needs تبقى فارغة له)، فيبقى معتمدًا على
+// draft_if_out_of_stock الصامت بدل التغذية الفعلية — يناقض صراحةً هدف الميزة
+// (ضمان فاتورة معتمدة لمنتج/موقع جديد، لا مسودة صامتة؛ بلاغ اختبار حي 2026-09-16:
+// منتجات وموقع أُنشئوا جميعًا بنفس الجلسة، ومع ذلك أُنشئت الفواتير كمسودة —
+// السبب: checkStockSequential [أدناه بملف validation.js] لم يكن يتلقى newSkus
+// إطلاقًا، فـstockShortageGroups يخرج فارغًا واللوحة/التغذية لا تظهران أصلًا).
+// الآن: مدخل غائب لكود منتج ضمن newSkus أو لموقع ضمن newLocations (كلاهما نعرف
+// يقينًا أن رصيدهما صفر قبل أي إنشاء) يُعامَل كـ0 فيُحسَب نقصه كاملًا؛ أي منتج/
+// موقع آخر غائب من الفهرس (موجود مسبقًا لكن بلا بيانات مخزون لسبب آخر — حالة
 // غامضة حقًا) يبقى بسلوكه الأصلي بلا تغيير (يُتجاهَل هنا، يبقى تحذيرًا فقط
-// بـcheckStockSequential) — تمييز مقصود، لا نفترض صفرًا لمنتج قائم فعليًا.
-export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus} = {}){
+// بـcheckStockSequential) — تمييز مقصود، لا نفترض صفرًا لمنتج/موقع قائم فعليًا.
+export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus, newLocations} = {}){
   const needs = new Map(); // sku||loc -> {sku, loc, shortfall}
   if(!stockIndex || stockIndex.raw !== null) return [];
   const running = new Map();
@@ -84,9 +98,7 @@ export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus} = 
     if(prod && prod.stocked===false) return;
     const key = sku+'||'+loc;
     if(!running.has(key)){
-      const known = stockIndex.byKey.has(key);
-      const avail = known ? stockIndex.byKey.get(key) : (newSkus && newSkus.has(sku) ? 0 : null);
-      running.set(key, avail===null ? null : avail);
+      running.set(key, resolveInitialAvail(key, sku, loc, stockIndex, newSkus, newLocations));
     }
     const rem = running.get(key);
     if(rem===null) return; // لا بيانات كمية أصلًا — لا نحسب نقصًا محدَّدًا (يبقى تحذير "لا تتوفر بيانات" فقط)
