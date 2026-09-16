@@ -62,4 +62,16 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
     const result = await fetchAll("/projects", "KEY");
     expect(result).toEqual([{ id: 1, name: 'مشروع أ' }, { id: 2, name: 'مشروع ب' }]);
   });
+
+  it("[إضافة] onPage يُستدعى بعد كل صفحة بإجمالي العناصر المُجمَّعة ورقم الصفحة", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      const items = call === 1 ? Array.from({ length: 100 }, (_, i) => ({ id: i })) : [{ id: 999 }];
+      return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+    });
+    const pages = [];
+    await fetchAll("/accounts", "KEY", { onPage: (total, page) => pages.push([total, page]) });
+    expect(pages).toEqual([[100, 1], [101, 2]]);
+  });
 });

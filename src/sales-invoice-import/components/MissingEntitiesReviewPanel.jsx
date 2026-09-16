@@ -39,6 +39,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
   const [units, setUnits] = useState([]);
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [refsError, setRefsError] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState({ accounts: 0, categories: 0, units: 0 });
 
   const [locationAccountId, setLocationAccountId] = useState({}); // typedName -> accountId
 
@@ -54,12 +55,12 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
     let cancelled = false;
     async function load() {
       if (!apiKey) return;
-      setLoadingRefs(true); setRefsError('');
+      setLoadingRefs(true); setRefsError(''); setLoadingProgress({ accounts: 0, categories: 0, units: 0 });
       try {
         const [accs, cats, us] = await Promise.all([
-          fetchAll('/accounts', apiKey),
-          fetchAll('/categories', apiKey),
-          fetchAll('/product_unit_types', apiKey),
+          fetchAll('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, accounts: n })) }),
+          fetchAll('/categories', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, categories: n })) }),
+          fetchAll('/product_unit_types', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, units: n })) }),
         ]);
         if (cancelled) return;
         setAccounts(accs || []);
@@ -203,7 +204,17 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
           })}
         </p>
 
-        {loadingRefs && <p className="qsv-hint">⏳ {t({ ar: 'جارٍ جلب دليل الحسابات/الفئات/الوحدات...', en: 'Fetching accounts/categories/units...' })}</p>}
+        {loadingRefs && (
+          <p className="qsv-hint">
+            ⏳ {t({ ar: 'جارٍ جلب دليل الحسابات/الفئات/الوحدات...', en: 'Fetching accounts/categories/units...' })}
+            {' '}({t({ ar: `حسابات: ${loadingProgress.accounts}`, en: `accounts: ${loadingProgress.accounts}` })}
+            {', '}{t({ ar: `فئات: ${loadingProgress.categories}`, en: `categories: ${loadingProgress.categories}` })}
+            {', '}{t({ ar: `وحدات: ${loadingProgress.units}`, en: `units: ${loadingProgress.units}` })})
+            {loadingProgress.accounts >= 100 && (
+              <> — {t({ ar: 'دليل الحسابات كبير، قد يستغرق الجلب وقتًا أطول من المعتاد.', en: 'Large chart of accounts — this may take longer than usual.' })}</>
+            )}
+          </p>
+        )}
         {refsError && <div className="qsv-note-box err">{refsError}</div>}
 
         <div className="qsv-modal-scroll">
