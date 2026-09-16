@@ -1,0 +1,220 @@
+/* هوية أداة "استيراد العملاء" — منسوخة حرفياً (القيم البصرية، لا المنطق) من
+   src/bill-import/styles/qoyod-import.css بادئة .qbi-* → .qci-*، لتطابق هوية
+   بقية أدوات المشروع بصريًا 100%: نفس لوحة الألوان الكحلية الرسمية
+   (tailwind.config.js → theme.colors.qoyod)، نفس خط Cairo، نفس درجة انحناء
+   الزوايا والظلال. راجع تعليق رأس الملف الأصلي لتاريخ كل صنف. */
+
+.qci {
+  --qci-paper: #F1F5F9;
+  --qci-card: #FFFFFF;
+  --qci-ink: #0F172A;
+  --qci-ink-2: #64748B;
+  --qci-ink-3: #94A3B8;
+  --qci-line: #E2E8F0;
+  --qci-tint: #F8FAFC;
+
+  --qci-accent: #162560;        /* qoyod.navy — اللون الكحلي الأساسي */
+  --qci-accent-dark: #0F1A47;   /* qoyod.navy-dark */
+  --qci-accent-light: #1E3370;  /* qoyod.navy-light */
+  --qci-blue: #4A90D9;          /* qoyod.qoyod-accent */
+  --qci-accent-soft: rgba(22,37,96,.06);
+  --qci-accent-soft-strong: rgba(22,37,96,.1);
+  --qci-accent-border: rgba(22,37,96,.35);
+
+  --qci-ok: #059669; --qci-ok-soft: rgba(5,150,105,.1); --qci-ok-border: rgba(5,150,105,.3);
+  --qci-warn: #B45309; --qci-warn-soft: rgba(217,119,6,.12); --qci-warn-border: rgba(217,119,6,.3);
+  --qci-err: #DC2626; --qci-err-soft: rgba(220,38,38,.08); --qci-err-border: rgba(220,38,38,.32);
+
+  --qci-r: 12px;
+  --qci-shadow-card: 0 1px 3px rgba(15,23,42,.05);
+  --qci-shadow-modal: 0 20px 48px rgba(15,23,42,.22);
+
+  background: var(--qci-paper);
+  color: var(--qci-ink);
+  font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100%;
+}
+
+.qci *, .qci *::before, .qci *::after { box-sizing: border-box; }
+.qci h1, .qci h2, .qci h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+.qci button, .qci input, .qci select, .qci textarea { font-family: inherit; font-size: inherit; color: inherit; }
+.qci .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; direction: ltr; unicode-bidi: plaintext; }
+.qci .err-text { color: var(--qci-err); }
+
+/* [إعادة تصميم] رأس الأداة — نفس تكوين رأس MergeTool.jsx (أيقونة كحلية مربّعة
+   الزوايا خفيفة الانحناء + عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق. */
+.qci-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.qci-header-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--qci-accent); color: #fff; font-size: 20px; box-shadow: var(--qci-shadow-card); }
+.qci-header-title { min-width: 0; }
+.qci-header h1 { font-size: 19px; color: var(--qci-ink); line-height: 1.35; }
+.qci-header .sub { font-size: 12.5px; color: var(--qci-ink-2); margin-top: 2px; }
+.qci-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 24px 80px; }
+
+/* شريط الخطوات */
+.qci-steps { display: flex; gap: 8px; margin: 0 0 22px; flex-wrap: wrap; }
+.qci-steps button {
+  flex: 1 1 180px; text-align: right; background: var(--qci-card); border: 2px solid var(--qci-line);
+  border-radius: var(--qci-r); padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0;
+  box-shadow: var(--qci-shadow-card); transition: .15s;
+}
+.qci-steps button .n {
+  width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--qci-tint);
+  border: 1px solid var(--qci-line); display: grid; place-items: center; font-size: 12px; font-weight: 700;
+}
+.qci-steps button .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qci-steps button[aria-selected="true"] { background: var(--qci-accent-soft); color: var(--qci-accent); border-color: var(--qci-accent); }
+.qci-steps button[aria-selected="true"] .n { background: var(--qci-accent); border-color: var(--qci-accent); color: #fff; }
+.qci-steps button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.qci-steps button.done .n { background: var(--qci-ok-soft); border-color: var(--qci-ok); color: var(--qci-ok); }
+
+/* البطاقات والحقول */
+.qci-card { background: var(--qci-card); border: 1px solid var(--qci-line); border-radius: var(--qci-r); padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--qci-shadow-card); }
+.qci-card > h2 { font-size: 15px; margin-bottom: 4px; color: var(--qci-ink); }
+.qci-card > .hint { color: var(--qci-ink-2); font-size: 12.5px; margin: 0 0 14px; }
+.qci label.f { display: block; margin-bottom: 12px; }
+.qci label.f > span { display: block; font-size: 12.5px; color: var(--qci-ink-2); margin-bottom: 4px; font-weight: 600; }
+.qci label.inline { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.qci input[type=text], .qci input[type=password], .qci input[type=number], .qci select, .qci textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--qci-line); border-radius: 8px; background: #fff; transition: .15s;
+}
+.qci input:focus, .qci select:focus, .qci textarea:focus { outline: none; border-color: var(--qci-accent); box-shadow: 0 0 0 3px var(--qci-accent-soft); }
+.qci-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.qci-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
+
+/* الأزرار */
+.qci-btn { background: var(--qci-accent); color: #fff; border: 1px solid var(--qci-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
+.qci-btn:hover { background: var(--qci-accent-dark); border-color: var(--qci-accent-dark); }
+.qci-btn.ghost { background: #fff; color: var(--qci-accent); border-color: var(--qci-accent); }
+.qci-btn.ghost:hover { background: var(--qci-accent-soft); }
+.qci-btn.dark { background: var(--qci-ink); border-color: var(--qci-ink); }
+.qci-btn.danger { background: #fff; color: var(--qci-err); border-color: var(--qci-err); }
+.qci-btn.danger:hover { background: var(--qci-err-soft); }
+.qci-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.qci-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+
+/* منطقة الإفلات */
+.qci-drop { border: 2px dashed var(--qci-line); border-radius: var(--qci-r); background: var(--qci-tint); padding: 26px; text-align: center; cursor: pointer; color: var(--qci-ink-2); transition: .15s; }
+.qci-drop:hover, .qci-drop.over { border-color: var(--qci-accent); background: var(--qci-accent-soft); color: var(--qci-ink); }
+
+/* [إضافة 2026-09-14] بطاقات "رفع/جلب" خضراء عند الاكتمال — نفس آلية أداة
+   فواتير المبيعات (qsv-upcard) بأصناف qci-* متّسقة مع هوية هذه الأداة، طلب
+   صريح من المستخدم: "خلي شكلها زي فواتير المبيعات، مربعات ولما ارفق تصير خضراء". */
+.qci-grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.qci-upcard { border: 2px solid var(--qci-line); border-radius: var(--qci-r); padding: 16px; background: var(--qci-card); transition: .15s; }
+.qci-upcard.required { border-color: var(--qci-err-border); }
+.qci-upcard.loaded { border-color: var(--qci-ok); background: var(--qci-ok-soft); }
+.qci-upcard h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--qci-ink); }
+.qci-upcard .qci-drop { padding: 16px; }
+.qci-tag, .qci-optional-tag { font-size: 11px; border-radius: 6px; padding: 1px 8px; display: inline-block; margin-bottom: 6px; }
+.qci-tag { color: #fff; background: var(--qci-err); }
+.qci-upcard.loaded .qci-tag { background: var(--qci-ok); }
+.qci-optional-tag { color: var(--qci-ink-2); background: var(--qci-line); }
+.qci-status-line { font-size: 12px; margin-top: 8px; color: var(--qci-ink-2); }
+.qci-upcard.loaded .qci-status-line { color: var(--qci-ok); font-weight: 600; }
+.qci-actions-bar { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+
+/* الشارات والرسائل */
+.qci-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.qci-chips .chip { background: #fff; border: 1px solid var(--qci-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+.qci-chips .chip.ok { border-color: var(--qci-accent); background: var(--qci-accent-soft); }
+.qci-chips .chip.warn { border-color: var(--qci-warn); color: var(--qci-warn); }
+.qci-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin: 10px 0; border: 1px solid; }
+.qci-msg.info { background: var(--qci-accent-soft); border-color: var(--qci-accent-border); }
+.qci-msg.warn { background: var(--qci-warn-soft); border-color: var(--qci-warn-border); color: var(--qci-warn); }
+.qci-msg.err { background: var(--qci-err-soft); border-color: var(--qci-err-border); color: var(--qci-err); }
+.qci-msg.ok { background: var(--qci-ok-soft); border-color: var(--qci-ok-border); color: var(--qci-ok); }
+.qci .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; margin: 1px 0; font-weight: 600; }
+.qci .b-err { color: var(--qci-err); border-color: var(--qci-err-border); background: var(--qci-err-soft); }
+.qci .b-warn { color: var(--qci-warn); border-color: var(--qci-warn-border); background: var(--qci-warn-soft); }
+.qci .b-ok { color: var(--qci-ok); border-color: var(--qci-ok-border); background: var(--qci-ok-soft); }
+.qci .count { font-size: 12.5px; color: var(--qci-ink-2); }
+
+/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط qsv-api- وqpu-key- بالأدوات الأخرى */
+.qci-api-row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 4px; margin-bottom: 10px; }
+.qci-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.qci-api-field span { font-size: 12.5px; color: var(--qci-ink-2); font-weight: 600; }
+.qci-api-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.qci-api-chip { display: inline-flex; align-items: center; gap: 7px; border-radius: 20px; border: 1px solid var(--qci-line); padding: 4px 12px; font-size: 12px; font-weight: 600; color: var(--qci-ink-2); background: #fff; }
+.qci-api-chip.active { border-color: var(--qci-accent); background: var(--qci-accent-soft); color: var(--qci-accent); }
+.qci-api-chip span:first-child { cursor: pointer; }
+.qci-api-chip .x { cursor: pointer; color: var(--qci-err); font-weight: 700; line-height: 1; }
+.qci-api-chip .x:hover { opacity: .7; }
+
+/* الجداول */
+.qci-scroll { overflow: auto; max-height: 65vh; border: 1px solid var(--qci-line); border-radius: var(--qci-r); background: #fff; }
+.qci table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.qci th, .qci td { border: 1px solid var(--qci-line); padding: 5px 7px; text-align: right; vertical-align: top; }
+.qci th { background: var(--qci-tint); font-weight: 700; position: sticky; top: 0; z-index: 2; white-space: nowrap; color: var(--qci-ink); }
+.qci tbody tr:nth-child(even) td { background: var(--qci-tint); }
+.qci tr.r-err td { background: var(--qci-err-soft) !important; }
+.qci tr.r-warn td { background: var(--qci-warn-soft) !important; }
+.qci td input, .qci td select { padding: 4px 6px; min-width: 90px; font-size: 12.5px; border-radius: 4px; }
+.qci td.num input { min-width: 70px; text-align: left; direction: ltr; }
+.qci td input.derived { background: var(--qci-accent-soft); border-color: var(--qci-accent); }
+.qci .issue-list { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
+.qci-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.qci-toolbar .f { margin: 0; }
+.qci-toolbar .sp { flex: 1; }
+
+/* شريط الحقول وشبكة الربط */
+.qci-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--qci-tint); border: 1px solid var(--qci-line); border-radius: var(--qci-r); }
+.qci-pick .pick-sec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.qci-pick .fld { background: #fff; border: 1px solid var(--qci-line); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+.qci-pick .fld:hover { border-color: var(--qci-accent); }
+.qci-pick .fld .col { font-size: 11px; color: var(--qci-accent); background: var(--qci-accent-soft); border-radius: 999px; padding: 0 7px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qci-pick .fld.req { border-color: var(--qci-err); color: var(--qci-err); }
+.qci-pick .fld.mapped { border-color: var(--qci-line); color: var(--qci-ink-2); background: var(--qci-tint); }
+.qci-pick .fld.armed { background: var(--qci-ink); color: #fff; border-color: var(--qci-ink); }
+.qci-pick .fld.armed .col { background: #ffffff22; color: #fff; }
+.qci-pick .fld .x { opacity: 0.55; font-weight: 700; }
+.qci-pick .fld .x:hover { opacity: 1; }
+.qci-pick-help { font-size: 12.5px; color: var(--qci-ink-2); margin: 8px 2px 12px; }
+
+.qci-scroll.arming .qci-grid th.h-col { cursor: crosshair; }
+.qci-scroll.arming .qci-grid th.h-col:hover { background: var(--qci-accent); color: #fff; }
+.qci-grid th.h-col { background: var(--qci-tint); padding: 0; }
+.qci-grid th.h-col.assigned { background: var(--qci-accent-soft); }
+.qci-grid th.h-col select { border: none; background: transparent; border-radius: 0; padding: 6px 8px; font-size: 12px; font-weight: 600; width: 100%; min-width: 130px; }
+.qci-grid th.h-col .orig { padding: 3px 8px 6px; font-size: 11.5px; color: var(--qci-ink-2); font-weight: 400; border-top: 1px solid var(--qci-line); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.qci-grid th.h-col .orig .unmap { color: var(--qci-err); cursor: pointer; white-space: nowrap; font-size: 11px; }
+.qci-grid th.h-col .orig .unmap:hover { text-decoration: underline; }
+.qci-grid td { white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.qci-grid td.c-assigned { background: var(--qci-accent-soft) !important; }
+
+/* اللوحات القابلة للطي */
+.qci-box { border: 1px solid var(--qci-line); background: #fff; border-radius: var(--qci-r); padding: 10px 14px; margin-bottom: 14px; }
+.qci-box.need { border-color: var(--qci-warn); background: var(--qci-warn-soft); }
+.qci-box summary { cursor: pointer; font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.qci-list { max-height: 170px; overflow: auto; margin: 10px 0; background: #fff; border: 1px solid var(--qci-line); border-radius: var(--qci-r); padding: 6px 10px; }
+.qci-list label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
+.qci-list label b { font-weight: 700; }
+
+.qci-guide { border: 1px solid var(--qci-line); border-radius: var(--qci-r); background: #fff; padding: 10px 14px; margin-bottom: 16px; }
+.qci-guide summary { cursor: pointer; font-weight: 700; font-size: 13.5px; }
+.qci-guide ul { margin: 10px 0 2px; padding-inline-start: 20px; font-size: 13px; color: var(--qci-ink-2); }
+.qci-guide li { margin-bottom: 6px; }
+
+/* القوائم المنسدلة (select) تحافظ على نمط الإدخال الموحد */
+.qci-grid th.h-col select { background: transparent; color: inherit; }
+
+/* نافذة تأكيد بسيطة (ConfirmDialog) */
+.qci-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.qci-modal { background: var(--qci-card); border-radius: 16px; padding: 22px; max-width: 420px; width: 92%; box-shadow: var(--qci-shadow-modal); }
+.qci-modal h3 { margin: 0 0 10px; font-size: 15px; color: var(--qci-ink); }
+.qci-modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--qci-ink); line-height: 1.7; }
+.qci-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* [إضافة] نافذة نتائج الإرسال عبر API (ApiSendResultsModal) — أوسع من نافذة التأكيد */
+.qci-modal.wide { max-width: 900px; width: 96%; max-height: 88vh; display: flex; flex-direction: column; }
+.qci-modal.wide .qci-modal-scroll { overflow: auto; flex: 1; margin: 0 -4px; padding: 0 4px; }
+.qci-send-progress { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--qci-accent-soft); border: 1px solid var(--qci-accent-border); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px; }
+.qci-send-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.qci-send-tab { flex: 1; min-width: 110px; border: 2px solid var(--qci-line); border-radius: var(--qci-r); padding: 8px 10px; text-align: center; cursor: pointer; background: #fff; font-family: inherit; transition: .15s; }
+.qci-send-tab .n { display: block; font-size: 20px; font-weight: 800; }
+.qci-send-tab .l { font-size: 11.5px; color: var(--qci-ink-2); }
+.qci-send-tab.active { border-color: var(--qci-accent); background: var(--qci-accent-soft); }
+
+/* [إضافة] تمييز خانة قرار التكرار (إنشاء/تحديث/تجاوز) حين لم يُختر بعد */
+.qci select.need-decision { border: 2px solid var(--qci-warn); background: var(--qci-warn-soft); border-radius: 6px; }

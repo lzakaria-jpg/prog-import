@@ -1,0 +1,220 @@
+/* هوية أداة "استيراد الموردين" — منسوخة حرفياً (القيم البصرية، لا المنطق) من
+   src/bill-import/styles/qoyod-import.css بادئة .qbi-* → .qvi-*، لتطابق هوية
+   بقية أدوات المشروع بصريًا 100%: نفس لوحة الألوان الكحلية الرسمية
+   (tailwind.config.js → theme.colors.qoyod)، نفس خط Cairo، نفس درجة انحناء
+   الزوايا والظلال. راجع تعليق رأس الملف الأصلي لتاريخ كل صنف. */
+
+.qvi {
+  --qvi-paper: #F1F5F9;
+  --qvi-card: #FFFFFF;
+  --qvi-ink: #0F172A;
+  --qvi-ink-2: #64748B;
+  --qvi-ink-3: #94A3B8;
+  --qvi-line: #E2E8F0;
+  --qvi-tint: #F8FAFC;
+
+  --qvi-accent: #162560;        /* qoyod.navy — اللون الكحلي الأساسي */
+  --qvi-accent-dark: #0F1A47;   /* qoyod.navy-dark */
+  --qvi-accent-light: #1E3370;  /* qoyod.navy-light */
+  --qvi-blue: #4A90D9;          /* qoyod.qoyod-accent */
+  --qvi-accent-soft: rgba(22,37,96,.06);
+  --qvi-accent-soft-strong: rgba(22,37,96,.1);
+  --qvi-accent-border: rgba(22,37,96,.35);
+
+  --qvi-ok: #059669; --qvi-ok-soft: rgba(5,150,105,.1); --qvi-ok-border: rgba(5,150,105,.3);
+  --qvi-warn: #B45309; --qvi-warn-soft: rgba(217,119,6,.12); --qvi-warn-border: rgba(217,119,6,.3);
+  --qvi-err: #DC2626; --qvi-err-soft: rgba(220,38,38,.08); --qvi-err-border: rgba(220,38,38,.32);
+
+  --qvi-r: 12px;
+  --qvi-shadow-card: 0 1px 3px rgba(15,23,42,.05);
+  --qvi-shadow-modal: 0 20px 48px rgba(15,23,42,.22);
+
+  background: var(--qvi-paper);
+  color: var(--qvi-ink);
+  font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100%;
+}
+
+.qvi *, .qvi *::before, .qvi *::after { box-sizing: border-box; }
+.qvi h1, .qvi h2, .qvi h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+.qvi button, .qvi input, .qvi select, .qvi textarea { font-family: inherit; font-size: inherit; color: inherit; }
+.qvi .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; direction: ltr; unicode-bidi: plaintext; }
+.qvi .err-text { color: var(--qvi-err); }
+
+/* [إعادة تصميم] رأس الأداة — نفس تكوين رأس MergeTool.jsx (أيقونة كحلية مربّعة
+   الزوايا خفيفة الانحناء + عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق. */
+.qvi-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.qvi-header-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--qvi-accent); color: #fff; font-size: 20px; box-shadow: var(--qvi-shadow-card); }
+.qvi-header-title { min-width: 0; }
+.qvi-header h1 { font-size: 19px; color: var(--qvi-ink); line-height: 1.35; }
+.qvi-header .sub { font-size: 12.5px; color: var(--qvi-ink-2); margin-top: 2px; }
+.qvi-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 24px 80px; }
+
+/* شريط الخطوات */
+.qvi-steps { display: flex; gap: 8px; margin: 0 0 22px; flex-wrap: wrap; }
+.qvi-steps button {
+  flex: 1 1 180px; text-align: right; background: var(--qvi-card); border: 2px solid var(--qvi-line);
+  border-radius: var(--qvi-r); padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0;
+  box-shadow: var(--qvi-shadow-card); transition: .15s;
+}
+.qvi-steps button .n {
+  width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--qvi-tint);
+  border: 1px solid var(--qvi-line); display: grid; place-items: center; font-size: 12px; font-weight: 700;
+}
+.qvi-steps button .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qvi-steps button[aria-selected="true"] { background: var(--qvi-accent-soft); color: var(--qvi-accent); border-color: var(--qvi-accent); }
+.qvi-steps button[aria-selected="true"] .n { background: var(--qvi-accent); border-color: var(--qvi-accent); color: #fff; }
+.qvi-steps button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.qvi-steps button.done .n { background: var(--qvi-ok-soft); border-color: var(--qvi-ok); color: var(--qvi-ok); }
+
+/* البطاقات والحقول */
+.qvi-card { background: var(--qvi-card); border: 1px solid var(--qvi-line); border-radius: var(--qvi-r); padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--qvi-shadow-card); }
+.qvi-card > h2 { font-size: 15px; margin-bottom: 4px; color: var(--qvi-ink); }
+.qvi-card > .hint { color: var(--qvi-ink-2); font-size: 12.5px; margin: 0 0 14px; }
+.qvi label.f { display: block; margin-bottom: 12px; }
+.qvi label.f > span { display: block; font-size: 12.5px; color: var(--qvi-ink-2); margin-bottom: 4px; font-weight: 600; }
+.qvi label.inline { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.qvi input[type=text], .qvi input[type=password], .qvi input[type=number], .qvi select, .qvi textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--qvi-line); border-radius: 8px; background: #fff; transition: .15s;
+}
+.qvi input:focus, .qvi select:focus, .qvi textarea:focus { outline: none; border-color: var(--qvi-accent); box-shadow: 0 0 0 3px var(--qvi-accent-soft); }
+.qvi-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.qvi-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
+
+/* الأزرار */
+.qvi-btn { background: var(--qvi-accent); color: #fff; border: 1px solid var(--qvi-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
+.qvi-btn:hover { background: var(--qvi-accent-dark); border-color: var(--qvi-accent-dark); }
+.qvi-btn.ghost { background: #fff; color: var(--qvi-accent); border-color: var(--qvi-accent); }
+.qvi-btn.ghost:hover { background: var(--qvi-accent-soft); }
+.qvi-btn.dark { background: var(--qvi-ink); border-color: var(--qvi-ink); }
+.qvi-btn.danger { background: #fff; color: var(--qvi-err); border-color: var(--qvi-err); }
+.qvi-btn.danger:hover { background: var(--qvi-err-soft); }
+.qvi-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.qvi-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+
+/* منطقة الإفلات */
+.qvi-drop { border: 2px dashed var(--qvi-line); border-radius: var(--qvi-r); background: var(--qvi-tint); padding: 26px; text-align: center; cursor: pointer; color: var(--qvi-ink-2); transition: .15s; }
+.qvi-drop:hover, .qvi-drop.over { border-color: var(--qvi-accent); background: var(--qvi-accent-soft); color: var(--qvi-ink); }
+
+/* [إضافة 2026-09-14] بطاقات "رفع/جلب" خضراء عند الاكتمال — نفس آلية أداة
+   فواتير المبيعات (qsv-upcard) بأصناف qvi-* متّسقة مع هوية هذه الأداة، طلب
+   صريح من المستخدم: "خلي شكلها زي فواتير المبيعات، مربعات ولما ارفق تصير خضراء". */
+.qvi-grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.qvi-upcard { border: 2px solid var(--qvi-line); border-radius: var(--qvi-r); padding: 16px; background: var(--qvi-card); transition: .15s; }
+.qvi-upcard.required { border-color: var(--qvi-err-border); }
+.qvi-upcard.loaded { border-color: var(--qvi-ok); background: var(--qvi-ok-soft); }
+.qvi-upcard h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--qvi-ink); }
+.qvi-upcard .qvi-drop { padding: 16px; }
+.qvi-tag, .qvi-optional-tag { font-size: 11px; border-radius: 6px; padding: 1px 8px; display: inline-block; margin-bottom: 6px; }
+.qvi-tag { color: #fff; background: var(--qvi-err); }
+.qvi-upcard.loaded .qvi-tag { background: var(--qvi-ok); }
+.qvi-optional-tag { color: var(--qvi-ink-2); background: var(--qvi-line); }
+.qvi-status-line { font-size: 12px; margin-top: 8px; color: var(--qvi-ink-2); }
+.qvi-upcard.loaded .qvi-status-line { color: var(--qvi-ok); font-weight: 600; }
+.qvi-actions-bar { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+
+/* الشارات والرسائل */
+.qvi-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.qvi-chips .chip { background: #fff; border: 1px solid var(--qvi-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+.qvi-chips .chip.ok { border-color: var(--qvi-accent); background: var(--qvi-accent-soft); }
+.qvi-chips .chip.warn { border-color: var(--qvi-warn); color: var(--qvi-warn); }
+.qvi-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin: 10px 0; border: 1px solid; }
+.qvi-msg.info { background: var(--qvi-accent-soft); border-color: var(--qvi-accent-border); }
+.qvi-msg.warn { background: var(--qvi-warn-soft); border-color: var(--qvi-warn-border); color: var(--qvi-warn); }
+.qvi-msg.err { background: var(--qvi-err-soft); border-color: var(--qvi-err-border); color: var(--qvi-err); }
+.qvi-msg.ok { background: var(--qvi-ok-soft); border-color: var(--qvi-ok-border); color: var(--qvi-ok); }
+.qvi .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; margin: 1px 0; font-weight: 600; }
+.qvi .b-err { color: var(--qvi-err); border-color: var(--qvi-err-border); background: var(--qvi-err-soft); }
+.qvi .b-warn { color: var(--qvi-warn); border-color: var(--qvi-warn-border); background: var(--qvi-warn-soft); }
+.qvi .b-ok { color: var(--qvi-ok); border-color: var(--qvi-ok-border); background: var(--qvi-ok-soft); }
+.qvi .count { font-size: 12.5px; color: var(--qvi-ink-2); }
+
+/* [إضافة] حفظ مفتاح API باسم العميل — نفس نمط qsv-api- وqpu-key- بالأدوات الأخرى */
+.qvi-api-row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 4px; margin-bottom: 10px; }
+.qvi-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.qvi-api-field span { font-size: 12.5px; color: var(--qvi-ink-2); font-weight: 600; }
+.qvi-api-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.qvi-api-chip { display: inline-flex; align-items: center; gap: 7px; border-radius: 20px; border: 1px solid var(--qvi-line); padding: 4px 12px; font-size: 12px; font-weight: 600; color: var(--qvi-ink-2); background: #fff; }
+.qvi-api-chip.active { border-color: var(--qvi-accent); background: var(--qvi-accent-soft); color: var(--qvi-accent); }
+.qvi-api-chip span:first-child { cursor: pointer; }
+.qvi-api-chip .x { cursor: pointer; color: var(--qvi-err); font-weight: 700; line-height: 1; }
+.qvi-api-chip .x:hover { opacity: .7; }
+
+/* الجداول */
+.qvi-scroll { overflow: auto; max-height: 65vh; border: 1px solid var(--qvi-line); border-radius: var(--qvi-r); background: #fff; }
+.qvi table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.qvi th, .qvi td { border: 1px solid var(--qvi-line); padding: 5px 7px; text-align: right; vertical-align: top; }
+.qvi th { background: var(--qvi-tint); font-weight: 700; position: sticky; top: 0; z-index: 2; white-space: nowrap; color: var(--qvi-ink); }
+.qvi tbody tr:nth-child(even) td { background: var(--qvi-tint); }
+.qvi tr.r-err td { background: var(--qvi-err-soft) !important; }
+.qvi tr.r-warn td { background: var(--qvi-warn-soft) !important; }
+.qvi td input, .qvi td select { padding: 4px 6px; min-width: 90px; font-size: 12.5px; border-radius: 4px; }
+.qvi td.num input { min-width: 70px; text-align: left; direction: ltr; }
+.qvi td input.derived { background: var(--qvi-accent-soft); border-color: var(--qvi-accent); }
+.qvi .issue-list { display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
+.qvi-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.qvi-toolbar .f { margin: 0; }
+.qvi-toolbar .sp { flex: 1; }
+
+/* شريط الحقول وشبكة الربط */
+.qvi-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--qvi-tint); border: 1px solid var(--qvi-line); border-radius: var(--qvi-r); }
+.qvi-pick .pick-sec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.qvi-pick .fld { background: #fff; border: 1px solid var(--qvi-line); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+.qvi-pick .fld:hover { border-color: var(--qvi-accent); }
+.qvi-pick .fld .col { font-size: 11px; color: var(--qvi-accent); background: var(--qvi-accent-soft); border-radius: 999px; padding: 0 7px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qvi-pick .fld.req { border-color: var(--qvi-err); color: var(--qvi-err); }
+.qvi-pick .fld.mapped { border-color: var(--qvi-line); color: var(--qvi-ink-2); background: var(--qvi-tint); }
+.qvi-pick .fld.armed { background: var(--qvi-ink); color: #fff; border-color: var(--qvi-ink); }
+.qvi-pick .fld.armed .col { background: #ffffff22; color: #fff; }
+.qvi-pick .fld .x { opacity: 0.55; font-weight: 700; }
+.qvi-pick .fld .x:hover { opacity: 1; }
+.qvi-pick-help { font-size: 12.5px; color: var(--qvi-ink-2); margin: 8px 2px 12px; }
+
+.qvi-scroll.arming .qvi-grid th.h-col { cursor: crosshair; }
+.qvi-scroll.arming .qvi-grid th.h-col:hover { background: var(--qvi-accent); color: #fff; }
+.qvi-grid th.h-col { background: var(--qvi-tint); padding: 0; }
+.qvi-grid th.h-col.assigned { background: var(--qvi-accent-soft); }
+.qvi-grid th.h-col select { border: none; background: transparent; border-radius: 0; padding: 6px 8px; font-size: 12px; font-weight: 600; width: 100%; min-width: 130px; }
+.qvi-grid th.h-col .orig { padding: 3px 8px 6px; font-size: 11.5px; color: var(--qvi-ink-2); font-weight: 400; border-top: 1px solid var(--qvi-line); display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.qvi-grid th.h-col .orig .unmap { color: var(--qvi-err); cursor: pointer; white-space: nowrap; font-size: 11px; }
+.qvi-grid th.h-col .orig .unmap:hover { text-decoration: underline; }
+.qvi-grid td { white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.qvi-grid td.c-assigned { background: var(--qvi-accent-soft) !important; }
+
+/* اللوحات القابلة للطي */
+.qvi-box { border: 1px solid var(--qvi-line); background: #fff; border-radius: var(--qvi-r); padding: 10px 14px; margin-bottom: 14px; }
+.qvi-box.need { border-color: var(--qvi-warn); background: var(--qvi-warn-soft); }
+.qvi-box summary { cursor: pointer; font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.qvi-list { max-height: 170px; overflow: auto; margin: 10px 0; background: #fff; border: 1px solid var(--qvi-line); border-radius: var(--qvi-r); padding: 6px 10px; }
+.qvi-list label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
+.qvi-list label b { font-weight: 700; }
+
+.qvi-guide { border: 1px solid var(--qvi-line); border-radius: var(--qvi-r); background: #fff; padding: 10px 14px; margin-bottom: 16px; }
+.qvi-guide summary { cursor: pointer; font-weight: 700; font-size: 13.5px; }
+.qvi-guide ul { margin: 10px 0 2px; padding-inline-start: 20px; font-size: 13px; color: var(--qvi-ink-2); }
+.qvi-guide li { margin-bottom: 6px; }
+
+/* القوائم المنسدلة (select) تحافظ على نمط الإدخال الموحد */
+.qvi-grid th.h-col select { background: transparent; color: inherit; }
+
+/* نافذة تأكيد بسيطة (ConfirmDialog) */
+.qvi-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.qvi-modal { background: var(--qvi-card); border-radius: 16px; padding: 22px; max-width: 420px; width: 92%; box-shadow: var(--qvi-shadow-modal); }
+.qvi-modal h3 { margin: 0 0 10px; font-size: 15px; color: var(--qvi-ink); }
+.qvi-modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--qvi-ink); line-height: 1.7; }
+.qvi-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* [إضافة] نافذة نتائج الإرسال عبر API (ApiSendResultsModal) — أوسع من نافذة التأكيد */
+.qvi-modal.wide { max-width: 900px; width: 96%; max-height: 88vh; display: flex; flex-direction: column; }
+.qvi-modal.wide .qvi-modal-scroll { overflow: auto; flex: 1; margin: 0 -4px; padding: 0 4px; }
+.qvi-send-progress { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--qvi-accent-soft); border: 1px solid var(--qvi-accent-border); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px; }
+.qvi-send-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.qvi-send-tab { flex: 1; min-width: 110px; border: 2px solid var(--qvi-line); border-radius: var(--qvi-r); padding: 8px 10px; text-align: center; cursor: pointer; background: #fff; font-family: inherit; transition: .15s; }
+.qvi-send-tab .n { display: block; font-size: 20px; font-weight: 800; }
+.qvi-send-tab .l { font-size: 11.5px; color: var(--qvi-ink-2); }
+.qvi-send-tab.active { border-color: var(--qvi-accent); background: var(--qvi-accent-soft); }
+
+/* [إضافة] تمييز خانة قرار التكرار (إنشاء/تحديث/تجاوز) حين لم يُختر بعد */
+.qvi select.need-decision { border: 2px solid var(--qvi-warn); background: var(--qvi-warn-soft); border-radius: 6px; }

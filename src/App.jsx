@@ -12,8 +12,10 @@ import { Watermark } from "./Watermark";
 import QoyodBillImport from "./bill-import";
 import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
+import CustomerImportTool from "./customer-import";
+import VendorImportTool from "./vendor-import";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu, Truck } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -21,6 +23,8 @@ const NAV_ITEMS = [
   { id: "bills", permKey: "tool.bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
   { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
   { id: "products", permKey: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Upload Products to Qoyod" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
+  { id: "customers", permKey: "tool.customers", label: { ar: "استيراد العملاء", en: "Customer Import" }, icon: Users, desc: { ar: "تجهيز وإنشاء عملاء العميل مباشرة عبر API", en: "Prepare & create the client's customers directly via API" } },
+  { id: "vendors", permKey: "tool.vendors", label: { ar: "استيراد الموردين", en: "Vendor Import" }, icon: Truck, desc: { ar: "تجهيز وإنشاء موردي العميل مباشرة عبر API", en: "Prepare & create the client's vendors directly via API" } },
 ];
 
 // ── تجميع الأدوات ضمن 3 تبويبات رئيسية للصفحة الرئيسية ──────────────
@@ -31,7 +35,7 @@ const CATEGORIES = [
     id: "setup",
     label: { ar: "أدوات خدمات التأسيس", en: "Setup Services Tools" },
     icon: Building2,
-    toolIds: ["merge", "products"],
+    toolIds: ["merge", "products", "customers", "vendors"],
   },
   {
     id: "migration",
@@ -497,6 +501,16 @@ function AppShell() {
           {can(currentUserRecord, "tool.products") && (
             <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}>
               <TabbedTool Component={ProductUploadTool} toolKey="products" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
+          )}
+          {can(currentUserRecord, "tool.customers") && (
+            <div style={{ display: tab === "customers" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={CustomerImportTool} toolKey="customers" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+            </div>
+          )}
+          {can(currentUserRecord, "tool.vendors") && (
+            <div style={{ display: tab === "vendors" ? "block" : "none", height: "100%" }}>
+              <TabbedTool Component={VendorImportTool} toolKey="vendors" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
             </div>
           )}
           {visibleNavItems.length === 0 && (
