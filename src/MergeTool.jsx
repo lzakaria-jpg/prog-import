@@ -2493,7 +2493,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
           <div className="flex items-center gap-3">
             <ToolIcon name="accounts" />
             <div>
-              <h1 className="text-xl font-bold text-[#0F172A]">{t({ ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart of Accounts" })}</h1>
+              <h1 className="text-xl font-bold text-[#0F172A]">{t({ ar: "مطابقة واستيراد شجرة الحسابات", en: "Match & Import Chart of Accounts" })}</h1>
               <p className="text-sm text-[#64748B]">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
             </div>
           </div>

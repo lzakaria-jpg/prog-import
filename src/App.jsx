@@ -18,11 +18,11 @@ import { can } from "./lib/permissions";
 import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu, Truck } from "lucide-react";
 
 const NAV_ITEMS = [
-  { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
-  { id: "merge", permKey: "tool.merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
+  { id: "journal", permKey: "tool.journal", label: { ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
+  { id: "merge", permKey: "tool.merge", label: { ar: "مطابقة واستيراد شجرة الحسابات", en: "Match & Import Chart of Accounts" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
   { id: "bills", permKey: "tool.bills", label: { ar: "مطابقة واستيراد فواتير المشتريات", en: "Match & Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
-  { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
-  { id: "products", permKey: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Upload Products to Qoyod" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
+  { id: "sales", permKey: "tool.sales", label: { ar: "مطابقة واستيراد فواتير المبيعات", en: "Match & Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
+  { id: "products", permKey: "tool.products", label: { ar: "مطابقة واستيراد المنتجات", en: "Match & Import Products" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
   { id: "customers", permKey: "tool.customers", label: { ar: "مطابقة واستيراد العملاء", en: "Match & Import Customers" }, icon: Users, desc: { ar: "مطابقة أسماء العملاء وإنشاؤهم مباشرة عبر API", en: "Match customer names and create them directly via API" } },
   { id: "vendors", permKey: "tool.vendors", label: { ar: "مطابقة واستيراد الموردين", en: "Match & Import Vendors" }, icon: Truck, desc: { ar: "مطابقة أسماء الموردين وإنشاؤهم مباشرة عبر API", en: "Match vendor names and create them directly via API" } },
 ];
@@ -387,8 +387,8 @@ function AppShell() {
                         >
                           <Icon size={16} className={active ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: active ? "#60A5FA" : undefined }} />
                           <div className="text-start animate-fadeIn">
-                            <p className={`text-xs font-semibold leading-tight ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(item.label)}</p>
-                            <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{t(item.desc)}</p>
+                            <p className={`text-[13px] font-semibold leading-snug ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(item.label)}</p>
+                            <p className="text-[10.5px] text-slate-500 leading-tight mt-0.5">{t(item.desc)}</p>
                           </div>
                         </button>
                       );
