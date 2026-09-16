@@ -24,3 +24,8 @@ release
 *.sln
 *.sw?
 .wrangler/
+
+# graphify
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/converted/
