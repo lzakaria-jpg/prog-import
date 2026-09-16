@@ -302,16 +302,20 @@ describe("runValidation — code:'missing_customer'/'missing_product'", () => {
     expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(true);
   });
 
-  // [ثابت] المنتج يبقى مقصورًا على راجعت API فقط: منتج مصدره ملف يدوي لا يملك
-  // معرّف Qoyod حقيقي حتى للسجلات المطابقة فعلًا (buildProductsIndex لا يحمل
-  // id)، فمسار الإرسال عبر API معطَّل جوهريًا لأي منتج مصدره ملف يدوي بغض
-  // النظر عن الإنشاء التلقائي — بخلاف العميل (راجع أدناه).
-  it("منتج غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ بلا code إطلاقًا", () => {
+  // [تصحيح 2026-09-16، بلاغ اختبار حي ثانٍ] كان مقصورًا على راجعت API فقط
+  // بحجة أن منتجًا مصدره ملف يدوي لا يملك معرّف Qoyod حقيقي — صحيح لمنتج
+  // *مطابَق* فعلًا بالملف اليدوي (buildProductsIndex لا يحمل id، فمسار
+  // الإرسال عبر API يبقى معطَّلًا لاحقًا لتلك الحالة تحديدًا)، لكن غير صحيح
+  // لمنتج *ناقص*: يُنشأ عبر POST /products الحقيقي (resolveMissingEntities)
+  // ويحصل على id حقيقي من رد قيود بغض النظر عن مصدر فهرس المطابقة نفسه. مستخدم
+  // رفع ملف منتجات يدويًا (بجانب عملاء/مواقع مجلوبة عبر API) لم يكن يستطيع
+  // إكمال الاستيراد إطلاقًا — كل منتج ناقص يبقى حاجبًا صلبًا بلا أي مسار إنشاء.
+  it("منتج غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ يحمل code أيضًا الآن (نفس منطق العميل)", () => {
     const row = validRow({ N: 'SKU-GHOST' });
     const refs = { products: { loaded: true, raw: [['x']], bySku: new Map(), byName: new Map() } };
     const { byRow } = runValidation([row], refs);
-    expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(false);
-    expect(byRow[row.id].N[0].sev).toBe('err');
+    expect(byRow[row.id].N.some((i) => i.code === MISSING_PRODUCT_CODE)).toBe(true);
+    expect(byRow[row.id].N[0].msg).toContain('تقرير المنتجات المرفوع');
   });
 
   it("عميل غير موجود بفهرس مجلوب عبر API (raw===null) ⇒ code:'missing_customer'", () => {
@@ -321,14 +325,16 @@ describe("runValidation — code:'missing_customer'/'missing_product'", () => {
     expect(byRow[row.id].C.some((i) => i.code === MISSING_CUSTOMER_CODE)).toBe(true);
   });
 
-  // [تصحيح 2026-09-16، بلاغ اختبار حي] بخلاف المنتج أعلاه، العميل يعمل بلا مشكلة
-  // حتى لو فهرسه مصدره ملف مرفوع يدويًا — buildCustomersIndex (اليدوي) ينتج نفس
-  // شكل {ref, name, active} تمامًا مثل المسار عبر API (خلافًا للمنتج الذي يفتقد
-  // id تمامًا بالمسار اليدوي)، وcontact_id بالإرسال أصلًا رقم صريح بعمود C لا
+  // [تصحيح 2026-09-16، بلاغ اختبار حي] العميل يعمل بلا مشكلة حتى لو فهرسه مصدره
+  // ملف مرفوع يدويًا — buildCustomersIndex (اليدوي) ينتج نفس شكل {ref, name, active}
+  // تمامًا مثل المسار عبر API، وcontact_id بالإرسال أصلًا رقم صريح بعمود C لا
   // يعتمد على مصدر الفهرس. جلسة مختلطة حقيقية (عملاء مرفوعون يدويًا + بقية
   // البيانات مجلوبة عبر API) كانت تُحجَب عن الإنشاء التلقائي للعميل رغم توفر
   // مفتاح API فعليًا وقابلية الإنشاء الحقيقية — لا مبرر لتقييدها بمصدر الفهرس.
-  it("عميل غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ يحمل code أيضًا الآن (خلافًا للمنتج)", () => {
+  // (المنتج وُسِّع لاحقًا بنفس المنطق — راجع اختبار missing_product أعلاه؛ يبقى
+  // فرق واحد متبقٍّ بينهما: منتج *مطابَق* بملف يدوي يفتقد id حقيقي فيفشل لاحقًا
+  // عند الإرسال رغم عدم وجود أي خطأ تحقق عليه، بخلاف عميل مطابَق بملف يدوي.)
+  it("عميل غير موجود بملف مرجعي مرفوع يدويًا (raw غير null) ⇒ يحمل code أيضًا", () => {
     const row = validRow({ C: 'CUST-GHOST' });
     const refs = { customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() } };
     const { byRow } = runValidation([row], refs);
@@ -400,7 +406,7 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     expect(plan.products[0].taxLabelFromFile).toBe('15%');
   });
 
-  it("مسار ملف مرجعي مرفوع يدويًا: العميل يُلتقط الآن (يحمل code)، والمنتج لا يُلتقط (بلا code)", () => {
+  it("مسار ملف مرجعي مرفوع يدويًا: العميل والمنتج كلاهما يُلتقطان الآن (يحملان code)", () => {
     const row = validRow({ C: 'CUST-X', N: 'SKU-X' });
     const refs = {
       customers: { loaded: true, raw: [['x']], byRef: new Map(), byName: new Map() },
@@ -409,7 +415,7 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     const { byRow } = runValidation([row], refs);
     const plan = computeMissingEntitiesPlan([row], byRow, {});
     expect(plan.customers).toHaveLength(1);
-    expect(plan.products).toEqual([]);
+    expect(plan.products).toHaveLength(1);
   });
 
   it("مواقع: يرصد أي row.G غير موجود بـlocationIdByName، فقط لو الفهرس محمَّل وغير فارغ", () => {
