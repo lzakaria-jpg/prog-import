@@ -15,6 +15,7 @@
  */
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { useLanguage } from '../language.jsx';
+import ToolIcon from '../lib/ToolIcon.jsx';
 import useImportEngine from './useImportEngine.js';
 import StepNav from './components/StepNav.jsx';
 import Step1Connect from './components/Step1Connect.jsx';
@@ -45,7 +46,7 @@ const QoyodCustomerImport = forwardRef(function QoyodCustomerImport({
     <div className={`qci ${className}`} dir={dir}>
       {showHeader && (
         <header className="qci-header">
-          <div className="qci-header-icon" aria-hidden="true">👥</div>
+          <ToolIcon name="customers" />
           <div className="qci-header-title">
             <h1>{t({ ar: 'مطابقة واستيراد العملاء', en: 'Match & Import Customers' })}</h1>
             <div className="sub">{t({ ar: 'يطابق أسماء العملاء مع الموجودين بالمنشأة، ويحوّل ملف العملاء غير المنظم إلى قالب استيراد العملاء المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Matches customer names against those already in the account, and converts an unstructured customer file into Qoyod's approved customer import template, with direct API creation" })}</div>

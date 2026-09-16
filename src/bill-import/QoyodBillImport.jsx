@@ -18,6 +18,7 @@
  */
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { useLanguage } from '../language.jsx';
+import ToolIcon from '../lib/ToolIcon.jsx';
 import useImportEngine from './useImportEngine.js';
 import StepNav from './components/StepNav.jsx';
 import Step1Connect from './components/Step1Connect.jsx';
@@ -52,7 +53,7 @@ const QoyodBillImport = forwardRef(function QoyodBillImport({
         // [إعادة تصميم] رأس بنفس تكوين رأس أداتي الشجرة والقيود (أيقونة كحلية +
         // عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق — بلا أي تأثير على منطق الأداة.
         <header className="qbi-header">
-          <div className="qbi-header-icon" aria-hidden="true">📥</div>
+          <ToolIcon name="bills" />
           <div className="qbi-header-title">
             <h1>{t({ ar: 'مطابقة واستيراد فواتير المشتريات', en: 'Match & Import Purchase Bills' })}</h1>
             <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب الاستيراد المعتمد في قيود', en: "Converts customers' unstructured files into Qoyod's approved import template" })}</div>

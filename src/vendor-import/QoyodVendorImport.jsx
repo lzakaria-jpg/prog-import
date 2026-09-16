@@ -15,6 +15,7 @@
  */
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { useLanguage } from '../language.jsx';
+import ToolIcon from '../lib/ToolIcon.jsx';
 import useImportEngine from './useImportEngine.js';
 import StepNav from './components/StepNav.jsx';
 import Step1Connect from './components/Step1Connect.jsx';
@@ -45,7 +46,7 @@ const QoyodVendorImport = forwardRef(function QoyodVendorImport({
     <div className={`qvi ${className}`} dir={dir}>
       {showHeader && (
         <header className="qvi-header">
-          <div className="qvi-header-icon" aria-hidden="true">🚚</div>
+          <ToolIcon name="vendors" />
           <div className="qvi-header-title">
             <h1>{t({ ar: 'مطابقة واستيراد الموردين', en: 'Match & Import Vendors' })}</h1>
             <div className="sub">{t({ ar: 'يطابق أسماء الموردين مع الموجودين بالمنشأة، ويحوّل ملف الموردين غير المنظم إلى قالب استيراد الموردين المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Matches vendor names against those already in the account, and converts an unstructured vendor file into Qoyod's approved vendor import template, with direct API creation" })}</div>

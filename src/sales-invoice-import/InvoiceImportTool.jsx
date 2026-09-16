@@ -1,6 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useLanguage } from '../language.jsx';
+import ToolIcon from '../lib/ToolIcon.jsx';
 import useSalesInvoiceImportEngine from './useSalesInvoiceImportEngine.js';
 import StepNav from './components/StepNav.jsx';
 import RefDatalists from './components/RefDatalists.jsx';
@@ -40,7 +41,7 @@ const InvoiceImportTool = forwardRef(function InvoiceImportTool({ showHeader = t
         // بدل الشريط المتدرّج السابق، مع زر "إعادة تعيين" الجديد — بلا أي تأثير على منطق الأداة.
         <header className="qsv-header">
           <div className="qsv-header-left">
-            <div className="qsv-header-icon" aria-hidden="true">🧾</div>
+            <ToolIcon name="sales" />
             <div className="qsv-header-title">
               <h1>{t({ ar: 'أداة تجهيز والتحقق من ملف استيراد فواتير المبيعات', en: 'Sales Invoice Import File Preparation & Validation Tool' })}</h1>
               <p>{t({ ar: 'تعمل بالكامل داخل متصفحك — بياناتك لا تُرسَل لأي خادم خارجي.', en: "Runs entirely inside your browser — your data is never sent to any external server." })}</p>
