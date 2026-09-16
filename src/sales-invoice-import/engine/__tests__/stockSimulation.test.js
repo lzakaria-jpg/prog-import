@@ -104,6 +104,20 @@ describe("checkStockSequential — §6.15 (محاكاة استهلاك تسلس�
     expect(issues[0].code).toBe('stock_shortage_draft');
   });
 
+  // [تصحيح 2026-09-16، بلاغ اختبار حي ثانٍ] السيناريو الحي بالضبط الذي كشف عدم
+  // كفاية إصلاح newSkus/newLocations وحده: منتج/موقع أُنشئا بجولة اختبار سابقة
+  // (موجودان فعليًا بمنشأة العميل) لكن بلا newSkus/newLocations بهذه الجلسة
+  // الجديدة (رصيد فارغ لأنهما لم يُنشآ الآن) — يجب أن يُعامَلا كصفر أيضًا، لا
+  // "لا تتوفر بيانات"، وإلا تختفي لوحة تغذية المخزون تمامًا رغم فتحها.
+  it("[إضافة] منتج/موقع غائبان عن الفهرس بمسار API بلا أي newSkus/newLocations إطلاقًا ⇒ stock_shortage_draft أيضًا (ليس 'لا تتوفر بيانات')", () => {
+    const rows = [createRow(1, { N: 'SKU-OLD-SESSION', G: 'موقع من جولة سابقة', P: '6' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const issues = checkStockSequential(rows, { stockIndex: apiStockIndex });
+    expect(issues.length).toBe(1);
+    expect(issues[0].code).toBe('stock_shortage_draft');
+    expect(issues[0].sev).toBe('warn');
+  });
+
   it("صف بلا منتج أو موقع أو كمية غير صالحة يُتجاهَل بلا فحص", () => {
     const rows = [
       createRow(1, { N: '', G: 'الرياض', P: '5' }),
@@ -163,10 +177,14 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     expect(needs).toEqual([]);
   });
 
-  it("منتج/موقع بلا بيانات كمية أصلًا (rem===null) ⇒ لا يُحسَب نقص (تحذير 'لا تتوفر بيانات' فقط، لا تغذية)", () => {
+  // [تصحيح 2026-09-16، بلاغ اختبار حي ثانٍ] السلوك القديم هنا (استبعاد كامل)
+  // كان يخفي خيار تغذية المخزون لأي منتج/موقع غائب عن تقرير المخزون حتى لو لم
+  // يُنشَأ هذه الجلسة بالذات (مثلًا: أُنشئ بجولة اختبار سابقة وبقي بلا مخزون) —
+  // راجع تعليق resolveInitialAvail. مسار API دومًا يعني غياب المفتاح = صفر.
+  it("منتج/موقع بلا بيانات كمية أصلًا بمسار API ⇒ يُعامَل كصفر (النقص = الكمية المطلوبة كاملة)، لا استبعاد بعد الآن", () => {
     const rows = [createRow(1, { N: 'SKU-9', G: 'جدة', P: '1' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
-    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([]);
+    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([{ sku: 'SKU-9', loc: 'جدة', shortfall: 1 }]);
   });
 
   // [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (resolveMissingEntities) لا يملك
@@ -181,11 +199,19 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     expect(needs).toEqual([{ sku: 'SKU-NEW', loc: 'الرياض', shortfall: 7 }]);
   });
 
-  it("منتج قديم بلا بيانات كمية (ليس ضمن newSkus) ⇒ يبقى مستبعدًا كما كان — لا نفترض صفرًا لمنتج قائم فعليًا", () => {
+  it("منتج قديم بلا بيانات كمية (ليس ضمن newSkus) بمسار API ⇒ يُعامَل كصفر أيضًا الآن (نفس أي مفتاح غائب بمسار API)", () => {
     const rows = [createRow(1, { N: 'SKU-OLD', G: 'جدة', P: '4' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-OTHER']) });
-    expect(needs).toEqual([]);
+    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'جدة', shortfall: 4 }]);
+  });
+
+  // [إضافة] المسار اليدوي النظري (raw!==null) يبقى بسلوكه الأصلي — لا تغذية
+  // إطلاقًا (getStockTopUpNeeds ترجع [] فورًا بلا API حقيقي، سطر الحارس أعلى الدالة).
+  it("مسار يدوي (raw فعلي لا null) ⇒ مصفوفة فارغة دومًا بغض النظر عن newSkus", () => {
+    const rows = [createRow(1, { N: 'SKU-9', G: 'جدة', P: '1' })];
+    const manualStockIndex = { raw: [['x']], byKey: new Map() };
+    expect(getStockTopUpNeeds(rows, { stockIndex: manualStockIndex, newSkus: new Set(['SKU-9']) })).toEqual([]);
   });
 
   // [إضافة، إصلاح خطأ حقيقي] بلاغ اختبار حي: منتجات وموقع أُنشئوا جميعًا بنفس
