@@ -523,8 +523,12 @@ export default function useSalesInvoiceImportEngine() {
     if (result.created && result.created.products && result.created.products.size) {
       const bySku = new Map(productsRef.bySku);
       const byName = new Map(productsRef.byName);
-      result.created.products.forEach(({ id, name }, sku) => {
-        const rec = { sku, name, sellable: true, stocked: true, id };
+      // [إصلاح، توجيه محاسبي صريح من المستخدم] stocked يأتي الآن من الاختيار
+      // الفعلي بلوحة المراجعة (راجع تعليق رأس buildProductCreatePayload) لا
+      // true ثابتة — منتج غير مخزَّن يجب أن يُستبعَد من محاكاة/تغذية المخزون
+      // (getStockTopUpNeeds تتحقق من stocked===false بالضبط عبر هذا الفهرس).
+      result.created.products.forEach(({ id, name, stocked }, sku) => {
+        const rec = { sku, name, sellable: true, stocked: stocked !== false, id };
         bySku.set(sku, rec);
         const nk = normKey(name);
         if (!byName.has(nk)) byName.set(nk, []);

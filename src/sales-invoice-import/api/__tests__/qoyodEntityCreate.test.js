@@ -69,11 +69,41 @@ describe('buildProductCreatePayload', () => {
   it('يفشل لو sku فارغ', () => {
     expect(buildProductCreatePayload({ name: 'بلا كود' }).ok).toBe(false);
   });
+
+  // [إضافة، توجيه محاسبي صريح من المستخدم — راجع تعليق رأس الدالة] مخزون/غير
+  // مخزون صار خيارًا صريحًا لكل منتج بدل "مخزَّن دومًا".
+  describe('مخزون/غير مخزون (stocked)', () => {
+    it('افتراضيًا (stocked غير مُمرَّر) ⇒ مخزَّن، purchase_item=true إجباريًا', () => {
+      const built = buildProductCreatePayload({ sku: 'SKU-4' });
+      expect(built.payload.track_quantity).toBe(1);
+      expect(built.payload.purchase_item).toBe(true);
+    });
+    it('stocked=true صراحةً ⇒ نفس الإجباري، حتى لو purchaseItem=false مُمرَّرة', () => {
+      const built = buildProductCreatePayload({ sku: 'SKU-5', stocked: true, purchaseItem: false });
+      expect(built.payload.track_quantity).toBe(1);
+      expect(built.payload.purchase_item).toBe(true); // لا معنى لتتبع كمية منتج لا يُشترى أبدًا
+    });
+    it('stocked=false ⇒ track_quantity=0، وpurchase_item يتبع اختيار المستخدم (purchaseItem)', () => {
+      const notPurchasable = buildProductCreatePayload({ sku: 'SKU-6', stocked: false, purchaseItem: false });
+      expect(notPurchasable.payload.track_quantity).toBe(0);
+      expect(notPurchasable.payload.purchase_item).toBe(false);
+
+      const alsoPurchasable = buildProductCreatePayload({ sku: 'SKU-7', stocked: false, purchaseItem: true });
+      expect(alsoPurchasable.payload.track_quantity).toBe(0);
+      expect(alsoPurchasable.payload.purchase_item).toBe(true);
+    });
+    it('sale_item=true دومًا بغض النظر عن stocked (المنتج يُباع فعليًا على هذه الفاتورة)', () => {
+      expect(buildProductCreatePayload({ sku: 'SKU-8', stocked: false, purchaseItem: false }).payload.sale_item).toBe(true);
+      expect(buildProductCreatePayload({ sku: 'SKU-9', stocked: true }).payload.sale_item).toBe(true);
+    });
+  });
 });
 
 describe('buildLocationCreatePayload', () => {
-  it('يبني حمولة {name, account_id}', () => {
-    expect(buildLocationCreatePayload({ name: 'فرع جدة', accountId: 15 })).toEqual({ ok: true, payload: { name: 'فرع جدة', account_id: 15 } });
+  // [إضافة، إصلاح خطأ حقيقي] منشأة عميل حقيقية رفضت الإنشاء بلا ar_name فعليًا
+  // رغم كونه اختياريًا بالمواصفة الرسمية — راجع تعليق رأس الدالة.
+  it('يبني حمولة {name, ar_name, account_id} — ar_name نفس name دومًا', () => {
+    expect(buildLocationCreatePayload({ name: 'فرع جدة', accountId: 15 })).toEqual({ ok: true, payload: { name: 'فرع جدة', ar_name: 'فرع جدة', account_id: 15 } });
   });
   it('account_id اختياري — يُحذَف لو غير مُمرَّر', () => {
     const built = buildLocationCreatePayload({ name: 'فرع جدة' });
@@ -171,10 +201,26 @@ describe('pushMissingEntitiesToQoyod', () => {
     const result = await pushMissingEntitiesToQoyod(plan, 'KEY');
     expect(result.sent).toBe(3);
     expect(result.failed).toBe(0);
-    expect(result.created.products.get('SKU-9')).toEqual({ id: 300, name: 'منتج تجريبي' });
+    expect(result.created.products.get('SKU-9')).toEqual({ id: 300, name: 'منتج تجريبي', stocked: true });
     const productBody = bodies[2];
     expect(productBody.product.category_id).toBe(100);
     expect(productBody.product.product_unit_type_id).toBe(200);
+  });
+
+  // [إضافة، توجيه محاسبي صريح من المستخدم] stocked يُمرَّر من كل عنصر منتج
+  // بالخطة، ويُحفَظ بـcreated.products لاستخدامه لاحقًا (استبعاد من محاكاة/تغذية
+  // المخزون — راجع useSalesInvoiceImportEngine.js resolveMissingEntities).
+  it('منتج غير مخزَّن (stocked:false) ⇒ track_quantity=0 بالحمولة المُرسَلة وstocked:false بـcreated.products', async () => {
+    let body;
+    global.fetch = vi.fn().mockImplementation(async (url, opts) => {
+      body = JSON.parse(opts.body);
+      return { ok: true, status: 201, text: async () => JSON.stringify({ product: { id: 400 } }) };
+    });
+    const plan = { products: [{ sku: 'SKU-SVC', name: 'خدمة', stocked: false, purchaseItem: false }] };
+    const result = await pushMissingEntitiesToQoyod(plan, 'KEY');
+    expect(body.product.track_quantity).toBe(0);
+    expect(body.product.purchase_item).toBe(false);
+    expect(result.created.products.get('SKU-SVC')).toEqual({ id: 400, name: 'خدمة', stocked: false });
   });
 
   it('منتج بفئة/وحدة مرجعية (tempId) فشل إنشاؤها ⇒ يُسجَّل فشلًا صريحًا ولا يُرسَل POST /products له', async () => {
@@ -211,7 +257,7 @@ describe('pushMissingEntitiesToQoyod', () => {
     expect(result.sent).toBe(1);
     expect(result.created.locations.get('فرع جدة')).toEqual({ id: 44, name: 'فرع جدة' });
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(body).toEqual({ name: 'فرع جدة', account_id: 5 });
+    expect(body).toEqual({ name: 'فرع جدة', ar_name: 'فرع جدة', account_id: 5 });
   });
 
   it('قابل للإيقاف اليدوي عبر stoppedRef بين المراحل', async () => {
