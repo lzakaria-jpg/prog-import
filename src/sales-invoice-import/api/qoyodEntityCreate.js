@@ -77,17 +77,25 @@ export function buildUnitCreatePayload(name) {
  * (track_quantity)، فبقية القيم البديلة (منتج غير مخزَّن) خارج نطاق هذه الميزة أصلًا.
  *
  * [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية (ProductInput) تصف
- * selling_price/buying_price/tax_id/cogs_account_id كحقول اختيارية — لكن منشأة
- * العميل الحقيقية رفضت POST /products بلا الأربعة معًا فعليًا (422: "tax_id:
- * Please select taxes"، "buying_price/selling_price: must be a number"،
- * "cogs_account_id: Can't be blank")، فكانت كل المنتجات تفشل إنشاؤها صامتًا ثم
- * كل الفواتير المعتمِدة عليها تفشل لاحقًا بصمت أيضًا (لا معرّف منتج حقيقي). الآن
- * تُرسَل الأربعة دومًا: selling_price من سعر الوحدة الحقيقي بالفاتورة نفسها (لا
- * تخمين)، buying_price/cogs_account_id افتراضيان للدفعة يختارهما المستخدم صراحةً
- * بلوحة المراجعة (MissingEntitiesReviewPanel)، وtax_id من فئة الضريبة الحقيقية
- * بالفاتورة (أو الافتراضي الاحتياطي للدفعة لو الملف بلا فئة مطابقة).
+ * selling_price/buying_price/tax_id/cogs_account_id/sales_account_id كحقول
+ * اختيارية — لكن منشأة العميل الحقيقية رفضت POST /products بلا الخمسة معًا
+ * فعليًا، على جولتين منفصلتين (422: "tax_id: Please select taxes"،
+ * "buying_price/selling_price: must be a number"، "cogs_account_id: Can't be
+ * blank"، ثم بعد إصلاحها: "sales_account_id: Can't be blank")، فكانت كل
+ * المنتجات تفشل إنشاؤها صامتًا ثم كل الفواتير المعتمِدة عليها تفشل لاحقًا بصمت
+ * أيضًا (لا معرّف منتج حقيقي). الآن تُرسَل الخمسة دومًا: selling_price من سعر
+ * الوحدة الحقيقي بالفاتورة نفسها (لا تخمين)، buying_price/cogs_account_id/
+ * sales_account_id افتراضيات للدفعة يختارها المستخدم صراحةً بلوحة المراجعة
+ * (MissingEntitiesReviewPanel)، وtax_id من فئة الضريبة الحقيقية بالفاتورة (أو
+ * الافتراضي الاحتياطي للدفعة لو الملف بلا فئة مطابقة).
+ *
+ * [إضافة، توجيه محاسبي صريح من المستخدم 2026-09-16] منتج مخزَّن (track_quantity=1،
+ * الحالة الوحيدة المدعومة هنا — راجع أعلاه) يجب أن يكون purchase_item=true وجوبًا
+ * (لا يُشترى؟ لا معنى لتتبع كميته أصلًا) — وهو ما يفرضه هذا الإصدار فعلًا بلا أي
+ * تغيير مطلوب. حساب الإيراد (sales_account_id) وحساب التكلفة (cogs_account_id)
+ * مطلوبان معًا دومًا لأي منتج يُباع ويُشترى معًا (حالة كل منتج يُنشأ من هنا).
  */
-export function buildProductCreatePayload({ sku, name, categoryId, unitId, sellingPrice, buyingPrice, taxId, cogsAccountId } = {}) {
+export function buildProductCreatePayload({ sku, name, categoryId, unitId, sellingPrice, buyingPrice, taxId, cogsAccountId, salesAccountId } = {}) {
   const s = (sku || '').trim();
   if (!s) return { ok: false, error: 'كود المنتج مفقود' };
   const n = (name || '').trim() || s;
@@ -98,6 +106,7 @@ export function buildProductCreatePayload({ sku, name, categoryId, unitId, selli
   payload.buying_price = typeof buyingPrice === 'number' && !isNaN(buyingPrice) ? buyingPrice : 0;
   if (taxId !== undefined && taxId !== null) payload.tax_id = taxId;
   if (cogsAccountId !== undefined && cogsAccountId !== null) payload.cogs_account_id = cogsAccountId;
+  if (salesAccountId !== undefined && salesAccountId !== null) payload.sales_account_id = salesAccountId;
   return { ok: true, payload };
 }
 
@@ -144,6 +153,7 @@ export function buildInventoryAdjustmentPayload({ inventoryId, revenueAccountId,
  *   locations: [{name, accountId}],
  *   defaultBuyingPrice: number,                      — سعر تكلفة افتراضي لكل منتجات الدفعة (راجع buildProductCreatePayload)
  *   defaultCogsAccountId: number,                     — حساب تكلفة المبيعات (COGS) الافتراضي لكل منتجات الدفعة
+ *   defaultSalesAccountId: number,                    — حساب الإيراد الافتراضي لكل منتجات الدفعة
  * }
  * الترتيب إلزامي: عملاء ← فئات/وحدات جديدة ← منتجات (تحتاج نتائج الفئات/الوحدات) ←
  * مواقع (مستقلة تمامًا) — كل مرحلة مستقلة داخليًا (فشل عنصر واحد لا يوقف باقي
@@ -281,6 +291,7 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
         buyingPrice: plan.defaultBuyingPrice,
         taxId: p.taxId,
         cogsAccountId: plan.defaultCogsAccountId,
+        salesAccountId: plan.defaultSalesAccountId,
       });
       if (!built.ok) { failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: built.error }); tick(); if (!stopped()) await wait(); continue; }
       try {
