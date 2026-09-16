@@ -84,14 +84,23 @@
 .qci-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
 
 /* الأزرار */
-.qci-btn { background: var(--qci-accent); color: #fff; border: 1px solid var(--qci-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
-.qci-btn:hover { background: var(--qci-accent-dark); border-color: var(--qci-accent-dark); }
-.qci-btn.ghost { background: #fff; color: var(--qci-accent); border-color: var(--qci-accent); }
-.qci-btn.ghost:hover { background: var(--qci-accent-soft); }
-.qci-btn.dark { background: var(--qci-ink); border-color: var(--qci-ink); }
-.qci-btn.danger { background: #fff; color: var(--qci-err); border-color: var(--qci-err); }
-.qci-btn.danger:hover { background: var(--qci-err-soft); }
-.qci-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* [إصلاح تباين مبلَّغ ميدانياً] كل قواعد الأزرار مسبوقة بـ.qci عمداً: إعادة
+   الضبط أعلاه (.qci button {color: inherit}) أسبقيتها (0,1,1) تفوق .qci-btn
+   المجردة (0,1,0)، فكانت تُلغي color:#fff وتجعل نص كل زر يرث لون النص الداكن —
+   الزر الداكن (.dark) كان نصه بنفس لون خلفيته حرفياً (#0F172A على #0F172A) أي
+   غير مقروء إطلاقاً، والزر الكحلي/الأخضر بتباين رديء. */
+.qci .qci-btn { background: var(--qci-accent); color: #fff; border: 1px solid var(--qci-accent); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit; transition: .15s; }
+.qci .qci-btn:hover { background: var(--qci-accent-dark); border-color: var(--qci-accent-dark); }
+.qci .qci-btn.ghost { background: #fff; color: var(--qci-accent); border-color: var(--qci-accent); }
+.qci .qci-btn.ghost:hover { background: var(--qci-accent-soft); }
+.qci .qci-btn.dark { background: var(--qci-ink); border-color: var(--qci-ink); color: #fff; }
+.qci .qci-btn.danger { background: #fff; color: var(--qci-err); border-color: var(--qci-err); }
+.qci .qci-btn.danger:hover { background: var(--qci-err-soft); }
+.qci .qci-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* زر الإرسال المباشر — أخضر أغمق من --qci-ok عمداً: الأخير مخصَّص
+   للنصوص/الشارات على خلفية فاتحة، وتباينه مع نص أبيض 3.77 فقط (دون AA). */
+.qci .qci-btn.go { background: #047857; border-color: #047857; color: #fff; }
+.qci .qci-btn.go:hover { background: #036249; border-color: #036249; }
 .qci-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 
 /* منطقة الإفلات */
@@ -120,6 +129,19 @@
 .qci-chips .chip { background: #fff; border: 1px solid var(--qci-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
 .qci-chips .chip.ok { border-color: var(--qci-accent); background: var(--qci-accent-soft); }
 .qci-chips .chip.warn { border-color: var(--qci-warn); color: var(--qci-warn); }
+/* [إضافة 2026-09-16] أزرار تصفية سريعة أعلى جدول المراجعة — طلب مستخدم صريح:
+   "لما أضغط على التبويبات فوق يظهر فقط العملاء اللي فيهم أخطاء عشان أقدر
+   أعدّلهم". الأسبقية (0,1,1) هنا مقصودة: تساوي إعادة ضبط .qci button وتأتي
+   بعدها بالملف، فتفوز باللون. */
+.qci-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.qci-filters button { background: #fff; border: 1px solid var(--qci-line); border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--qci-ink-2); display: flex; gap: 7px; align-items: center; transition: .15s; }
+.qci-filters button:hover { border-color: var(--qci-accent-border); }
+.qci-filters button .n { font-weight: 800; }
+.qci-filters button[aria-pressed="true"] { background: var(--qci-accent); border-color: var(--qci-accent); color: #fff; }
+.qci-filters button.f-err[aria-pressed="true"] { background: var(--qci-err); border-color: var(--qci-err); color: #fff; }
+.qci-filters button.f-warn[aria-pressed="true"] { background: var(--qci-warn); border-color: var(--qci-warn); color: #fff; }
+.qci-filters button.f-ok[aria-pressed="true"] { background: var(--qci-ok); border-color: var(--qci-ok); color: #fff; }
+.qci-filters button:disabled { opacity: .45; cursor: not-allowed; }
 .qci-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin: 10px 0; border: 1px solid; }
 .qci-msg.info { background: var(--qci-accent-soft); border-color: var(--qci-accent-border); }
 .qci-msg.warn { background: var(--qci-warn-soft); border-color: var(--qci-warn-border); color: var(--qci-warn); }

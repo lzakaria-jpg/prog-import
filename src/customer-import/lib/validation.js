@@ -4,7 +4,7 @@
  * (OpenAPI v2.1: POST/PUT /customers، /vendors) — راجع تعليقات كل دالة.
  */
 import { norm, digitsOnly } from './text.js';
-import { findDuplicateMatches } from './duplicateMatch.js';
+import { buildContactIndex, findDuplicateMatchesIndexed } from './duplicateMatch.js';
 
 const ACTIVE_WORDS = new Set(['active', 'نشط', 'فعال']);
 const INACTIVE_WORDS = new Set(['inactive', 'غيرنشط', 'معطل', 'موقوف']);
@@ -92,24 +92,35 @@ export const rowWarn = (r) => !rowErr(r) && r.issues.some((x) => x.l === 'w');
  * خطأ مانع، لكن يُبقي action الصف بلا قرار (null) حتى يختار المستخدم صراحةً
  * إنشاء/تحديث/تجاوز — لا تحديث تلقائي بلا تأكيد صريح لكل صف.
  */
-export function validateAll(rows, existingContacts) {
-  rows.forEach((row) => {
-    validateRow(row);
-    const { exact, fuzzy } = findDuplicateMatches(row.name, existingContacts || []);
-    row.dupExact = exact;
-    row.dupFuzzy = fuzzy;
-    if (exact) {
-      row.issues.push({ l: 'w', m: `اسم مطابق تماماً لعميل/مورد موجود فعلاً: «${exact.name}»${exact.id != null ? ` (#${exact.id})` : ''} — اختر إنشاء جديد أو تحديث الموجود` });
-      if (row.action === undefined) row.action = null;
-    } else if (fuzzy.length) {
-      const best = fuzzy[0];
-      row.issues.push({ l: 'w', m: `اسم مشابه جداً لعميل/مورد موجود: «${best.contact.name}»${best.contact.id != null ? ` (#${best.contact.id})` : ''} (تشابه ${(best.score * 100).toFixed(0)}%) — اختر إنشاء جديد أو تحديث الموجود` });
-      if (row.action === undefined) row.action = null;
-    } else if (row.action === undefined || row.action === null) {
-      row.action = 'create';
-    }
-  });
+export function validateAll(rows, existingContacts, prebuiltIndex) {
+  // الفهرس يُبنى مرة واحدة لكل تشغيل، لا لكل صف — راجع تعليق buildContactIndex
+  // بـduplicateMatch.js لسبب ذلك (بطء حقيقي مبلَّغ ميدانياً).
+  const index = prebuiltIndex || buildContactIndex(existingContacts);
+  rows.forEach((row) => validateRowWithDuplicates(row, index));
   return rows;
+}
+
+/**
+ * [إضافة 2026-09-16] فحص صف واحد فقط مقابل فهرس جاهز — يُستدعى عند تعديل خانة
+ * واحدة بجدول المراجعة بدل إعادة فحص كل صفوف الملف (تعديل صف لا يؤثر إطلاقاً
+ * على نتيجة أي صف آخر: كل التحقق وكشف التكرار هنا يخص الصف ذاته وحده).
+ */
+export function validateRowWithDuplicates(row, index) {
+  validateRow(row);
+  const { exact, fuzzy } = findDuplicateMatchesIndexed(row.name, index);
+  row.dupExact = exact;
+  row.dupFuzzy = fuzzy;
+  if (exact) {
+    row.issues.push({ l: 'w', m: `اسم مطابق تماماً لعميل/مورد موجود فعلاً: «${exact.name}»${exact.id != null ? ` (#${exact.id})` : ''} — اختر إنشاء جديد أو تحديث الموجود` });
+    if (row.action === undefined) row.action = null;
+  } else if (fuzzy.length) {
+    const best = fuzzy[0];
+    row.issues.push({ l: 'w', m: `اسم مشابه جداً لعميل/مورد موجود: «${best.contact.name}»${best.contact.id != null ? ` (#${best.contact.id})` : ''} (تشابه ${(best.score * 100).toFixed(0)}%) — اختر إنشاء جديد أو تحديث الموجود` });
+    if (row.action === undefined) row.action = null;
+  } else if (row.action === undefined || row.action === null) {
+    row.action = 'create';
+  }
+  return row;
 }
 
 /** هل الصف جاهز للإرسال المباشر عبر API؟ لا أخطاء مانعة، وقرار تكرار صريح لو وُجد تكرار */
