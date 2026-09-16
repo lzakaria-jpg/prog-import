@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
+import { fetchAll } from '../../product-upload/io/network.js';
 
 /**
  * [إضافة] لوحة مراجعة الفواتير التي فيها نقص كمية متوقَّع (تحذير لا خطأ حاجب —
@@ -13,10 +14,45 @@ import { useLanguage } from '../../language.jsx';
  * تُمرَّر مباشرة كخيارات إضافية لـengine.sendInvoicesViaApi. الفواتير غير
  * المحفوفة بالمخاطر (خارج groups) ليست جزءًا من هذه اللوحة إطلاقًا — تُرسَل
  * دومًا بحالة الإرسال العامة المختارة أعلاه، بلا أي تغيير عليها هنا.
+ *
+ * [إضافة] مسار ثالث إضافي (لا يستبدل الخيارين أعلاه) — "تغذية المخزون تلقائيًا":
+ * بدل إرسال الفواتير الناقصة كمسودة أو استبعادها، يُنشئ تعديل مخزون حقيقي
+ * (POST /inventory_adjustments) بالكمية الناقصة بالضبط لكل منتج/موقع، ثم يرسل
+ * كل الفواتير (بما فيها المحفوفة بالمخاطر) بالحالة المطلوبة أصلًا (مثلًا معتمدة)
+ * بدل إجبارها Draft. هذا قيد محاسبي حقيقي ودائم بدفاتر العميل الحية — يظهر تحذير
+ * واضح بالأثر المحاسبي (عربي/إنجليزي) لا يمكن تفويته، ويحتاج المستخدم اختيار
+ * حساب إيراد/مصروف صراحةً لكل ضغطة. onTopUpConfirm({revenueAccountId,
+ * expenseAccountId}) اختياري تمامًا — بلا تمريره (أو apiKey فارغ)، لا يظهر هذا
+ * الخيار إطلاقًا (نفس الخيارين الأصليين أعلاه يبقيان متاحين دومًا).
  */
-export default function StockShortageReviewPanel({ groups, onCancel, onConfirm }) {
+export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, apiKey, onTopUpConfirm }) {
   const { t } = useLanguage();
   const [checked, setChecked] = useState(() => new Set(groups.map((g) => g.ref)));
+
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [accountsBusy, setAccountsBusy] = useState(false);
+  const [accountsError, setAccountsError] = useState('');
+  const [revenueAccountId, setRevenueAccountId] = useState('');
+  const [expenseAccountId, setExpenseAccountId] = useState('');
+  const [ackImpact, setAckImpact] = useState(false);
+
+  useEffect(() => {
+    if (!showTopUp || !apiKey || accounts.length) return;
+    let cancelled = false;
+    (async () => {
+      setAccountsBusy(true); setAccountsError('');
+      try {
+        const accs = await fetchAll('/accounts', apiKey);
+        if (!cancelled) setAccounts(accs || []);
+      } catch (e) {
+        if (!cancelled) setAccountsError(e.message || String(e));
+      } finally {
+        if (!cancelled) setAccountsBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showTopUp, apiKey, accounts.length]);
 
   const toggle = (ref) => {
     setChecked((prev) => {
@@ -65,6 +101,58 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm }
             </tbody>
           </table>
         </div>
+
+        {onTopUpConfirm && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--qsv-border)' }}>
+            {!showTopUp ? (
+              <button type="button" className="qsv-btn secondary" onClick={() => setShowTopUp(true)}>
+                🔧 {t({ ar: 'بدلًا من ذلك: تغذية المخزون تلقائيًا وإرسال الكل بالحالة المطلوبة', en: 'Instead: auto top-up stock and send all with the requested status' })}
+              </button>
+            ) : (
+              <>
+                <div className="qsv-note-box err" style={{ marginBottom: 10 }}>
+                  ⚠️ {t({
+                    ar: 'تحذير محاسبي: سيُنشأ قيد تعديل مخزون حقيقي ودائم بدفاتر العميل الحية (POST /inventory_adjustments) بالكمية الناقصة بالضبط لكل منتج/موقع — هذا يؤثر فعليًا على حسابَي الإيراد والمصروف المختارين أدناه، ولا يمكن التراجع عنه تلقائيًا من هذه الأداة. تأكد من فهمك للأثر المحاسبي قبل المتابعة.',
+                    en: 'Accounting warning: a real, permanent inventory adjustment entry (POST /inventory_adjustments) will be created in the client\'s live books, for the exact missing quantity of each product/location — this genuinely affects the revenue and expense accounts chosen below, and cannot be undone automatically from this tool. Make sure you understand the accounting impact before continuing.',
+                  })}
+                </div>
+                {accountsBusy && <p className="qsv-hint">⏳ {t({ ar: 'جارٍ جلب دليل الحسابات...', en: 'Fetching chart of accounts...' })}</p>}
+                {accountsError && <div className="qsv-note-box err">{accountsError}</div>}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                  <div style={{ flex: '1 1 220px' }}>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب الإيراد (للزيادة)', en: 'Revenue account (for increases)' })}</label>
+                    <select value={revenueAccountId} onChange={(e) => setRevenueAccountId(e.target.value ? Number(e.target.value) : '')}>
+                      <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ flex: '1 1 220px' }}>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب المصروف (للنقص)', en: 'Expense account (for decreases)' })}</label>
+                    <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value ? Number(e.target.value) : '')}>
+                      <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 10 }}>
+                  <input type="checkbox" checked={ackImpact} onChange={(e) => setAckImpact(e.target.checked)} />
+                  {t({ ar: 'أفهم أن هذا سيُنشئ قيدًا محاسبيًا حقيقيًا ودائمًا بدفاتر العميل الحية.', en: 'I understand this will create a real, permanent accounting entry in the client\'s live books.' })}
+                </label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" className="qsv-btn ghost" onClick={() => setShowTopUp(false)}>{t({ ar: 'رجوع', en: 'Back' })}</button>
+                  <button
+                    type="button"
+                    className="qsv-btn"
+                    disabled={!revenueAccountId || !expenseAccountId || !ackImpact}
+                    onClick={() => onTopUpConfirm({ revenueAccountId, expenseAccountId })}
+                  >
+                    ✅ {t({ ar: 'تأكيد التغذية وإرسال كل الفواتير', en: 'Confirm top-up & send all invoices' })}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="qsv-modal-actions" style={{ marginTop: 14, flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className="qsv-btn ghost" onClick={onCancel}>

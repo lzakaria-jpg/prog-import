@@ -11,6 +11,13 @@ import { normKey } from './text.js';
 import { groupRowsByInvoiceRef } from './grouping.js';
 import { checkStockSequential } from './stockSimulation.js';
 
+// [إضافة] أكواد addIssue لتمييز "منتج/عميل غير موجود لكن قابل للإنشاء تلقائيًا عبر API"
+// (فقط بمسار الفهارس المجلوبة عبر API — راجع تعليقات الاستخدام أدناه) عن باقي
+// الأخطاء الحاجبة العادية غير القابلة للإصلاح التلقائي — تُستخدَم من stats.hardErr
+// وcomputeMissingEntitiesPlan بالهوك (useSalesInvoiceImportEngine.js).
+export const MISSING_PRODUCT_CODE = 'missing_product';
+export const MISSING_CUSTOMER_CODE = 'missing_customer';
+
 // refs: {template:{loaded,dropdowns,missingFields}, products:{loaded,bySku,byName}, customers:{loaded,byRef,byName}, stock:{loaded,byKey}}
 export function runValidation(rows, refs = {}){
   // [أداء] أرقام الصفوف بالرسائل كانت تُستخرَج بـrows.indexOf داخل حلقات تمرّ على
@@ -89,7 +96,12 @@ export function runValidation(rows, refs = {}){
     // المنتج
     if(!isBlank(row.N) && products.loaded){
       const p = products.bySku.get(norm(row.N));
-      if(!p) addIssue(row.id,'N','err',`السطر ${rn}: كود المنتج "${row.N}" غير موجود في تقرير المنتجات المرفوع.`);
+      // [إضافة] code:'missing_product' فقط لو فهرس المنتجات مجلوب عبر API (products.raw===null
+      // — نفس التمييز المستخدم حرفيًا بـstockSimulation.js لمعرفة أصل البيانات): منتج غير
+      // موجود بملف مرجعي مرفوع يدويًا لا يمكن "إنشاؤه" (لا API متاح لذلك المسار أصلًا)، بينما
+      // منتج غير موجود بمنشأة العميل الحقيقية (API) قابل للإنشاء التلقائي — راجع
+      // MissingEntitiesReviewPanel/missingEntitiesPlan بالهوك.
+      if(!p) addIssue(row.id,'N','err',`السطر ${rn}: كود المنتج "${row.N}" غير موجود في تقرير المنتجات المرفوع.`, products.raw===null ? MISSING_PRODUCT_CODE : undefined);
       else if(p.sellable===false) addIssue(row.id,'N','err',`السطر ${rn}: المنتج "${p.name||row.N}" غير قابل للبيع (حالته "لا" في تقرير المنتجات) ولا يمكن اعتماده ضمن الاستيراد.`);
     }
     // العميل
@@ -98,9 +110,13 @@ export function runValidation(rows, refs = {}){
       if(!c){
         const dup = customers.byName.get(normKey(row.C)) || [];
         if(dup.length>1){
+          // [ملاحظة] بلا code هنا عمدًا — تعارض اسم مكرر يحتاج حسمًا يدويًا (AmbiguityPanel)
+          // لا إنشاء تلقائي، مشكلة مختلفة تمامًا عن "غير موجود إطلاقًا".
           addIssue(row.id,'C','err',`السطر ${rn}: الاسم "${row.C}" مكرر لأكثر من عميل — اختر الرقم المرجعي الصحيح من: ${dup.map(x=>x.ref).join('، ')}`);
         } else {
-          addIssue(row.id,'C','err',`السطر ${rn}: الرقم المرجعي للعميل "${row.C}" غير موجود في ملف العملاء المرفوع.`);
+          // [إضافة] code:'missing_customer' فقط لو فهرس العملاء مجلوب عبر API — نفس فلسفة
+          // missing_product أعلاه بالضبط.
+          addIssue(row.id,'C','err',`السطر ${rn}: الرقم المرجعي للعميل "${row.C}" غير موجود في ملف العملاء المرفوع.`, customers.raw===null ? MISSING_CUSTOMER_CODE : undefined);
         }
       }
       else if(c.active===false) addIssue(row.id,'C','warn',`السطر ${rn}: العميل "${c.name||row.C}" مُسجَّل كغير نشط.`);
@@ -256,4 +272,63 @@ export function getStockShortageDraftGroups(rows, issuesByRow){
     if(messages.length) result.push({ref: key, rows: rowsInGroup, messages});
   });
   return result;
+}
+
+// [إضافة] يبني خطة الكيانات الناقصة القابلة للإنشاء التلقائي (عملاء/منتجات/مواقع)
+// من issuesByRow (نتيجة runValidation) + rows نفسها — تُستخدَم من useMemo
+// missingEntitiesPlan بالهوك (useSalesInvoiceImportEngine.js) وMissingEntitiesReviewPanel.
+// دالة نقية قابلة للاختبار مباشرة، على نفس نمط getStockShortageDraftGroups أعلاه:
+//  - عملاء/منتجات: من issues بكود MISSING_CUSTOMER_CODE/MISSING_PRODUCT_CODE فقط
+//    (مُعلَّمة بالفعل من runValidation فقط لو الفهرس مجلوب عبر API — راجع تعليقها).
+//  - مواقع: حالة مستقلة تمامًا وغير مرتبطة بـissues إطلاقًا (لا تحقق مسبق للموقع
+//    بمسار API أصلًا — راجع تعليق رأس الأداة/الخطة)؛ تُفحَص هنا مباشرة مقابل
+//    locationIdByName (يُمرَّر بوسيط منفصل)، بنفس شرط بوابة stockShortageGroups
+//    (المسار المجلوب عبر API فقط — locationIdByName غير فارغ يعني ذلك).
+export function computeMissingEntitiesPlan(rows, issuesByRow, {locationIdByName} = {}){
+  const customers = new Map(); // normKey(typedName) -> {typedName, rowIds}
+  const products = new Map(); // normKey(typedSku) -> {typedSku, typedName, rowIds, categoryFromFile, unitFromFile}
+  const locations = new Map(); // normKey(typedName) -> {typedName, rowIds}
+
+  const hasCode = (row, colKey, code) => {
+    const byCol = issuesByRow[row.id];
+    const arr = byCol && byCol[colKey];
+    return !!(arr && arr.some(i=>i.code===code));
+  };
+
+  (rows||[]).forEach(row=>{
+    if(hasCode(row, 'C', MISSING_CUSTOMER_CODE)){
+      const typedName = norm(row.C);
+      const key = normKey(typedName);
+      if(!customers.has(key)) customers.set(key, {typedName, rowIds: []});
+      customers.get(key).rowIds.push(row.id);
+    }
+    if(hasCode(row, 'N', MISSING_PRODUCT_CODE)){
+      const typedSku = norm(row.N);
+      const key = normKey(typedSku);
+      if(!products.has(key)){
+        products.set(key, {
+          typedSku,
+          typedName: norm(row.O) || typedSku,
+          rowIds: [],
+          categoryFromFile: isBlank(row.categoryRef) ? undefined : norm(row.categoryRef),
+          unitFromFile: isBlank(row.unitRef) ? undefined : norm(row.unitRef),
+        });
+      }
+      products.get(key).rowIds.push(row.id);
+    }
+    if(locationIdByName && locationIdByName.size){
+      const typedName = norm(row.G);
+      if(typedName && !locationIdByName.has(typedName)){
+        const key = normKey(typedName);
+        if(!locations.has(key)) locations.set(key, {typedName, rowIds: []});
+        locations.get(key).rowIds.push(row.id);
+      }
+    }
+  });
+
+  return {
+    customers: Array.from(customers.values()),
+    products: Array.from(products.values()),
+    locations: Array.from(locations.values()),
+  };
 }

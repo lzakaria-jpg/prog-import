@@ -10,7 +10,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../language.jsx';
 
 import { COLUMNS, COL_KEYS, HEADER_COLS, ITEM_COLS } from './engine/constants.js';
-import { isBlank, norm } from './engine/text.js';
+import { isBlank, norm, normKey } from './engine/text.js';
 import { setDateSep as setDateSepGlobal, getDateSep, reformatAllDates, toDMY } from './engine/dates.js';
 import { createRow, fillDownHeaderFields } from './engine/rows.js';
 import { groupRowsByInvoiceRef } from './engine/grouping.js';
@@ -18,7 +18,8 @@ import { resolveNamesToRefs } from './engine/resolveNames.js';
 import { snapTaxCategoriesInRows } from './engine/taxAndDiscount.js';
 import { buildProductsIndex, buildStockIndex, buildCustomersIndex } from './engine/referenceIndexes.js';
 import { guessInvoiceImportMapping, applyInvoiceImportMapping } from './engine/invoiceImportMapping.js';
-import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups } from './engine/validation.js';
+import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups, computeMissingEntitiesPlan } from './engine/validation.js';
+import { getStockTopUpNeeds } from './engine/stockSimulation.js';
 import { applyPastedGrid } from './engine/paste.js';
 
 import { parseTemplateFile } from './io/template.js';
@@ -29,6 +30,10 @@ import { generateFinalXlsx, triggerXlsxDownload } from './io/xmlExport.js';
 // بكلا الملفين لتفاصيل القرارات المؤكَّدة ميدانيًا (لا تُعدِّل أي كود مطابقة/تحقق).
 import { fetchSalesReferencesFromApi } from './api/qoyodSalesRefFetch.js';
 import { pushSalesInvoicesToQoyod } from './api/qoyodSalesInvoicePush.js';
+// [إضافة] إنشاء الكيانات الناقصة (عملاء/فئات/وحدات/منتجات/مواقع) + تغذية المخزون
+// (inventory_adjustments) — راجع تعليق رأس qoyodEntityCreate.js للمرحلتين المنفصلتين
+// (إنشاء الكيانات أولًا، ثم تغذية المخزون لاحقًا بعد إعادة محاكاة النقص).
+import { pushMissingEntitiesToQoyod, pushInventoryAdjustments } from './api/qoyodEntityCreate.js';
 // [إضافة] حفظ مفتاح API باسم العميل — نفس مخزن localStorage المشترك أصلاً بين أداتَي شجرة
 // الحسابات (MergeTool.jsx) ورفع المنتجات (product-upload)؛ استيراد قراءة فقط لوحدة تخزين
 // جاهزة ومُختبَرة، لا تعديل عليها ولا على أي كود آخر خارج هذا المجلد.
@@ -50,6 +55,12 @@ export default function useSalesInvoiceImportEngine() {
   const [productsRef, setProductsRef] = useState(EMPTY_REF);
   const [stockRef, setStockRef] = useState(EMPTY_REF);
   const [customersRef, setCustomersRef] = useState(EMPTY_REF);
+  // [إضافة] أكواد المنتجات المُنشأة حديثًا هذه الجلسة عبر resolveMissingEntities —
+  // منفصل تمامًا عن productsRef (الذي يحمل بياناتها الآن أيضًا). السبب الوحيد
+  // لوجوده: getStockTopUpNeeds (stockSimulation.js) يحتاج يميّز "منتج جديد رصيده
+  // صفر يقينًا" عن "منتج قديم بلا بيانات مخزون لسبب غامض" — راجع تعليق رأس تلك
+  // الدالة لتفصيل الخطأ الذي يمنعه هذا التمييز.
+  const [newlyCreatedSkus, setNewlyCreatedSkus] = useState(() => new Set());
   // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
   // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
   const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
@@ -89,6 +100,22 @@ export default function useSalesInvoiceImportEngine() {
   const [apiSendEntries, setApiSendEntries] = useState([]); // تتراكم حيّة أثناء الإرسال (للعرض التدريجي)
   const [apiSendProgress, setApiSendProgress] = useState({ current: 0, total: 0 });
   const apiSendStoppedRef = useRef({ current: false });
+
+  // [إضافة] إنشاء الكيانات الناقصة (المرحلة الأولى من لوحة المراجعة بالخطوة 4 —
+  // MissingEntitiesReviewPanel) — نفس بنية حالة apiSend* أعلاه حرفيًا، بمعزل تام عنها.
+  const [entityCreateBusy, setEntityCreateBusy] = useState(false);
+  const [entityCreateResult, setEntityCreateResult] = useState(null);
+  const [entityCreateEntries, setEntityCreateEntries] = useState([]);
+  const [entityCreateProgress, setEntityCreateProgress] = useState({ current: 0, total: 0 });
+  const entityCreateStoppedRef = useRef({ current: false });
+
+  // [إضافة] تغذية المخزون (inventory_adjustments) — المرحلة الثانية (بعد الأولى،
+  // أو مباشرة لو لا كيانات ناقصة أصلًا) — راجع topUpStockAndFinish أدناه.
+  const [stockTopUpBusy, setStockTopUpBusy] = useState(false);
+  const [stockTopUpResult, setStockTopUpResult] = useState(null);
+  const [stockTopUpEntries, setStockTopUpEntries] = useState([]);
+  const [stockTopUpProgress, setStockTopUpProgress] = useState({ current: 0, total: 0 });
+  const stockTopUpStoppedRef = useRef({ current: false });
 
   // [إضافة] حفظ مفتاح API باسم العميل — تخزين محلي بحت (localStorage)، مستقل تمامًا عن
   // apiKey أعلاه (قيمة الحقل الحالي بلا حفظ) وعن fetchReferencesFromApi (منطق الجلب نفسه
@@ -370,13 +397,20 @@ export default function useSalesInvoiceImportEngine() {
   const stats = useMemo(() => {
     const errCount = issues.list.filter((i) => i.sev === 'err').length;
     const warnCount = issues.list.filter((i) => i.sev === 'warn').length;
+    // [إضافة] "خطأ حاجب صلب" — كل أخطاء err العادية باستثناء عميل/منتج غير موجود
+    // لكن قابل للإنشاء تلقائيًا عبر API (code:'missing_customer'/'missing_product' —
+    // راجع تعليق runValidation بـengine/validation.js). يُستخدَم لتفعيل زر "التالي"
+    // بالخطوة 3 (Step3Validate.jsx) وبوابة الحجب الثانوية بالخطوة 4 (Step4Export.jsx)
+    // بدل stats.err الخام — ملف مشاكله الوحيدة كيانات ناقصة قابلة للإنشاء يجب أن
+    // يصل لخطوة المراجعة/الإرسال، لا أن يُحجَب بالكامل قبلها.
+    const hardErrCount = issues.list.filter((i) => i.sev === 'err' && i.code !== 'missing_customer' && i.code !== 'missing_product').length;
     const groups = groupRowsByInvoiceRef(rows);
     let okInvoices = 0;
     groups.forEach((rowsInGroup, key) => {
       const anyErr = rowsInGroup.some((r) => issues.byRow[r.id] && Object.values(issues.byRow[r.id]).some((arr) => arr.some((i) => i.sev === 'err')));
       if (!anyErr && !key.startsWith('__blank__')) okInvoices++;
     });
-    return { total: rows.length, err: errCount, warn: warnCount, okInvoices };
+    return { total: rows.length, err: errCount, hardErr: hardErrCount, warn: warnCount, okInvoices };
   }, [rows, issues]);
 
   /* ========================= الخطوة 4: التصدير ========================= */
@@ -391,6 +425,15 @@ export default function useSalesInvoiceImportEngine() {
   // فقط لو المخزون مجلوب عبر API، راجع stockSimulation.js) — تُستخدَم بلوحة
   // مراجعة الخطوة 4 (StockShortageReviewPanel) قبل الإرسال الفعلي عبر API.
   const stockShortageGroups = useMemo(() => getStockShortageDraftGroups(rows, issues.byRow), [rows, issues]);
+
+  // [إضافة] خطة الكيانات الناقصة القابلة للإنشاء التلقائي (عملاء/منتجات/مواقع) —
+  // المرحلة الأولى بلوحة مراجعة الخطوة 4 (MissingEntitiesReviewPanel)، قبل مراجعة
+  // نقص المخزون (stockShortageGroups أعلاه، المرحلة الثانية). راجع تعليق
+  // computeMissingEntitiesPlan بـengine/validation.js لتفصيل البناء الكامل.
+  const missingEntitiesPlan = useMemo(
+    () => computeMissingEntitiesPlan(rows, issues.byRow, { locationIdByName }),
+    [rows, issues, locationIdByName],
+  );
 
   // kind: 'all' | 'validOnly' — يطابق downloadRowsAsXlsx(state.rows) مقابل downloadRowsAsXlsx(getValidOnlyRows()).
   const exportFinal = useCallback(async (kind) => {
@@ -443,6 +486,98 @@ export default function useSalesInvoiceImportEngine() {
 
   const stopApiSend = useCallback(() => { apiSendStoppedRef.current.current = true; }, []);
 
+  // [إضافة] المرحلة الأولى من لوحة مراجعة الخطوة 4 — ينشئ الكيانات المُحدَّدة (عملاء/
+  // فئات/وحدات/منتجات/مواقع، راجع تعليق رأس qoyodEntityCreate.js)، ثم يدمج السجلات
+  // المُنشأة حديثًا مباشرة داخل الفهارس الحية (productsRef/customersRef/locationIdByName)
+  // بلا أي إعادة جلب كاملة من API — بنفس شكل buildProductsIndexFromApi/
+  // buildCustomersIndexFromApi/buildLocationIdIndexFromApi تمامًا (qoyodSalesRefFetch.js)
+  // — ثم يُعيد تشغيل resolveNamesToRefs←fillDownHeaderFields←runValidation فورًا
+  // بالفهارس المُحدَّثة (لا ننتظر إعادة رسم React لاستخدامها، تمامًا كنمط enterStep3
+  // أعلاه) بحيث تعكس rows/issues النتيجة الجديدة مباشرة (بما فيها محاكاة المخزون،
+  // المُضمَّنة أصلًا داخل runValidation عبر checkStockSequential).
+  const resolveMissingEntities = useCallback(async (key, selections) => {
+    entityCreateStoppedRef.current.current = false;
+    setEntityCreateBusy(true); setEntityCreateResult(null); setEntityCreateEntries([]); setEntityCreateProgress({ current: 0, total: 0 });
+    const result = await pushMissingEntitiesToQoyod(selections, key, {
+      stoppedRef: entityCreateStoppedRef.current,
+      onProgress: (current, total) => setEntityCreateProgress({ current, total }),
+      onEntry: (entry) => setEntityCreateEntries((prev) => [...prev, entry]),
+    });
+    setEntityCreateResult(result);
+    setEntityCreateBusy(false);
+
+    let nextCustomersRef = customersRef, nextProductsRef = productsRef;
+    if (result.created && result.created.customers && result.created.customers.size) {
+      const byRef = new Map(customersRef.byRef);
+      const byName = new Map(customersRef.byName);
+      result.created.customers.forEach(({ id, name }) => {
+        const rec = { ref: String(id), name, active: true };
+        byRef.set(String(id), rec);
+        const nk = normKey(name);
+        if (!byName.has(nk)) byName.set(nk, []);
+        byName.get(nk).push(rec);
+      });
+      nextCustomersRef = { ...customersRef, byRef, byName };
+      setCustomersRef(nextCustomersRef);
+    }
+    if (result.created && result.created.products && result.created.products.size) {
+      const bySku = new Map(productsRef.bySku);
+      const byName = new Map(productsRef.byName);
+      result.created.products.forEach(({ id, name }, sku) => {
+        const rec = { sku, name, sellable: true, stocked: true, id };
+        bySku.set(sku, rec);
+        const nk = normKey(name);
+        if (!byName.has(nk)) byName.set(nk, []);
+        byName.get(nk).push(rec);
+      });
+      nextProductsRef = { ...productsRef, bySku, byName };
+      setProductsRef(nextProductsRef);
+      setNewlyCreatedSkus((prev) => new Set([...prev, ...result.created.products.keys()]));
+    }
+    if (result.created && result.created.locations && result.created.locations.size) {
+      const nextMap = new Map(locationIdByName || []);
+      result.created.locations.forEach(({ id }, name) => { nextMap.set(name, id); });
+      setLocationIdByName(nextMap);
+    }
+
+    setRows((prev) => {
+      const resolved = resolveNamesToRefs(prev, false, nextCustomersRef, nextProductsRef).rows;
+      const filled = fillDownHeaderFields(resolved);
+      const nextRefs = { ...refs, customers: nextCustomersRef, products: nextProductsRef };
+      setIssues(runValidation(filled, nextRefs));
+      return filled;
+    });
+
+    return result;
+  }, [customersRef, productsRef, locationIdByName, refs]);
+
+  const stopEntityCreate = useCallback(() => { entityCreateStoppedRef.current.current = true; }, []);
+
+  // [إضافة] المرحلة الثانية — تغذية المخزون تلقائيًا (POST /inventory_adjustments لكل
+  // موقع محتاج) ثم متابعة الإرسال الفعلي للفواتير (sendInvoicesViaApi) كالمعتاد.
+  // adjustments بنفس شكل items بـpushInventoryAdjustments (مُجمَّعة مسبقًا حسب inventory_id
+  // من قِبل المستدعي — راجع تعليق رأس qoyodEntityCreate.js). sendOpts تُمرَّر كما هي
+  // لـsendInvoicesViaApi (status/excludeRefs/forceDraftRefs).
+  const topUpStockAndFinish = useCallback(async (key, adjustments, sendOpts) => {
+    stockTopUpStoppedRef.current.current = false;
+    setStockTopUpBusy(true); setStockTopUpResult(null); setStockTopUpEntries([]); setStockTopUpProgress({ current: 0, total: 0 });
+    const result = await pushInventoryAdjustments(adjustments, key, {
+      stoppedRef: stockTopUpStoppedRef.current,
+      onProgress: (current, total) => setStockTopUpProgress({ current, total }),
+      onEntry: (entry) => setStockTopUpEntries((prev) => [...prev, entry]),
+    });
+    setStockTopUpResult(result);
+    setStockTopUpBusy(false);
+    return sendInvoicesViaApi(key, sendOpts);
+  }, [sendInvoicesViaApi]);
+
+  const stopStockTopUp = useCallback(() => { stockTopUpStoppedRef.current.current = true; }, []);
+
+  // [إضافة] يحسب احتياج تغذية المخزون الفعلي (raw، لا نصوصًا) من الحالة الحالية —
+  // يُستدعى من StockShortageReviewPanel (عبر Step4Export.jsx) عند اختيار مسار
+  // "تغذية المخزون تلقائيًا" لبناء adjustments أعلاه (مجمَّعة حسب inventory_id).
+  const getStockTopUpPlan = useCallback(() => getStockTopUpNeeds(rows, { productsIndex: productsRef, stockIndex: stockRef, newSkus: newlyCreatedSkus }), [rows, productsRef, stockRef, newlyCreatedSkus]);
+
   // [إضافة] "إعادة تعيين" — مسح كل بيانات الجلسة الحالية (الملفات المرفوعة/المجلوبة، الصفوف،
   // نتائج التحقق والتصدير والإرسال) والعودة للخطوة 1، بنفس مبدأ resetAll بأداتي الشجرة
   // والقيود. لا يمسّ: rowSeqRef (لا يُصفَّر أبدًا طوال الجلسة — قاعدة قائمة أصلاً)، apiKey
@@ -476,6 +611,17 @@ export default function useSalesInvoiceImportEngine() {
     setApiSendResult(null);
     setApiSendEntries([]);
     setApiSendProgress({ current: 0, total: 0 });
+    entityCreateStoppedRef.current.current = false;
+    setEntityCreateBusy(false);
+    setEntityCreateResult(null);
+    setEntityCreateEntries([]);
+    setEntityCreateProgress({ current: 0, total: 0 });
+    stockTopUpStoppedRef.current.current = false;
+    setStockTopUpBusy(false);
+    setStockTopUpResult(null);
+    setStockTopUpEntries([]);
+    setStockTopUpProgress({ current: 0, total: 0 });
+    setNewlyCreatedSkus(new Set());
   }, [revokePrevExportUrl]);
 
   /* ========================= التنقل بين الخطوات ========================= */
@@ -515,6 +661,12 @@ export default function useSalesInvoiceImportEngine() {
     // [إضافة] جلب/إرسال عبر Qoyod API
     apiKey, apiFetchBusy, apiFetchError, apiFetchSummary, fetchReferencesFromApi, projectsRef, taxesRef, locationOptions,
     apiSendBusy, apiSendResult, apiSendEntries, apiSendProgress, sendInvoicesViaApi, stopApiSend,
+
+    // [إضافة] الكيانات الناقصة القابلة للإنشاء التلقائي (عملاء/منتجات/مواقع) +
+    // تغذية المخزون — راجع تعليقات resolveMissingEntities/topUpStockAndFinish أعلاه.
+    locationIdByName, missingEntitiesPlan,
+    entityCreateBusy, entityCreateResult, entityCreateEntries, entityCreateProgress, resolveMissingEntities, stopEntityCreate,
+    stockTopUpBusy, stockTopUpResult, stockTopUpEntries, stockTopUpProgress, topUpStockAndFinish, stopStockTopUp, getStockTopUpPlan,
 
     // [إضافة] حفظ مفتاح API باسم العميل + إعادة التعيين
     customerName, setCustomerName, savedKeys, saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,

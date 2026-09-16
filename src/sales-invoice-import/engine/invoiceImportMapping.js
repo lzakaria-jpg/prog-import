@@ -164,6 +164,24 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
       const projectVal = norm(rowGet(r, headers, projectH));
       if(projectVal) row.projectRef = projectVal;
     }
+    // [إضافة] فئة/وحدة المنتج من ملف العميل الخام — تُخزَّن خامًا بلا أي مطابقة هنا
+    // (نفس نمط projectRef أعلاه تمامًا) على row.categoryRef/row.unitRef. تُستخدَم
+    // حصريًا عند إنشاء منتج غير موجود تلقائيًا (لوحة مراجعة الكيانات الناقصة
+    // بالخطوة 4) — لا علاقة لها بعمود القالب الرسمي Q ("وحدة التحويل"، وحدة بيع/
+    // تحويل لمنتج موجود أصلًا على مستوى بند الفاتورة)؛ راجع تعليق AUX_FIELD_KEYWORDS
+    // ._category/._unit بـconstants.js للتمييز الكامل. حقلا بند لا رأس فاتورة —
+    // بعكس projectRef، لا يُنشَران بأي قائمة تعبئة رأسية (HEADER_FILL_KEYS بـrows.js)
+    // لأن كل سطر بند قد يحمل منتجًا مختلفًا بفئة/وحدة مختلفة تمامًا.
+    const categoryH = mapping._category;
+    if(categoryH){
+      const categoryVal = norm(rowGet(r, headers, categoryH));
+      if(categoryVal) row.categoryRef = categoryVal;
+    }
+    const unitH = mapping._unit;
+    if(unitH){
+      const unitVal = norm(rowGet(r, headers, unitH));
+      if(unitVal) row.unitRef = unitVal;
+    }
     const lineTotalVal = lineTotalH ? parseFloat(norm(rowGet(r, headers, lineTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const grandTotalVal = grandTotalH ? parseFloat(norm(rowGet(r, headers, grandTotalH)).replace(/[^\d.\-]/g,'')) : NaN;
     const qty = parseFloat(row.P);

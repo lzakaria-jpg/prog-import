@@ -3,23 +3,45 @@ import { useLanguage } from '../../language.jsx';
 import { norm } from '../engine/text.js';
 import ApiSendResultsModal from './ApiSendResultsModal.jsx'; // [إضافة] إرسال مباشر عبر API — راجع تعليق رأس qoyodSalesInvoicePush.js
 import StockShortageReviewPanel from './StockShortageReviewPanel.jsx'; // [إضافة] مراجعة فواتير نقص الكمية قبل الإرسال — راجع تعليق رأسه
+import MissingEntitiesReviewPanel from './MissingEntitiesReviewPanel.jsx'; // [إضافة] مراجعة الكيانات الناقصة (عملاء/منتجات/مواقع) — راجع تعليق رأسه
+import { buildEntityCreateResultsReportBlob } from '../io/entityCreateResultsReport.js'; // [إضافة] تقرير Excel لنتائج إنشاء الكيانات/تغذية المخزون
+import { downloadBlob } from '../../lib/downloadBlob.js';
+
+const isMissingEntitiesPlanEmpty = (plan) => !plan || (!plan.customers.length && !plan.products.length && !plan.locations.length);
 
 // [إضافة] استُخرج قسم "إرسال مباشر عبر API" لمكوّن مستقل لأنه صار يُعرض بمكانين:
 // بعد نجاح توليد الملف اليدوي (كخيار إضافي)، أو وحده مباشرة لو لا يوجد قالب
 // أصلًا (لا ملف يدوي ممكن بلا قالب — راجع تعليق useEffect بالأسفل). بلا أي
 // تغيير على منطق الإرسال نفسه (sendInvoicesViaApi بالهوك يبقى كما هو).
+//
+// [إضافة] مسارَا مراجعة قبل الإرسال الفعلي، بالترتيب:
+//  المرحلة الأولى (اختيارية) — MissingEntitiesReviewPanel: لو فيه عملاء/منتجات/
+//  مواقع مذكورة بالملف لكن غير موجودة فعليًا بمنشأة العميل (missingEntitiesPlan،
+//  فقط بمسار المرجعيات المجلوبة عبر API)، تظهر أولًا — بعد تأكيدها (وإنشاء ما
+//  اختاره المستخدم فعليًا)، rows/issues تُعاد محاكاتها فورًا بالهوك (بما فيها
+//  محاكاة المخزون)، فننتقل تلقائيًا للمرحلة الثانية.
+//  المرحلة الثانية (اختيارية) — StockShortageReviewPanel: لو بقيت فواتير نقص
+//  كمية متوقَّع (بما فيها منتجات أُنشئت للتو بالمرحلة الأولى وتبدأ من صفر مخزون)،
+//  تظهر قبل الإرسال الفعلي كما كانت (بلا أي تغيير بمنطقها الأصلي) — بإضافة خيار
+//  ثالث اختياري (تغذية المخزون تلقائيًا، راجع تعليق رأس المكوّن نفسه).
 function ApiSendSection({ engine, invoiceCount, standalone }) {
   const { t } = useLanguage();
-  const { apiKey, stockShortageGroups, apiSendBusy, apiSendResult, apiSendProgress, stopApiSend } = engine;
+  const {
+    apiKey, stockShortageGroups, missingEntitiesPlan, apiSendBusy, apiSendResult, apiSendProgress, stopApiSend,
+    entityCreateBusy, entityCreateResult, entityCreateEntries, stockTopUpResult, stockTopUpEntries,
+  } = engine;
+  const [reportBusy, setReportBusy] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(apiKey || '');
   const [sendStatus, setSendStatus] = useState('Draft');
   const [showSendModal, setShowSendModal] = useState(false);
   const [showStockReview, setShowStockReview] = useState(false);
+  const [showMissingEntities, setShowMissingEntities] = useState(false);
+  // [إضافة] يُضبَط true بعد تأكيد لوحة الكيانات الناقصة، ريثما ينتهي الإنشاء
+  // الفعلي (entityCreateBusy) وrows/issues تُعاد محاكاتها بالهوك — عندها فقط
+  // نقرأ stockShortageGroups (الطازجة، لا القديمة قبل الإنشاء) لتقرير الخطوة التالية.
+  const [pendingAfterEntities, setPendingAfterEntities] = useState(false);
 
-  // [إضافة] لو فيه فواتير نقص كمية "قابلة للإرسال كمسودة" (راجع تعليق رأس
-  // StockShortageReviewPanel)، نعرض لوحة المراجعة أول ما يُضغَط الزر بدل الإرسال
-  // المباشر — القرار النهائي (استبعاد/إجبار مسودة) يُمرَّر لـsendInvoicesViaApi.
-  const handleSendClick = () => {
+  const proceedAfterMissingEntities = () => {
     if (stockShortageGroups && stockShortageGroups.length > 0) {
       setShowStockReview(true);
     } else {
@@ -28,11 +50,68 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
     }
   };
 
+  useEffect(() => {
+    if (!pendingAfterEntities || entityCreateBusy) return;
+    setPendingAfterEntities(false);
+    proceedAfterMissingEntities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAfterEntities, entityCreateBusy, stockShortageGroups]);
+
+  const handleSendClick = () => {
+    if (!isMissingEntitiesPlanEmpty(missingEntitiesPlan)) {
+      setShowMissingEntities(true);
+    } else if (stockShortageGroups && stockShortageGroups.length > 0) {
+      setShowStockReview(true);
+    } else {
+      setShowSendModal(true);
+      engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus });
+    }
+  };
+
+  const handleMissingEntitiesConfirm = (selections) => {
+    setShowMissingEntities(false);
+    setPendingAfterEntities(true);
+    engine.resolveMissingEntities(apiKeyInput.trim(), selections);
+  };
+
   const handleStockReviewConfirm = (decision) => {
     setShowStockReview(false);
     setShowSendModal(true);
     engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus, ...decision });
   };
+
+  // [إضافة] المسار الثالث بلوحة نقص المخزون: تغذية المخزون تلقائيًا عبر
+  // POST /inventory_adjustments (كمية النقص الفعلية بالضبط، مُجمَّعة حسب الموقع
+  // لتقليل عدد الطلبات)، ثم إرسال كل الفواتير بالحالة المطلوبة أصلًا (لا Draft قسرًا).
+  const handleTopUpConfirm = async ({ revenueAccountId, expenseAccountId }) => {
+    setShowStockReview(false);
+    const needs = engine.getStockTopUpPlan();
+    const byInventory = new Map();
+    needs.forEach((n) => {
+      const product = engine.productsRef.bySku ? engine.productsRef.bySku.get(n.sku) : null;
+      const inventoryId = engine.locationIdByName ? engine.locationIdByName.get(n.loc) : undefined;
+      if (!product || product.id == null || inventoryId === undefined) return;
+      if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, ref: n.loc, lineItems: [] });
+      byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall });
+    });
+    setShowSendModal(true);
+    await engine.topUpStockAndFinish(apiKeyInput.trim(), Array.from(byInventory.values()), { status: sendStatus });
+  };
+
+  // [إضافة] تقرير Excel لنتائج إنشاء الكيانات الناقصة و/أو تغذية المخزون —
+  // يجمع entries المرحلتين معًا (الأولى بلا kind ثابت لكل نوع، الثانية كلها
+  // "تعديل مخزون") بملف واحد — راجع تعليق رأس entityCreateResultsReport.js.
+  const downloadEntityReport = async () => {
+    setReportBusy(true);
+    try {
+      const blob = await buildEntityCreateResultsReportBlob([...entityCreateEntries, ...stockTopUpEntries], t);
+      downloadBlob(blob, t({ ar: 'تقرير-إنشاء-الكيانات-الناقصة.xlsx', en: 'missing-entities-creation-report.xlsx' }));
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const hasEntityCreateReport = (entityCreateResult && !entityCreateResult.fatalError) || (stockTopUpResult && !stockTopUpResult.fatalError);
 
   return (
     <div style={standalone ? undefined : { marginTop: 26, paddingTop: 20, borderTop: '1px dashed var(--qsv-border)', textAlign: 'right' }}>
@@ -66,11 +145,21 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
           📤 {t({ ar: 'إرسال عبر API', en: 'Send via API' })}
         </button>
       </div>
+      {showMissingEntities && (
+        <MissingEntitiesReviewPanel
+          plan={missingEntitiesPlan}
+          apiKey={apiKeyInput.trim()}
+          onCancel={() => setShowMissingEntities(false)}
+          onConfirm={handleMissingEntitiesConfirm}
+        />
+      )}
       {showStockReview && (
         <StockShortageReviewPanel
           groups={stockShortageGroups}
+          apiKey={apiKeyInput.trim()}
           onCancel={() => setShowStockReview(false)}
           onConfirm={handleStockReviewConfirm}
+          onTopUpConfirm={handleTopUpConfirm}
         />
       )}
       {showSendModal && <ApiSendResultsModal engine={engine} onClose={() => setShowSendModal(false)} />}
@@ -91,6 +180,15 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
           )}
         </div>
       )}
+      {!entityCreateBusy && hasEntityCreateReport && (
+        <div className="qsv-btn secondary" style={{ position: 'fixed', bottom: (!showSendModal && (apiSendBusy || apiSendResult)) ? 68 : 20, insetInlineStart: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ cursor: 'pointer' }} onClick={reportBusy ? undefined : downloadEntityReport}>
+            🧩 {reportBusy
+              ? t({ ar: 'جارٍ التجهيز...', en: 'Preparing...' })
+              : t({ ar: 'تحميل تقرير إنشاء الكيانات/تغذية المخزون', en: 'Download entity creation/stock top-up report' })}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -100,8 +198,14 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
 // رسالة الأخطاء المتبقية مع خيار تحميل الفواتير الصحيحة فقط.
 export default function Step4Export({ engine }) {
   const { t } = useLanguage();
-  const { rows, issues, validOnlyRows, exportBusy, exportResult, exportError, exportFinal, goToStep, template } = engine;
+  const { rows, issues, stats, validOnlyRows, exportBusy, exportResult, exportError, exportFinal, goToStep, template } = engine;
   const errCount = issues.list.filter((i) => i.sev === 'err').length;
+  // [إضافة] "خطأ حاجب صلب" — يستبعد missing_customer/missing_product (قابلة
+  // للإنشاء التلقائي بالخطوة نفسها) — راجع تعليق stats.hardErr بالهوك. تُستخدَم
+  // فقط لبوابة شاشة الحجب أدناه؛ useEffect التوليد التلقائي للملف اليدوي بالأسفل
+  // يبقى على errCount الخام كما هو تمامًا (لا يُخفَّف — لا يمكن توليد ملف يدوي
+  // يحوي مراجع/مطابقات لكيانات لم تُنشأ فعليًا بعد).
+  const hardErrCount = stats.hardErr;
   const autoTriggered = useRef(false);
   const invoiceCount = new Set(rows.map((r) => norm(r.A))).size;
 
@@ -117,13 +221,13 @@ export default function Step4Export({ engine }) {
     }
   }, [errCount, template.loaded, exportResult, exportBusy, exportFinal]);
 
-  if (errCount > 0) {
+  if (hardErrCount > 0) {
     const validInvoiceCount = new Set(validOnlyRows.map((r) => norm(r.A))).size;
     return (
       <div className="qsv-panel">
         <div className="qsv-final-box">
           <div className="qsv-big-icon">🚫</div>
-          <h3>{t({ ar: `لا يزال هناك ${errCount} خطأ حاجب`, en: `There ${errCount === 1 ? 'is' : 'are'} still ${errCount} blocking error(s)` })}</h3>
+          <h3>{t({ ar: `لا يزال هناك ${hardErrCount} خطأ حاجب`, en: `There ${hardErrCount === 1 ? 'is' : 'are'} still ${hardErrCount} blocking error(s)` })}</h3>
           <p className="qsv-hint">{t({ ar: 'رجاءً ارجع لخطوة التحقق وصحّح كل الأخطاء الحاجبة أولاً قبل توليد الملف كاملًا.', en: 'Please go back to the validation step and fix all blocking errors first before generating the full file.' })}</p>
           <button type="button" className="qsv-btn secondary" onClick={() => goToStep(3)}>→ {t({ ar: 'رجوع للتحقق', en: 'Back to validation' })}</button>
           {validInvoiceCount > 0 && (
@@ -157,6 +261,12 @@ export default function Step4Export({ engine }) {
     );
   }
 
+  // [إضافة] قالب مرفوع لكن بقيت مراجع عميل/منتج ناقصة قابلة للإنشاء تلقائيًا
+  // (hardErrCount===0 لكن errCount>0) — الملف اليدوي لا يُولَّد تلقائيًا (useEffect
+  // أعلاه يبقى على errCount الخام)، لكن الإرسال المباشر عبر API يبقى متاحًا فورًا
+  // (لوحة مراجعة الكيانات الناقصة تُنشئها أولًا، ثم يكمل الإرسال).
+  const manualFileBlockedByMissingEntities = errCount > 0 && hardErrCount === 0 && !exportResult && !exportBusy;
+
   return (
     <div className="qsv-panel">
       <div className="qsv-final-box">
@@ -172,9 +282,23 @@ export default function Step4Export({ engine }) {
 
             {/* [إضافة] خيار إرسال مباشر عبر API — بديل إضافي لتنزيل الملف أعلاه، لا يستبدله */}
             <ApiSendSection engine={engine} invoiceCount={invoiceCount} />
-
-            <button type="button" className="qsv-btn ghost" style={{ marginTop: 18 }} onClick={() => goToStep(3)}>→ {t({ ar: 'رجوع للتحقق مرة أخرى', en: 'Back to validation again' })}</button>
           </>
+        )}
+        {manualFileBlockedByMissingEntities && (
+          <>
+            <div className="qsv-big-icon">🧩</div>
+            <h3>{t({ ar: 'بقيت مراجع عملاء/منتجات غير موجودة — قابلة للإنشاء تلقائيًا', en: 'Some customer/product references are still missing — auto-creatable' })}</h3>
+            <p className="qsv-hint">
+              {t({
+                ar: 'لا يمكن توليد ملف الرفع اليدوي حاليًا (سيحتوي مراجع لكيانات غير موجودة فعليًا بقيود). أرسل الفواتير مباشرة عبر API بالأسفل — سيُعرض عليك أولًا إنشاء الكيانات الناقصة، ثم يكمل الإرسال تلقائيًا.',
+                en: "The manual upload file can't be generated right now (it would reference entities that don't exist in Qoyod yet). Send the invoices directly via API below — you'll first be offered to create the missing entities, then sending continues automatically.",
+              })}
+            </p>
+            <ApiSendSection engine={engine} invoiceCount={invoiceCount} standalone />
+          </>
+        )}
+        {(exportResult || manualFileBlockedByMissingEntities) && (
+          <button type="button" className="qsv-btn ghost" style={{ marginTop: 18 }} onClick={() => goToStep(3)}>→ {t({ ar: 'رجوع للتحقق مرة أخرى', en: 'Back to validation again' })}</button>
         )}
       </div>
     </div>

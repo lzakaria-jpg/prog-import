@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkStockSequential } from "../stockSimulation.js";
+import { checkStockSequential, getStockTopUpNeeds } from "../stockSimulation.js";
 import { createRow } from "../rows.js";
 
 function stockIndex(map) {
@@ -91,5 +91,92 @@ describe("checkStockSequential — §6.15 (محاكاة استهلاك تسلس�
     ];
     const issues = checkStockSequential(rows, { stockIndex: stockIndex({ 'SKU-1||الرياض': 1 }) });
     expect(issues.length).toBe(0);
+  });
+});
+
+describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخزون الفعلي (POST /inventory_adjustments)", () => {
+  it("بلا نقص إطلاقًا ⇒ مصفوفة فارغة", () => {
+    const rows = [createRow(1, { N: 'SKU-1', G: 'الرياض', P: '6' })];
+    const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
+    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([]);
+  });
+
+  it("نقص بسطر واحد ⇒ shortfall = qty - rem بالضبط", () => {
+    const rows = [
+      createRow(1, { N: 'SKU-1', G: 'الرياض', P: '8' }),
+      createRow(2, { N: 'SKU-1', G: 'الرياض', P: '5' }),
+    ];
+    const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
+    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 3 }]); // rem بعد السطر الأول = 2، والمطلوب 5 ⇒ نقص 3
+  });
+
+  it("نقص متكرر لنفس المنتج/الموقع بأكثر من سطر ⇒ يُجمَع (لا آخر قيمة فقط)", () => {
+    const rows = [
+      createRow(1, { N: 'SKU-1', G: 'الرياض', P: '15' }), // يستهلك كل الـ10 المتاحة، نقص 5
+      createRow(2, { N: 'SKU-1', G: 'الرياض', P: '3' }),  // لا شيء متبقٍ، نقص 3 إضافي
+    ];
+    const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
+    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 8 }]);
+  });
+
+  it("مخزون مرفوع يدويًا (raw غير null) ⇒ مصفوفة فارغة دومًا (لا معنى للتغذية بلا API)", () => {
+    const rows = [createRow(1, { N: 'SKU-1', G: 'الرياض', P: '20' })];
+    const manualStockIndex = { raw: [['x']], byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
+    expect(getStockTopUpNeeds(rows, { stockIndex: manualStockIndex })).toEqual([]);
+  });
+
+  it("بلا stockIndex أصلًا ⇒ مصفوفة فارغة", () => {
+    const rows = [createRow(1, { N: 'SKU-1', G: 'الرياض', P: '5' })];
+    expect(getStockTopUpNeeds(rows, {})).toEqual([]);
+  });
+
+  it("منتج 'غير مخزَّن' لا يُحسَب له أي نقص", () => {
+    const rows = [createRow(1, { N: 'SKU-SVC', G: 'الرياض', P: '999' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, {
+      productsIndex: { bySku: new Map([['SKU-SVC', { stocked: false }]]) },
+      stockIndex: apiStockIndex,
+    });
+    expect(needs).toEqual([]);
+  });
+
+  it("منتج/موقع بلا بيانات كمية أصلًا (rem===null) ⇒ لا يُحسَب نقص (تحذير 'لا تتوفر بيانات' فقط، لا تغذية)", () => {
+    const rows = [createRow(1, { N: 'SKU-9', G: 'جدة', P: '1' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([]);
+  });
+
+  // [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (resolveMissingEntities) لا يملك
+  // أي مدخل بـstockIndex.byKey (بُني قبل إنشائه) — بلا هذا الإصلاح كان يقع بنفس
+  // فرع "لا بيانات كمية" أعلاه فيُستبعَد من التغذية كليًا، فتبقى فاتورته معتمدة على
+  // draft_if_out_of_stock الصامت بدل تغذية فعلية — يناقض هدف الميزة بالضبط لأهم
+  // حالة تخدمها (منتج جديد كليًا، لا منتج قديم ناقص الكمية فقط).
+  it("منتج جديد ضمن newSkus بلا أي مدخل بالفهرس ⇒ يُعامَل كصفر، والنقص = الكمية المطلوبة كاملة", () => {
+    const rows = [createRow(1, { N: 'SKU-NEW', G: 'الرياض', P: '7' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-NEW']) });
+    expect(needs).toEqual([{ sku: 'SKU-NEW', loc: 'الرياض', shortfall: 7 }]);
+  });
+
+  it("منتج قديم بلا بيانات كمية (ليس ضمن newSkus) ⇒ يبقى مستبعدًا كما كان — لا نفترض صفرًا لمنتج قائم فعليًا", () => {
+    const rows = [createRow(1, { N: 'SKU-OLD', G: 'جدة', P: '4' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-OTHER']) });
+    expect(needs).toEqual([]);
+  });
+
+  it("منتجات/مواقع مختلفة تُحسَب بشكل مستقل عن بعضها", () => {
+    const rows = [
+      createRow(1, { N: 'SKU-1', G: 'الرياض', P: '15' }),
+      createRow(2, { N: 'SKU-2', G: 'جدة', P: '12' }),
+    ];
+    const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10, 'SKU-2||جدة': 10 })) };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
+    expect(needs.sort((a, b) => a.sku.localeCompare(b.sku))).toEqual([
+      { sku: 'SKU-1', loc: 'الرياض', shortfall: 5 },
+      { sku: 'SKU-2', loc: 'جدة', shortfall: 2 },
+    ]);
   });
 });

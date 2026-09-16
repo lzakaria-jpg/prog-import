@@ -1,0 +1,338 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLanguage } from '../../language.jsx';
+import { normKey } from '../engine/text.js';
+import { fetchAll, api } from '../../product-upload/io/network.js';
+import { buildCategoryCreatePayload, buildUnitCreatePayload } from '../api/qoyodEntityCreate.js';
+
+const normLower = (s) => (s || '').trim().toLowerCase();
+
+/**
+ * [إضافة] لوحة مراجعة الكيانات الناقصة (عملاء/منتجات/مواقع غير موجودين فعليًا
+ * بمنشأة العميل الحقيقية عبر API) — المرحلة الأولى من مراجعة الإرسال بالخطوة 4،
+ * تظهر قبل StockShortageReviewPanel (المرحلة الثانية) عند الضغط على "إرسال عبر
+ * API" لو وُجد أي كيان ناقص قابل للإنشاء تلقائيًا (engine.missingEntitiesPlan).
+ * نفس نمط/تصميم StockShortageReviewPanel (قوائم اختيار + تفاصيل + تأكيد/رجوع)،
+ * راجع تعليق رأسه للفلسفة العامة.
+ *
+ * لا شيء يُنشأ فعليًا هنا إلا بعد ضغطة "تأكيد الإنشاء والمتابعة" الصريحة — باستثناء
+ * الفئة/الوحدة الجديدة المُنشأة عبر زر "+ إنشاء فئة/وحدة جديدة" المخصَّص، الذي
+ * يُنشئها فورًا (نفس فلسفة "الاسم يجب أن يكون جاهزًا قبل التأكيد النهائي" — قرار
+ * تصميم صريح بالخطة الموافَق عليها)؛ يبقى فعلًا صريحًا بضغطة مستقلة من المستخدم،
+ * لا تلقائيًا.
+ *
+ * onConfirm(selections): نفس بنية plan بـpushMissingEntitiesToQoyod (qoyodEntityCreate.js)
+ * — الأب (ApiSendSection بـStep4Export.jsx) هو من يستدعي فعليًا engine.resolveMissingEntities
+ * (نفس نمط StockShortageReviewPanel.onConfirm الذي لا يستدعي engine مباشرة أيضًا).
+ */
+export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onConfirm }) {
+  const { t } = useLanguage();
+  const customers = plan.customers || [];
+  const products = plan.products || [];
+  const locations = plan.locations || [];
+
+  const [checkedCustomers, setCheckedCustomers] = useState(() => new Set(customers.map((c) => c.typedName)));
+  const [checkedProducts, setCheckedProducts] = useState(() => new Set(products.map((p) => p.typedSku)));
+  const [checkedLocations, setCheckedLocations] = useState(() => new Set(locations.map((l) => l.typedName)));
+
+  const [accounts, setAccounts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [loadingRefs, setLoadingRefs] = useState(false);
+  const [refsError, setRefsError] = useState('');
+
+  const [locationAccountId, setLocationAccountId] = useState({}); // typedName -> accountId
+
+  const [defaultCategoryName, setDefaultCategoryName] = useState('');
+  const [defaultUnitName, setDefaultUnitName] = useState('');
+  const [newCategoryDraft, setNewCategoryDraft] = useState('');
+  const [newUnitDraft, setNewUnitDraft] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [creatingUnit, setCreatingUnit] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!apiKey) return;
+      setLoadingRefs(true); setRefsError('');
+      try {
+        const [accs, cats, us] = await Promise.all([
+          fetchAll('/accounts', apiKey),
+          fetchAll('/categories', apiKey),
+          fetchAll('/product_unit_types', apiKey),
+        ]);
+        if (cancelled) return;
+        setAccounts(accs || []);
+        setCategories(cats || []);
+        setUnits(us || []);
+      } catch (e) {
+        if (!cancelled) setRefsError(e.message || String(e));
+      } finally {
+        if (!cancelled) setLoadingRefs(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [apiKey]);
+
+  const toggle = (setFn) => (key) => setFn((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const createCategoryNow = async () => {
+    const built = buildCategoryCreatePayload(newCategoryDraft);
+    if (!built.ok) { setError(built.error); return; }
+    setCreatingCategory(true); setError('');
+    try {
+      const res = await api('POST', '/categories', { category: built.payload }, apiKey);
+      if (res && res.category && res.category.id != null) {
+        setCategories((prev) => [...prev, res.category]);
+        setDefaultCategoryName(res.category.name || built.payload.name);
+        setNewCategoryDraft('');
+      } else {
+        setError(t({ ar: 'تعذّر إنشاء الفئة — رد غير متوقع من قيود.', en: 'Could not create the category — unexpected response from Qoyod.' }));
+      }
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
+  const createUnitNow = async () => {
+    const built = buildUnitCreatePayload(newUnitDraft);
+    if (!built.ok) { setError(built.error); return; }
+    setCreatingUnit(true); setError('');
+    try {
+      const res = await api('POST', '/product_unit_types', { product_unit_type: built.payload }, apiKey);
+      if (res && res.product_unit_type && res.product_unit_type.id != null) {
+        setUnits((prev) => [...prev, res.product_unit_type]);
+        setDefaultUnitName(res.product_unit_type.unit_name || built.payload.unit_name);
+        setNewUnitDraft('');
+      } else {
+        setError(t({ ar: 'تعذّر إنشاء الوحدة — رد غير متوقع من قيود.', en: 'Could not create the unit — unexpected response from Qoyod.' }));
+      }
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setCreatingUnit(false);
+    }
+  };
+
+  // اسم الفئة/الوحدة الفعّال لمنتج معيّن: من الملف أولًا، وإلا الافتراضي المشترك للدفعة.
+  const effectiveCategoryName = (p) => p.categoryFromFile || defaultCategoryName || '';
+  const effectiveUnitName = (p) => p.unitFromFile || defaultUnitName || '';
+
+  const findCategoryId = (name) => { const m = categories.find((c) => normLower(c.name) === normLower(name)); return m ? m.id : null; };
+  const findUnitId = (name) => { const m = units.find((u) => normLower(u.unit_name) === normLower(name)); return m ? m.id : null; };
+
+  const selectedProducts = useMemo(() => products.filter((p) => checkedProducts.has(p.typedSku)), [products, checkedProducts]);
+
+  // الفئات/الوحدات المطلوبة لكن غير موجودة فعليًا بقيود بعد — ستُنشأ تلقائيًا عند التأكيد.
+  const categoriesToCreate = useMemo(() => {
+    const names = new Map();
+    selectedProducts.forEach((p) => {
+      const name = effectiveCategoryName(p);
+      if (name && !findCategoryId(name)) names.set(normKey(name), name);
+    });
+    return Array.from(names.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProducts, categories, defaultCategoryName]);
+
+  const unitsToCreate = useMemo(() => {
+    const names = new Map();
+    selectedProducts.forEach((p) => {
+      const name = effectiveUnitName(p);
+      if (name && !findUnitId(name)) names.set(normKey(name), name);
+    });
+    return Array.from(names.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProducts, units, defaultUnitName]);
+
+  const handleConfirm = () => {
+    setError('');
+    const missingAccount = locations.some((l) => checkedLocations.has(l.typedName) && !locationAccountId[l.typedName]);
+    if (missingAccount) {
+      setError(t({ ar: 'اختر حساب مخزون/أصول لكل موقع جديد محدَّد قبل المتابعة.', en: 'Choose an inventory/asset account for every selected new location before continuing.' }));
+      return;
+    }
+
+    const newCategories = categoriesToCreate.map((name) => ({ tempId: 'cat:' + normKey(name), name }));
+    const newUnits = unitsToCreate.map((name) => ({ tempId: 'unit:' + normKey(name), name }));
+
+    const productsSel = selectedProducts.map((p) => {
+      const entry = { sku: p.typedSku, name: p.typedName };
+      const catName = effectiveCategoryName(p);
+      if (catName) {
+        const existingId = findCategoryId(catName);
+        if (existingId) entry.categoryId = existingId; else entry.categoryTempId = 'cat:' + normKey(catName);
+      }
+      const unitName = effectiveUnitName(p);
+      if (unitName) {
+        const existingId = findUnitId(unitName);
+        if (existingId) entry.unitId = existingId; else entry.unitTempId = 'unit:' + normKey(unitName);
+      }
+      return entry;
+    });
+
+    const selections = {
+      customers: customers.filter((c) => checkedCustomers.has(c.typedName)).map((c) => ({ name: c.typedName })),
+      newCategories,
+      newUnits,
+      products: productsSel,
+      locations: locations.filter((l) => checkedLocations.has(l.typedName)).map((l) => ({ name: l.typedName, accountId: locationAccountId[l.typedName] })),
+    };
+    onConfirm(selections);
+  };
+
+  const nothingChecked = checkedCustomers.size === 0 && checkedProducts.size === 0 && checkedLocations.size === 0;
+
+  return (
+    <div className="qsv-modal-overlay" role="dialog" aria-modal="true" onClick={onCancel}>
+      <div className="qsv-modal wide" onClick={(e) => e.stopPropagation()}>
+        <h3>🧩 {t({
+          ar: `${customers.length + products.length + locations.length} كيان ناقص يمكن إنشاؤه تلقائيًا بمنشأة العميل`,
+          en: `${customers.length + products.length + locations.length} missing entity(ies) can be auto-created on the client's company`,
+        })}</h3>
+        <p className="qsv-hint">
+          {t({
+            ar: 'راجع القوائم أدناه بعناية — لن يُنشأ أي عميل/منتج/موقع فعليًا بمنشأة العميل الحقيقية إلا بعد ضغطك "تأكيد الإنشاء والمتابعة".',
+            en: 'Review the lists below carefully — nothing is actually created on the client\'s real company until you click "Confirm creation & continue".',
+          })}
+        </p>
+
+        {loadingRefs && <p className="qsv-hint">⏳ {t({ ar: 'جارٍ جلب دليل الحسابات/الفئات/الوحدات...', en: 'Fetching accounts/categories/units...' })}</p>}
+        {refsError && <div className="qsv-note-box err">{refsError}</div>}
+
+        <div className="qsv-modal-scroll">
+          {customers.length > 0 && (
+            <>
+              <h4>👤 {t({ ar: `عملاء غير موجودين (${customers.length})`, en: `Missing customers (${customers.length})` })}</h4>
+              <table className="qsv-send-table">
+                <thead><tr><th style={{ width: 32 }}></th><th>{t({ ar: 'اسم العميل كما كُتب بالملف', en: 'Customer name as written in the file' })}</th><th>{t({ ar: 'عدد الأسطر', en: 'Row count' })}</th></tr></thead>
+                <tbody>
+                  {customers.map((c) => (
+                    <tr key={c.typedName}>
+                      <td><input type="checkbox" checked={checkedCustomers.has(c.typedName)} onChange={() => toggle(setCheckedCustomers)(c.typedName)} /></td>
+                      <td>{c.typedName}</td>
+                      <td>{c.rowIds.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {products.length > 0 && (
+            <>
+              <h4 style={{ marginTop: 18 }}>📦 {t({ ar: `منتجات غير موجودة (${products.length})`, en: `Missing products (${products.length})` })}</h4>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', margin: '8px 0 12px' }}>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الفئة الافتراضية للدفعة (لمنتجات بلا فئة بالملف)', en: 'Default category for the batch (products with no file category)' })}</label>
+                  <select value={defaultCategoryName} onChange={(e) => setDefaultCategoryName(e.target.value)}>
+                    <option value="">— {t({ ar: 'بلا فئة', en: 'No category' })} —</option>
+                    {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <input type="text" placeholder={t({ ar: 'اسم فئة جديدة...', en: 'New category name...' })} value={newCategoryDraft} onChange={(e) => setNewCategoryDraft(e.target.value)} />
+                    <button type="button" className="qsv-btn secondary" disabled={!newCategoryDraft.trim() || creatingCategory} onClick={createCategoryNow}>
+                      {creatingCategory ? '⏳' : `+ ${t({ ar: 'إنشاء فئة جديدة', en: 'Create new category' })}`}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الوحدة الافتراضية للدفعة (لمنتجات بلا وحدة بالملف)', en: 'Default unit for the batch (products with no file unit)' })}</label>
+                  <select value={defaultUnitName} onChange={(e) => setDefaultUnitName(e.target.value)}>
+                    <option value="">— {t({ ar: 'بلا وحدة', en: 'No unit' })} —</option>
+                    {units.map((u) => <option key={u.id} value={u.unit_name}>{u.unit_name}</option>)}
+                  </select>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <input type="text" placeholder={t({ ar: 'اسم وحدة جديدة...', en: 'New unit name...' })} value={newUnitDraft} onChange={(e) => setNewUnitDraft(e.target.value)} />
+                    <button type="button" className="qsv-btn secondary" disabled={!newUnitDraft.trim() || creatingUnit} onClick={createUnitNow}>
+                      {creatingUnit ? '⏳' : `+ ${t({ ar: 'إنشاء وحدة جديدة', en: 'Create new unit' })}`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <table className="qsv-send-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 32 }}></th>
+                    <th>{t({ ar: 'كود المنتج', en: 'SKU' })}</th>
+                    <th>{t({ ar: 'الاسم', en: 'Name' })}</th>
+                    <th>{t({ ar: 'الفئة', en: 'Category' })}</th>
+                    <th>{t({ ar: 'الوحدة', en: 'Unit' })}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((p) => {
+                    const catName = effectiveCategoryName(p);
+                    const unitName = effectiveUnitName(p);
+                    return (
+                      <tr key={p.typedSku}>
+                        <td><input type="checkbox" checked={checkedProducts.has(p.typedSku)} onChange={() => toggle(setCheckedProducts)(p.typedSku)} /></td>
+                        <td style={{ fontFamily: 'monospace' }}>{p.typedSku}</td>
+                        <td>{p.typedName}</td>
+                        <td>{catName ? `${p.categoryFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${catName}` : t({ ar: '— بلا فئة —', en: '— none —' })}</td>
+                        <td>{unitName ? `${p.unitFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${unitName}` : t({ ar: '— بلا وحدة —', en: '— none —' })}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {(categoriesToCreate.length > 0 || unitsToCreate.length > 0) && (
+                <p className="qsv-hint" style={{ marginTop: 8 }}>
+                  {categoriesToCreate.length > 0 && t({ ar: `سيتم إنشاء الفئات الجديدة: ${categoriesToCreate.join('، ')}. `, en: `New categories to be created: ${categoriesToCreate.join(', ')}. ` })}
+                  {unitsToCreate.length > 0 && t({ ar: `سيتم إنشاء الوحدات الجديدة: ${unitsToCreate.join('، ')}.`, en: `New units to be created: ${unitsToCreate.join(', ')}.` })}
+                </p>
+              )}
+            </>
+          )}
+
+          {locations.length > 0 && (
+            <>
+              <h4 style={{ marginTop: 18 }}>📍 {t({ ar: `مواقع غير موجودة (${locations.length})`, en: `Missing locations (${locations.length})` })}</h4>
+              <table className="qsv-send-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 32 }}></th>
+                    <th>{t({ ar: 'اسم الموقع', en: 'Location name' })}</th>
+                    <th>{t({ ar: 'حساب المخزون/الأصول المرتبط', en: 'Linked inventory/asset account' })}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {locations.map((l) => (
+                    <tr key={l.typedName}>
+                      <td><input type="checkbox" checked={checkedLocations.has(l.typedName)} onChange={() => toggle(setCheckedLocations)(l.typedName)} /></td>
+                      <td>{l.typedName}</td>
+                      <td>
+                        <select
+                          value={locationAccountId[l.typedName] || ''}
+                          onChange={(e) => setLocationAccountId((prev) => ({ ...prev, [l.typedName]: e.target.value ? Number(e.target.value) : undefined }))}
+                        >
+                          <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
+                          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+
+        {error && <div className="qsv-note-box err" style={{ marginTop: 12 }}>{error}</div>}
+
+        <div className="qsv-modal-actions" style={{ marginTop: 14, flexWrap: 'wrap', gap: 8 }}>
+          <button type="button" className="qsv-btn ghost" onClick={onCancel}>{t({ ar: 'رجوع', en: 'Back' })}</button>
+          <button type="button" className="qsv-btn" disabled={nothingChecked} onClick={handleConfirm}>
+            ✅ {t({ ar: 'تأكيد الإنشاء والمتابعة', en: 'Confirm creation & continue' })}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
