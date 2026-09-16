@@ -251,13 +251,28 @@ describe('pushMissingEntitiesToQoyod', () => {
     expect(body.product).toMatchObject({ selling_price: 250, buying_price: 100, tax_id: 7, cogs_account_id: 33, sales_account_id: 44 });
   });
 
-  it('يُنشئ موقعًا مع account_id المرسَل', async () => {
+  it('يُنشئ موقعًا مع account_id المرسَل (رد مُغلَّف {inventory:{id}} — كما تصف المواصفة الرسمية)', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ inventory: { id: 44 } }) });
     const result = await pushMissingEntitiesToQoyod({ locations: [{ name: 'فرع جدة', accountId: 5 }] }, 'KEY');
     expect(result.sent).toBe(1);
     expect(result.created.locations.get('فرع جدة')).toEqual({ id: 44, name: 'فرع جدة' });
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(body).toEqual({ name: 'فرع جدة', ar_name: 'فرع جدة', account_id: 5 });
+  });
+
+  // [إضافة، إصلاح خطأ حقيقي، اختبار حي 2026-09-16] راجع تعليق رأس الكتلة —
+  // الرد الحي الفعلي كائن المخزون الخام مباشرة بلا غلاف inventory، خلافًا
+  // للمواصفة الرسمية — الموقع كان يُنشأ فعليًا بنجاح بمنشأة العميل الحقيقية
+  // لكن الأداة تُبلّغ فشلًا صامتًا (created.locations لا يُحدَّث إطلاقًا).
+  it('رد خام بلا غلاف inventory (السلوك الحي الفعلي) ⇒ يُقبَل ويُسجَّل نجاحًا أيضًا', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 201,
+      text: async () => JSON.stringify({ id: 6, ar_name: 'خانيونس', name: 'خانيونس', account_id: 398, created_at: '2026-09-16T19:31:41.000+03:00' }),
+    });
+    const result = await pushMissingEntitiesToQoyod({ locations: [{ name: 'خانيونس', accountId: 398 }] }, 'KEY');
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.created.locations.get('خانيونس')).toEqual({ id: 6, name: 'خانيونس' });
   });
 
   // [إضافة، إصلاح خطأ حقيقي] اختبار حي: POST /inventories نجح HTTP-وار (بلا
