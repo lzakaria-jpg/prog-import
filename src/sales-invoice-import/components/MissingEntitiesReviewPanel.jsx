@@ -3,6 +3,7 @@ import { useLanguage } from '../../language.jsx';
 import { normKey } from '../engine/text.js';
 import { fetchAll, api } from '../../product-upload/io/network.js';
 import { buildCategoryCreatePayload, buildUnitCreatePayload } from '../api/qoyodEntityCreate.js';
+import { resolveTaxEntry } from '../api/qoyodSalesInvoicePush.js';
 
 const normLower = (s) => (s || '').trim().toLowerCase();
 
@@ -24,7 +25,7 @@ const normLower = (s) => (s || '').trim().toLowerCase();
  * — الأب (ApiSendSection بـStep4Export.jsx) هو من يستدعي فعليًا engine.resolveMissingEntities
  * (نفس نمط StockShortageReviewPanel.onConfirm الذي لا يستدعي engine مباشرة أيضًا).
  */
-export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onConfirm }) {
+export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, onCancel, onConfirm }) {
   const { t } = useLanguage();
   const customers = plan.customers || [];
   const products = plan.products || [];
@@ -50,6 +51,15 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [creatingUnit, setCreatingUnit] = useState(false);
   const [error, setError] = useState('');
+
+  // [إضافة، إصلاح خطأ حقيقي] منشأة العميل الحقيقية ترفض POST /products بلا
+  // selling_price/buying_price/tax_id/cogs_account_id فعليًا (راجع تعليق رأس
+  // buildProductCreatePayload بـqoyodEntityCreate.js) رغم كونها اختيارية بمواصفة
+  // Qoyod الرسمية. selling_price يأتي دومًا من سعر الوحدة الحقيقي بالفاتورة (لا
+  // اختيار هنا) — الثلاثة الباقية تحتاج مدخلًا صريحًا من المستخدم لكل الدفعة.
+  const [cogsAccountId, setCogsAccountId] = useState('');
+  const [buyingPriceDraft, setBuyingPriceDraft] = useState('0');
+  const [defaultTaxLabel, setDefaultTaxLabel] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +139,20 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
   const findCategoryId = (name) => { const m = categories.find((c) => normLower(c.name) === normLower(name)); return m ? m.id : null; };
   const findUnitId = (name) => { const m = units.find((u) => normLower(u.unit_name) === normLower(name)); return m ? m.id : null; };
 
+  const hasRealTaxes = !!(taxesIndex && taxesIndex.byLabel && taxesIndex.byLabel.size > 0);
+  // فئة الضريبة الفعّالة لمنتج معيّن: من الملف أولًا (نفس فئة بند الفاتورة الحقيقي
+  // — resolveTaxEntry نفسها المستخدمة عند إرسال الفواتير)، وإلا الافتراضي المشترك
+  // للدفعة. ترجع {id, rate} أو null لو تعذّرت المطابقة كليًا.
+  const effectiveTaxEntry = (p) => {
+    if (!hasRealTaxes) return null;
+    if (p.taxLabelFromFile) {
+      const m = resolveTaxEntry(p.taxLabelFromFile, taxesIndex);
+      if (m) return m;
+    }
+    if (defaultTaxLabel) return resolveTaxEntry(defaultTaxLabel, taxesIndex) || null;
+    return null;
+  };
+
   const selectedProducts = useMemo(() => products.filter((p) => checkedProducts.has(p.typedSku)), [products, checkedProducts]);
 
   // الفئات/الوحدات المطلوبة لكن غير موجودة فعليًا بقيود بعد — ستُنشأ تلقائيًا عند التأكيد.
@@ -159,6 +183,20 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
       setError(t({ ar: 'اختر حساب مخزون/أصول لكل موقع جديد محدَّد قبل المتابعة.', en: 'Choose an inventory/asset account for every selected new location before continuing.' }));
       return;
     }
+    // [إضافة، إصلاح خطأ حقيقي] منشأة العميل الحقيقية ترفض إنشاء منتج بلا cogs_account_id
+    // وبلا tax_id مطابق فعليًا — راجع تعليق رأس buildProductCreatePayload. نتحقق هنا
+    // قبل أي طلب فعلي بدل محاولة إنشاء دفعة كاملة مصيرها الفشل صامتًا.
+    if (selectedProducts.length > 0 && !cogsAccountId) {
+      setError(t({ ar: 'اختر حساب تكلفة المبيعات (COGS) الافتراضي للمنتجات الجديدة قبل المتابعة.', en: 'Choose a default cost-of-sales (COGS) account for the new products before continuing.' }));
+      return;
+    }
+    if (hasRealTaxes) {
+      const missingTax = selectedProducts.some((p) => !effectiveTaxEntry(p));
+      if (missingTax) {
+        setError(t({ ar: 'بعض المنتجات بلا فئة ضريبية مطابقة من الملف — اختر فئة ضريبية افتراضية للدفعة قبل المتابعة.', en: 'Some products have no matching tax category from the file — choose a default tax category for the batch before continuing.' }));
+        return;
+      }
+    }
 
     const newCategories = categoriesToCreate.map((name) => ({ tempId: 'cat:' + normKey(name), name }));
     const newUnits = unitsToCreate.map((name) => ({ tempId: 'unit:' + normKey(name), name }));
@@ -175,6 +213,9 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
         const existingId = findUnitId(unitName);
         if (existingId) entry.unitId = existingId; else entry.unitTempId = 'unit:' + normKey(unitName);
       }
+      entry.sellingPrice = typeof p.sellingPriceFromFile === 'number' ? p.sellingPriceFromFile : 0;
+      const taxEntry = effectiveTaxEntry(p);
+      if (taxEntry) entry.taxId = taxEntry.id;
       return entry;
     });
 
@@ -184,6 +225,8 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
       newUnits,
       products: productsSel,
       locations: locations.filter((l) => checkedLocations.has(l.typedName)).map((l) => ({ name: l.typedName, accountId: locationAccountId[l.typedName] })),
+      defaultBuyingPrice: parseFloat(buyingPriceDraft) || 0,
+      defaultCogsAccountId: cogsAccountId ? Number(cogsAccountId) : undefined,
     };
     onConfirm(selections);
   };
@@ -266,6 +309,27 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
                     </button>
                   </div>
                 </div>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب تكلفة المبيعات (COGS) الافتراضي — إلزامي *', en: 'Default cost-of-sales (COGS) account — required *' })}</label>
+                  <select value={cogsAccountId} onChange={(e) => setCogsAccountId(e.target.value)}>
+                    <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
+                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: '1 1 160px' }}>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'سعر التكلفة الافتراضي (buying price)', en: 'Default cost price (buying price)' })}</label>
+                  <input type="number" step="0.01" value={buyingPriceDraft} onChange={(e) => setBuyingPriceDraft(e.target.value)} />
+                  <p className="qsv-hint" style={{ margin: '4px 0 0' }}>{t({ ar: 'فاتورة المبيعات لا تحمل تكلفة شراء — 0 افتراضيًا، عدّله لاحقًا بقيود لو لزم.', en: 'A sales invoice carries no cost data — defaults to 0, adjust later in Qoyod if needed.' })}</p>
+                </div>
+                {hasRealTaxes && (
+                  <div style={{ flex: '1 1 220px' }}>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الفئة الضريبية الافتراضية (لمنتجات بلا فئة مطابقة بالملف)', en: 'Default tax category (products with no matching file tax)' })}</label>
+                    <select value={defaultTaxLabel} onChange={(e) => setDefaultTaxLabel(e.target.value)}>
+                      <option value="">— {t({ ar: 'اختر فئة ضريبية', en: 'Choose a tax category' })} —</option>
+                      {Array.from(taxesIndex.byLabel.keys()).map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               <table className="qsv-send-table">
                 <thead>
@@ -275,12 +339,15 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
                     <th>{t({ ar: 'الاسم', en: 'Name' })}</th>
                     <th>{t({ ar: 'الفئة', en: 'Category' })}</th>
                     <th>{t({ ar: 'الوحدة', en: 'Unit' })}</th>
+                    <th>{t({ ar: 'سعر البيع', en: 'Selling price' })}</th>
+                    {hasRealTaxes && <th>{t({ ar: 'الضريبة', en: 'Tax' })}</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {products.map((p) => {
                     const catName = effectiveCategoryName(p);
                     const unitName = effectiveUnitName(p);
+                    const taxEntry = effectiveTaxEntry(p);
                     return (
                       <tr key={p.typedSku}>
                         <td><input type="checkbox" checked={checkedProducts.has(p.typedSku)} onChange={() => toggle(setCheckedProducts)(p.typedSku)} /></td>
@@ -288,6 +355,12 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, onCancel, onC
                         <td>{p.typedName}</td>
                         <td>{catName ? `${p.categoryFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${catName}` : t({ ar: '— بلا فئة —', en: '— none —' })}</td>
                         <td>{unitName ? `${p.unitFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${unitName}` : t({ ar: '— بلا وحدة —', en: '— none —' })}</td>
+                        <td>{typeof p.sellingPriceFromFile === 'number' ? p.sellingPriceFromFile : 0}</td>
+                        {hasRealTaxes && (
+                          <td style={{ color: taxEntry ? undefined : 'var(--qsv-err)' }}>
+                            {taxEntry ? `${p.taxLabelFromFile ? t({ ar: 'من الملف', en: 'From file' }) : t({ ar: 'الافتراضي', en: 'Default' })}: ${taxEntry.rate}%` : t({ ar: '⚠️ بلا مطابقة', en: '⚠️ no match' })}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

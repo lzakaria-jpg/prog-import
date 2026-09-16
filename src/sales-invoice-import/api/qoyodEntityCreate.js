@@ -75,14 +75,29 @@ export function buildUnitCreatePayload(name) {
  * منتج يُنشأ من هنا — تبسيط مقصود لا خيار له بالإصدار الأول (v1): المنتج يُباع فعليًا
  * على هذه الفاتورة (sale_item منطقي)، وتغذية المخزون لاحقًا لا معنى لها بلا تتبع كمية
  * (track_quantity)، فبقية القيم البديلة (منتج غير مخزَّن) خارج نطاق هذه الميزة أصلًا.
+ *
+ * [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية (ProductInput) تصف
+ * selling_price/buying_price/tax_id/cogs_account_id كحقول اختيارية — لكن منشأة
+ * العميل الحقيقية رفضت POST /products بلا الأربعة معًا فعليًا (422: "tax_id:
+ * Please select taxes"، "buying_price/selling_price: must be a number"،
+ * "cogs_account_id: Can't be blank")، فكانت كل المنتجات تفشل إنشاؤها صامتًا ثم
+ * كل الفواتير المعتمِدة عليها تفشل لاحقًا بصمت أيضًا (لا معرّف منتج حقيقي). الآن
+ * تُرسَل الأربعة دومًا: selling_price من سعر الوحدة الحقيقي بالفاتورة نفسها (لا
+ * تخمين)، buying_price/cogs_account_id افتراضيان للدفعة يختارهما المستخدم صراحةً
+ * بلوحة المراجعة (MissingEntitiesReviewPanel)، وtax_id من فئة الضريبة الحقيقية
+ * بالفاتورة (أو الافتراضي الاحتياطي للدفعة لو الملف بلا فئة مطابقة).
  */
-export function buildProductCreatePayload({ sku, name, categoryId, unitId } = {}) {
+export function buildProductCreatePayload({ sku, name, categoryId, unitId, sellingPrice, buyingPrice, taxId, cogsAccountId } = {}) {
   const s = (sku || '').trim();
   if (!s) return { ok: false, error: 'كود المنتج مفقود' };
   const n = (name || '').trim() || s;
   const payload = { sku: s, name: n, track_quantity: 1, sale_item: true, purchase_item: true };
   if (categoryId !== undefined && categoryId !== null) payload.category_id = categoryId;
   if (unitId !== undefined && unitId !== null) payload.product_unit_type_id = unitId;
+  payload.selling_price = typeof sellingPrice === 'number' && !isNaN(sellingPrice) ? sellingPrice : 0;
+  payload.buying_price = typeof buyingPrice === 'number' && !isNaN(buyingPrice) ? buyingPrice : 0;
+  if (taxId !== undefined && taxId !== null) payload.tax_id = taxId;
+  if (cogsAccountId !== undefined && cogsAccountId !== null) payload.cogs_account_id = cogsAccountId;
   return { ok: true, payload };
 }
 
@@ -125,8 +140,10 @@ export function buildInventoryAdjustmentPayload({ inventoryId, revenueAccountId,
  *   customers: [{name}],                          — عملاء مُحدَّدون للإنشاء
  *   newCategories: [{tempId, name}],                — فئات جديدة يُنشئها المستخدم بهذه الدفعة
  *   newUnits: [{tempId, name}],                      — وحدات جديدة كذلك
- *   products: [{sku, name, categoryId?, categoryTempId?, unitId?, unitTempId?}],
+ *   products: [{sku, name, categoryId?, categoryTempId?, unitId?, unitTempId?, sellingPrice, taxId?}],
  *   locations: [{name, accountId}],
+ *   defaultBuyingPrice: number,                      — سعر تكلفة افتراضي لكل منتجات الدفعة (راجع buildProductCreatePayload)
+ *   defaultCogsAccountId: number,                     — حساب تكلفة المبيعات (COGS) الافتراضي لكل منتجات الدفعة
  * }
  * الترتيب إلزامي: عملاء ← فئات/وحدات جديدة ← منتجات (تحتاج نتائج الفئات/الوحدات) ←
  * مواقع (مستقلة تمامًا) — كل مرحلة مستقلة داخليًا (فشل عنصر واحد لا يوقف باقي
@@ -258,7 +275,13 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
         }
         unitId = rec.id;
       }
-      const built = buildProductCreatePayload({ sku: p.sku, name: p.name, categoryId, unitId });
+      const built = buildProductCreatePayload({
+        sku: p.sku, name: p.name, categoryId, unitId,
+        sellingPrice: p.sellingPrice,
+        buyingPrice: plan.defaultBuyingPrice,
+        taxId: p.taxId,
+        cogsAccountId: plan.defaultCogsAccountId,
+      });
       if (!built.ok) { failed++; emit({ kind: 'product', ref: p.sku, status: 'error', reason: built.error }); tick(); if (!stopped()) await wait(); continue; }
       try {
         const res = await api('POST', '/products', { product: built.payload }, key);
