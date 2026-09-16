@@ -244,6 +244,41 @@ describe("applyInvoiceImportMapping — [إضافة] فئة/وحدة المنت�
   });
 });
 
+// [إضافة] سندات القبض المرتبطة بفواتير (mapping._docType/._paymentAmount/
+// ._paymentAccountCode) — راجع تعليق رأس engine/receipts.js.
+describe("applyInvoiceImportMapping — [إضافة] سند القبض (mapping._docType/._paymentAmount/._paymentAccountCode)", () => {
+  it("يُخزَّن كل حقل خامًا على row.docType/paymentAmount/paymentAccountCode لكل صف على حدة", () => {
+    const headers = ['Type', 'Ref', 'Cust', 'Amount', 'AccCode'];
+    const rawRows = [
+      ['فاتورة', 'INV-1', 'عميل تجريبي', '', ''],
+      ['سند قبض', 'INV-1', 'عميل تجريبي', '500', '1102'],
+    ];
+    const mapping = { A: 'Ref', C: 'Cust', _docType: 'Type', _paymentAmount: 'Amount', _paymentAccountCode: 'AccCode' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].docType).toBe('فاتورة');
+    expect(importedRows[0].paymentAmount).toBeUndefined();
+    expect(importedRows[1].docType).toBe('سند قبض');
+    expect(importedRows[1].paymentAmount).toBe('500');
+    expect(importedRows[1].paymentAccountCode).toBe('1102');
+  });
+
+  it("قيمة الدفعة برقم يحوي فاصل آلاف ⇒ تُطبَّع رقميًا (normalizeNumericText)، نفس معاملة أي حقل رقمي آخر", () => {
+    const headers = ['Type', 'Ref', 'Amount'];
+    const rawRows = [['سند قبض', 'INV-1', '1,200.50']];
+    const mapping = { A: 'Ref', _docType: 'Type', _paymentAmount: 'Amount' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].paymentAmount).toBe('1200.50');
+  });
+
+  it("بلا mapping._docType أصلًا (ملف قديم): لا docType على أي صف — يُعامَل كفاتورة دومًا", () => {
+    const headers = ['Ref', 'Qty'];
+    const rawRows = [['INV-1', '2']];
+    const mapping = { A: 'Ref', P: 'Qty' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    expect(importedRows[0].docType).toBeUndefined();
+  });
+});
+
 describe("applyInvoiceImportMapping — تعبئة رأس الفاتورة وتصفية الصفوف الفارغة", () => {
   it("يُطبَّق fillDownHeaderFields على النتيجة النهائية عبر صفوف نفس المرجع", () => {
     const headers = ['Ref', 'Qty', 'Price', 'Date', 'Cust', 'Loc', 'SKU'];

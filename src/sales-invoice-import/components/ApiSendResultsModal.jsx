@@ -101,7 +101,10 @@ export default function ApiSendResultsModal({ engine, onClose }) {
               <tbody>
                 {visibleEntries.map((e, i) => (
                   <tr key={i}>
-                    <td style={{ fontFamily: 'monospace' }}>{e.ref}</td>
+                    <td style={{ fontFamily: 'monospace' }}>
+                      {e.kind === 'receipt' && <span title={t({ ar: 'سند قبض', en: 'Receipt' })}>🧾 </span>}
+                      {e.ref}
+                    </td>
                     <td>
                       {e.status === 'success' && <span className="qsv-badge ok">✓ {t({ ar: 'نجح', en: 'Success' })}</span>}
                       {e.status === 'error' && <span className="qsv-badge err">✕ {t({ ar: 'فشل', en: 'Failed' })}</span>}

@@ -4,6 +4,7 @@ import { norm } from '../engine/text.js';
 import ApiSendResultsModal from './ApiSendResultsModal.jsx'; // [إضافة] إرسال مباشر عبر API — راجع تعليق رأس qoyodSalesInvoicePush.js
 import StockShortageReviewPanel from './StockShortageReviewPanel.jsx'; // [إضافة] مراجعة فواتير نقص الكمية قبل الإرسال — راجع تعليق رأسه
 import MissingEntitiesReviewPanel from './MissingEntitiesReviewPanel.jsx'; // [إضافة] مراجعة الكيانات الناقصة (عملاء/منتجات/مواقع) — راجع تعليق رأسه
+import PaymentAccountsReviewPanel from './PaymentAccountsReviewPanel.jsx'; // [إضافة] مراجعة حسابات الدفع لسندات القبض المرتبطة بفواتير — راجع تعليق رأسه
 import { buildEntityCreateResultsReportBlob } from '../io/entityCreateResultsReport.js'; // [إضافة] تقرير Excel لنتائج إنشاء الكيانات/تغذية المخزون
 import { downloadBlob } from '../../lib/downloadBlob.js';
 
@@ -24,10 +25,16 @@ const isMissingEntitiesPlanEmpty = (plan) => !plan || (!plan.customers.length &&
 //  كمية متوقَّع (بما فيها منتجات أُنشئت للتو بالمرحلة الأولى وتبدأ من صفر مخزون)،
 //  تظهر قبل الإرسال الفعلي كما كانت (بلا أي تغيير بمنطقها الأصلي) — بإضافة خيار
 //  ثالث اختياري (تغذية المخزون تلقائيًا، راجع تعليق رأس المكوّن نفسه).
+//  المرحلة الثالثة (اختيارية) — PaymentAccountsReviewPanel: لو بالملف سندات
+//  قبض مرتبطة بفواتير (receiptsPlan، عمود "النوع" — راجع تعليق رأس
+//  engine/receipts.js)، تظهر أخيرًا قبل الإرسال الفعلي مباشرة (بعد حل الكيانات
+//  الناقصة ونقص المخزون، ما دام كلاهما ينطبق) — لمطابقة كود حساب الدفع بكل سند
+//  بحساب حقيقي. تعمل عبر بوابة موحَّدة (proceedToSend/handleTopUpConfirm أدناه)
+//  فتظهر بغض النظر عن أي المسارين (تغذية مخزون أو لا) أوصل الإرسال إليها.
 function ApiSendSection({ engine, invoiceCount, standalone }) {
   const { t } = useLanguage();
   const {
-    apiKey, stockShortageGroups, missingEntitiesPlan, apiSendBusy, apiSendResult, apiSendProgress, stopApiSend,
+    apiKey, stockShortageGroups, missingEntitiesPlan, receiptsPlan, apiSendBusy, apiSendResult, apiSendProgress, stopApiSend,
     entityCreateBusy, entityCreateResult, entityCreateEntries, stockTopUpResult, stockTopUpEntries, taxesRef,
   } = engine;
   const [reportBusy, setReportBusy] = useState(false);
@@ -36,6 +43,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   const [showSendModal, setShowSendModal] = useState(false);
   const [showStockReview, setShowStockReview] = useState(false);
   const [showMissingEntities, setShowMissingEntities] = useState(false);
+  const [showPaymentAccounts, setShowPaymentAccounts] = useState(false);
   // [إضافة] يُضبَط true بعد تأكيد لوحة الكيانات الناقصة، ريثما ينتهي الإنشاء
   // الفعلي (entityCreateBusy) وrows/issues تُعاد محاكاتها بالهوك — عندها فقط
   // نقرأ stockShortageGroups (الطازجة، لا القديمة قبل الإنشاء) لتقرير الخطوة التالية.
@@ -51,6 +59,29 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   // missingEntitiesPlan هنا أيضًا (لا فقط بـhandleSendClick) قبل المتابعة.
   const [showEntityFailureWarning, setShowEntityFailureWarning] = useState(false);
 
+  const hasReceipts = !!(receiptsPlan && receiptsPlan.length);
+  // [إضافة] الإجراء "الحقيقي" (إرسال مباشر، أو تغذية مخزون ثم إرسال) المؤجَّل
+  // ريثما تُؤكَّد لوحة مراجعة حسابات الدفع — يُخزَّن بـref لا state (استدعاء
+  // مباشر بـreceiptsByRef الجاهز فور التأكيد، بلا إعادة رسم وسيطة).
+  const pendingSendActionRef = useRef(null);
+
+  const doSend = (sendOpts, receiptsByRef) => {
+    setShowSendModal(true);
+    engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus, ...sendOpts, receiptsByRef });
+  };
+
+  // [إضافة] بوابة موحَّدة لكل مسارات "إرسال الآن" (بلا تغذية مخزون) — تعرض لوحة
+  // مراجعة حسابات الدفع أولًا لو بالملف سندات قبض (hasReceipts)، وإلا ترسل
+  // مباشرة كما كان تمامًا قبل هذي الميزة.
+  const proceedToSend = (sendOpts = {}) => {
+    if (hasReceipts) {
+      pendingSendActionRef.current = (receiptsByRef) => doSend(sendOpts, receiptsByRef);
+      setShowPaymentAccounts(true);
+    } else {
+      doSend(sendOpts, undefined);
+    }
+  };
+
   const proceedAfterMissingEntities = () => {
     if (!isMissingEntitiesPlanEmpty(missingEntitiesPlan)) {
       setShowEntityFailureWarning(true);
@@ -59,8 +90,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
     if (stockShortageGroups && stockShortageGroups.length > 0) {
       setShowStockReview(true);
     } else {
-      setShowSendModal(true);
-      engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus });
+      proceedToSend();
     }
   };
 
@@ -77,8 +107,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
     } else if (stockShortageGroups && stockShortageGroups.length > 0) {
       setShowStockReview(true);
     } else {
-      setShowSendModal(true);
-      engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus });
+      proceedToSend();
     }
   };
 
@@ -90,8 +119,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
 
   const handleStockReviewConfirm = (decision) => {
     setShowStockReview(false);
-    setShowSendModal(true);
-    engine.sendInvoicesViaApi(apiKeyInput.trim(), { status: sendStatus, ...decision });
+    proceedToSend(decision);
   };
 
   // [إضافة] تنبيه صريح لو فشلت تغذية مخزون واحدة أو أكثر فعليًا — راجع تعليق
@@ -100,10 +128,17 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   // نفسها فشلت بلا أي تنبيه).
   const [showTopUpFailureWarning, setShowTopUpFailureWarning] = useState(false);
 
+  const doTopUpThenSend = async (adjustments, sendOpts, receiptsByRef) => {
+    const result = await engine.topUpStockAndFinish(apiKeyInput.trim(), adjustments, { ...sendOpts, receiptsByRef });
+    if (result && result.failed > 0) setShowTopUpFailureWarning(true);
+    else setShowSendModal(true);
+  };
+
   // [إضافة] المسار الثالث بلوحة نقص المخزون: تغذية المخزون تلقائيًا عبر
   // POST /inventory_adjustments (كمية النقص الفعلية بالضبط، مُجمَّعة حسب الموقع
   // لتقليل عدد الطلبات)، ثم إرسال كل الفواتير بالحالة المطلوبة أصلًا (لا Draft قسرًا)
-  // — فقط لو نجحت التغذية بالكامل (راجع topUpStockAndFinish بالهوك).
+  // — فقط لو نجحت التغذية بالكامل (راجع topUpStockAndFinish بالهوك). نفس بوابة
+  // مراجعة حسابات الدفع (hasReceipts) تُطبَّق هنا أيضًا قبل التنفيذ الفعلي.
   const handleTopUpConfirm = async ({ revenueAccountId, expenseAccountId }) => {
     setShowStockReview(false);
     const needs = engine.getStockTopUpPlan();
@@ -115,9 +150,20 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
       if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, ref: n.loc, lineItems: [] });
       byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall, rate: n.rate });
     });
-    const result = await engine.topUpStockAndFinish(apiKeyInput.trim(), Array.from(byInventory.values()), { status: sendStatus });
-    if (result && result.failed > 0) setShowTopUpFailureWarning(true);
-    else setShowSendModal(true);
+    const adjustments = Array.from(byInventory.values());
+    if (hasReceipts) {
+      pendingSendActionRef.current = (receiptsByRef) => doTopUpThenSend(adjustments, { status: sendStatus }, receiptsByRef);
+      setShowPaymentAccounts(true);
+    } else {
+      await doTopUpThenSend(adjustments, { status: sendStatus }, undefined);
+    }
+  };
+
+  const handlePaymentAccountsConfirm = (receiptsByRef) => {
+    setShowPaymentAccounts(false);
+    const action = pendingSendActionRef.current;
+    pendingSendActionRef.current = null;
+    if (action) action(receiptsByRef);
   };
 
   // [إضافة] تقرير Excel لنتائج إنشاء الكيانات الناقصة و/أو تغذية المخزون —
@@ -174,6 +220,14 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
           taxesIndex={taxesRef}
           onCancel={() => setShowMissingEntities(false)}
           onConfirm={handleMissingEntitiesConfirm}
+        />
+      )}
+      {showPaymentAccounts && (
+        <PaymentAccountsReviewPanel
+          receiptsPlan={receiptsPlan}
+          apiKey={apiKeyInput.trim()}
+          onCancel={() => { setShowPaymentAccounts(false); pendingSendActionRef.current = null; }}
+          onConfirm={handlePaymentAccountsConfirm}
         />
       )}
       {showEntityFailureWarning && (

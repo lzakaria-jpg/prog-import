@@ -61,6 +61,8 @@ import { api } from '../../product-upload/io/network.js';
 import { groupRowsByInvoiceRef } from '../engine/grouping.js';
 import { fromDMY } from '../engine/dates.js';
 import { norm, normKey, isBlank } from '../engine/text.js';
+import { isReceiptRow } from '../engine/receipts.js';
+import { buildInvoicePaymentPayload, pushInvoicePayment } from './qoyodInvoicePaymentPush.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأدوات API الأخرى بالمشروع
 
@@ -241,8 +243,17 @@ export function buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationI
  * @param {{current:boolean}} [opts.stoppedRef]
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
+/**
+ * @param {Map<string, Array<{rowId, date, amount, accountId}>>} [opts.receiptsByRef]
+ *   [إضافة] سندات قبض مرتبطة بفواتير (row.A) — راجع تعليق رأس engine/receipts.js.
+ *   accountId هنا هو الحساب الحقيقي المُطابَق (كود ← id) مسبقًا عبر لوحة مراجعة
+ *   مخصَّصة (PaymentAccountsReviewPanel.jsx) قبل استدعاء هذه الدالة — لا مطابقة
+ *   حسابات هنا. سند القبض يُنشأ فقط بعد نجاح إنشاء فاتورته بحالة غير Draft فعليًا
+ *   (invoice.status من رد قيود نفسه — قيود يرفض الدفع على فاتورة Draft صراحةً،
+ *   422 "Cannot pay Draft invoice"؛ راجع qoyodInvoicePaymentPush.js).
+ */
 export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
-  const { productsIndex, locationIdByName, projectsIndex, taxesIndex, status, forceDraftRefs, onEntry, onProgress, stoppedRef } = opts;
+  const { productsIndex, locationIdByName, projectsIndex, taxesIndex, status, forceDraftRefs, receiptsByRef, onEntry, onProgress, stoppedRef } = opts;
   const entries = [];
   const emit = (entry) => { entries.push(entry); if (onEntry) onEntry(entry); };
 
@@ -251,19 +262,64 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
   if (!rows || !rows.length) return { total: 0, sent: 0, failed: 0, stoppedEarly: false, fatalError: 'لا توجد فواتير جاهزة للإرسال', entries };
 
   const groups = Array.from(groupRowsByInvoiceRef(rows).entries()).filter(([k]) => !k.startsWith('__blank__'));
+  const wait = () => new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
 
   let sent = 0, failed = 0, stoppedEarly = false;
+
+  // [إضافة] فشل الفاتورة نفسها (بناء أو إرسال) يُسقِط أي سند قبض مرتبط بها —
+  // لا معنى لدفع فاتورة لم تُنشأ أصلًا. يُبلَّغ صراحةً بدل تجاهل صامت.
+  const failPendingReceipts = (ref, reason) => {
+    (receiptsByRef?.get(ref) || []).forEach((rc) => {
+      failed++;
+      emit({ ref, kind: 'receipt', rowId: rc.rowId, status: 'error', reason });
+    });
+  };
+
+  // [إضافة] ينشئ كل سندات القبض المرتبطة بفاتورة أُنشئت للتو (invoiceId/status
+  // من ردّ قيود الفعلي) — مستقل تمامًا عن أخطاء أي سند آخر لنفس الفاتورة.
+  const createPendingReceipts = async (ref, invoiceId, invoiceStatus) => {
+    const pending = receiptsByRef?.get(ref) || [];
+    if (!pending.length) return;
+    if (invoiceStatus === 'Draft') {
+      failPendingReceipts(ref, 'لم يُنشأ سند القبض — الفاتورة رجعت "مسودة" (Draft) فعليًا رغم طلب الاعتماد (غالبًا نقص مخزون لم يُحل)، وقيود يرفض إنشاء سند قبض على فاتورة مسودة.');
+      return;
+    }
+    for (const rc of pending) {
+      if (stoppedRef && stoppedRef.current) { stoppedEarly = true; return; }
+      const built = buildInvoicePaymentPayload({ invoiceId, amount: rc.amount, accountId: rc.accountId, date: rc.date });
+      if (!built.ok) {
+        failed++;
+        emit({ ref, kind: 'receipt', rowId: rc.rowId, status: 'error', reason: built.error });
+      } else {
+        try {
+          const res = await pushInvoicePayment(built.payload, key);
+          if (res.ok) { sent++; emit({ ref, kind: 'receipt', rowId: rc.rowId, status: 'success', id: res.id }); }
+          else { failed++; emit({ ref, kind: 'receipt', rowId: rc.rowId, status: 'error', reason: res.error }); }
+        } catch (e) {
+          failed++;
+          emit({ ref, kind: 'receipt', rowId: rc.rowId, status: 'error', reason: e.message || String(e) });
+        }
+      }
+      await wait();
+    }
+  };
 
   for (let i = 0; i < groups.length; i++) {
     if (stoppedRef && stoppedRef.current) { stoppedEarly = true; break; }
     const [ref, rowsInGroup] = groups[i];
     if (onProgress) onProgress(i, groups.length);
 
+    // [إضافة] صفوف "سند قبض" (النوع، راجع engine/receipts.js) لا تحمل أي بند
+    // منتج/موقع حقيقي — تُستبعَد هنا قبل بناء حمولة الفاتورة نفسها (كانت تُقرَأ
+    // خطأً كبند فاتورة فارغ، فيفشل بناء الحمولة كاملةً أو يُنتج بندًا وهميًا).
+    const lineItemRows = rowsInGroup.filter((r) => !isReceiptRow(r));
+
     const effectiveStatus = forceDraftRefs && forceDraftRefs.has(ref) ? 'Draft' : status;
-    const built = buildSalesInvoicePayload(rowsInGroup, { productsIndex, locationIdByName, projectsIndex, taxesIndex, status: effectiveStatus });
+    const built = buildSalesInvoicePayload(lineItemRows, { productsIndex, locationIdByName, projectsIndex, taxesIndex, status: effectiveStatus });
     if (!built.ok) {
       failed++;
-      emit({ ref, status: 'error', reason: built.error });
+      emit({ ref, kind: 'invoice', status: 'error', reason: built.error });
+      failPendingReceipts(ref, 'لم يُنشأ سند القبض — فشل إنشاء الفاتورة نفسها.');
     } else {
       try {
         const res = await api('POST', '/invoices', built.payload, key);
@@ -273,18 +329,21 @@ export async function pushSalesInvoicesToQoyod(rows, apiKey, opts = {}) {
           // [إضافة] response = رد قيود الكامل على الفاتورة (بما فيه line_items) —
           // يُستخدَم بتقرير Excel لنتائج الإرسال (sendResultsReport.js) لعرض تفاصيل
           // الفاتورة والمنتجات الفعلية المُنشأة، لا فقط id/total.
-          emit({ ref, status: 'success', id: created.id, total: created.total, response: created });
+          emit({ ref, kind: 'invoice', status: 'success', id: created.id, total: created.total, response: created });
+          await createPendingReceipts(ref, created.id, created.status);
         } else {
           failed++;
-          emit({ ref, status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف فاتورة)' });
+          emit({ ref, kind: 'invoice', status: 'error', reason: 'رد غير متوقع من Qoyod (بلا معرّف فاتورة)' });
+          failPendingReceipts(ref, 'لم يُنشأ سند القبض — فشل إنشاء الفاتورة نفسها.');
         }
       } catch (e) {
         failed++;
-        emit({ ref, status: 'error', reason: e.message || String(e) });
+        emit({ ref, kind: 'invoice', status: 'error', reason: e.message || String(e) });
+        failPendingReceipts(ref, 'لم يُنشأ سند القبض — فشل إنشاء الفاتورة نفسها.');
       }
     }
 
-    if (i < groups.length - 1) await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
+    if (i < groups.length - 1) await wait();
   }
 
   if (onProgress) onProgress(entries.length, groups.length);

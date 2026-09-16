@@ -453,3 +453,68 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     expect(plan.locations).toEqual([]);
   });
 });
+
+// [إضافة] سندات القبض المرتبطة بفواتير (عمود "النوع") — راجع تعليق رأس
+// engine/receipts.js وbلاغ اختبار حي: ملف عميل فيه صفوف "فاتورة" وصفوف "سند
+// قبض" بنفس مرجع الفاتورة، تُنشئ دفعة مرتبطة بها عند الإرسال عبر API فقط.
+function receiptRow(overrides) {
+  return createRow(overrides.id ?? 'rc1', {
+    A: 'INV-1', C: 'C-1', docType: 'سند قبض',
+    D: '07/01/2026', paymentAmount: '500', paymentAccountCode: '1102',
+    ...overrides,
+  });
+}
+
+describe("runValidation — صفوف سند القبض (عمود النوع)", () => {
+  it("فاتورة + سند قبض بنفس المرجع، كلاهما صحيح ⇒ لا أي خطأ حاجب إطلاقًا", () => {
+    const invRow = validRow({ id: 1 });
+    const rc = receiptRow({ id: 2 });
+    const { list } = runValidation([invRow, rc]);
+    expect(list.filter((i) => i.sev === 'err')).toEqual([]);
+  });
+
+  it("سند قبض بلا N/P/R/S/G إطلاقًا ⇒ لا تُطبَّق عليه أي فحوصات بند/موقع فاتورة عادية", () => {
+    const invRow = validRow({ id: 1 });
+    const rc = receiptRow({ id: 2 });
+    const { byRow } = runValidation([invRow, rc]);
+    ['N', 'P', 'R', 'S', 'G'].forEach((k) => {
+      expect(byRow[rc.id]?.[k]).toBeUndefined();
+    });
+  });
+
+  it("سند قبض بلا تاريخ/قيمة دفعة/حساب دفع ⇒ ثلاثة أخطاء حاجبة مستقلة على حقوله الخاصة", () => {
+    const invRow = validRow({ id: 1 });
+    const rc = receiptRow({ id: 2, D: '', paymentAmount: '', paymentAccountCode: '' });
+    const { byRow } = runValidation([invRow, rc]);
+    expect(byRow[rc.id].D.some((i) => i.sev === 'err')).toBe(true);
+    expect(byRow[rc.id].paymentAmount.some((i) => i.sev === 'err')).toBe(true);
+    expect(byRow[rc.id].paymentAccountCode.some((i) => i.sev === 'err')).toBe(true);
+  });
+
+  it("قيمة الدفعة صفرية أو سالبة ⇒ خطأ حاجب", () => {
+    const invRow = validRow({ id: 1 });
+    const rc = receiptRow({ id: 2, paymentAmount: '0' });
+    const { byRow } = runValidation([invRow, rc]);
+    expect(byRow[rc.id].paymentAmount.some((i) => i.sev === 'err')).toBe(true);
+  });
+
+  it("تاريخ سند القبض يختلف عن تاريخ إصدار الفاتورة (D) بنفس المجموعة ⇒ ليس خطأ تعارض رأس (كل واحد بتاريخه الحقيقي)", () => {
+    const invRow = validRow({ id: 1, D: '01/01/2026' });
+    const rc = receiptRow({ id: 2, D: '15/02/2026' });
+    const { byRow } = runValidation([invRow, rc]);
+    expect(byRow[rc.id]?.D?.some((i) => i.sev === 'err' && i.msg.includes('تختلف عن السطر الأول'))).toBeFalsy();
+    expect(byRow[invRow.id]?.D?.some((i) => i.sev === 'err')).toBeFalsy();
+  });
+
+  it("سند قبض بمرجع لا يقابله أي سطر فاتورة فعلي بالملف ⇒ خطأ حاجب صريح", () => {
+    const rc = receiptRow({ id: 1, A: 'INV-ORPHAN' });
+    const { byRow } = runValidation([rc]);
+    expect(byRow[rc.id].A.some((i) => i.sev === 'err' && i.msg.includes('لا يقابله أي سطر فاتورة'))).toBe(true);
+  });
+
+  it("عمود النوع فارغ بكل الصفوف (ملف قديم بلا سندات) ⇒ لا تغيير إطلاقًا بالسلوك", () => {
+    const row = validRow({});
+    const { list } = runValidation([row]);
+    expect(list.filter((i) => i.sev === 'err')).toEqual([]);
+  });
+});
