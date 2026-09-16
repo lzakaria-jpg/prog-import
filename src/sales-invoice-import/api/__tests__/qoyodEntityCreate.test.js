@@ -260,6 +260,16 @@ describe('pushMissingEntitiesToQoyod', () => {
     expect(body).toEqual({ name: 'فرع جدة', ar_name: 'فرع جدة', account_id: 5 });
   });
 
+  // [إضافة، إصلاح خطأ حقيقي] اختبار حي: POST /inventories نجح HTTP-وار (بلا
+  // استثناء من api()) لكن شكل الرد لم يطابق {inventory:{id}} المتوقَّع — رسالة
+  // الفشل القديمة كانت تُخفي الرد الفعلي كليًا فاحتاجت جولة تشخيص كاملة إضافية.
+  it('رد ناجح HTTP-وار لكن بشكل غير متوقَّع (بلا inventory.id) ⇒ رسالة الفشل تتضمّن الرد الخام للتشخيص', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ status: 'ok' }) });
+    const result = await pushMissingEntitiesToQoyod({ locations: [{ name: 'خانيونس', accountId: 5 }] }, 'KEY');
+    expect(result.failed).toBe(1);
+    expect(result.entries[0].reason).toContain('"status":"ok"');
+  });
+
   it('قابل للإيقاف اليدوي عبر stoppedRef بين المراحل', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ contact: { id: 1 } }) });
     const stoppedRef = { current: true };
