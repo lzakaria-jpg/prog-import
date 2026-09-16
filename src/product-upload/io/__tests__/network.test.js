@@ -63,17 +63,34 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
     expect(result).toEqual([{ id: 1, name: 'مشروع أ' }, { id: 2, name: 'مشروع ب' }]);
   });
 
-  // [إضافة، إصلاح خطأ حقيقي] اكتُشِف ميدانيًا مع /categories لمنشأة عميل حقيقية:
-  // API يُرجع نفس المئة عنصر (نفس id) بلا تقدّم فعلي مهما زاد رقم page — بلا هذا
-  // الإصلاح كانت الحلقة تستمر "بنجاح ظاهري" حتى MAX_FETCH_ALL_PAGES (500 طلب،
-  // دقائق طويلة) قبل أن تتوقف. الآن تتوقف فورًا عند أول صفحة تالية بلا id جديد.
-  it("[إضافة] الصفحة الثانية بنفس معرّفات (id) الصفحة الأولى بلا أي جديد ⇒ خطأ فوري بدل الانتظار حتى الحد الأقصى", async () => {
+  // [إضافة، تصحيح بعد اختبار حي ثانٍ] اكتُشِف ميدانيًا مع /categories لمنشأة
+  // عميل حقيقية: صفحة تالية بنفس id الصفحة الأولى بالضبط تعني "البيانات اكتملت
+  // فعليًا" (سيناريو حقيقي: صفحة أولى أرجعت أكثر من per_page المطلوب، فالشرط
+  // الأصلي items.length<100 لم يوقف الحلقة رغم اكتمال البيانات) — توقف طبيعي
+  // بلا خطأ، لا رمي استثناء. حد الصفحات الدفاعي (500) يبقى الحارس الوحيد لتكرار
+  // لا نهائي حقيقي (بيانات تنمو بلا توقف أبدًا، لا تتكرر فقط).
+  it("[إضافة] الصفحة الثانية بنفس معرّفات (id) الصفحة الأولى بلا أي جديد ⇒ توقف طبيعي ناجح بلا خطأ (لا صفحة 500)", async () => {
     const sameItems = Array.from({ length: 100 }, (_, i) => ({ id: i }));
     global.fetch = vi.fn().mockImplementation(async () => ({
       ok: true, status: 200, text: async () => JSON.stringify({ categories: sameItems }),
     }));
-    await expect(fetchAll("/categories", "KEY")).rejects.toThrow(/لا تحمل أي عنصر جديد/);
-    expect(global.fetch).toHaveBeenCalledTimes(2); // صفحة 1 (كل شيء جديد) + صفحة 2 (لا جديد) فقط، لا 500
+    const result = await fetchAll("/categories", "KEY");
+    expect(result).toHaveLength(100);
+    expect(global.fetch).toHaveBeenCalledTimes(2); // صفحة 1 (كل شيء جديد) + صفحة 2 (لا جديد ⇒ توقف) فقط، لا 500
+  });
+
+  // [إضافة] السيناريو الحي بالضبط الذي كشف الإصلاح أعلاه: صفحة أولى تُرجع 101
+  // عنصر (أكثر من per_page=100 المطلوب) فلا ينطبق شرط "آخر صفحة" (101 ليست
+  // أقل من 100)، صفحة ثانية تكرار تام لنفس الـ101 ⇒ يجب أن تُرجَع الـ101 كاملة
+  // بلا خطأ ولا نقص ولا تكرار.
+  it("[إضافة] صفحة أولى تتجاوز per_page المطلوب (101>100) ثم صفحة ثانية مكرّرة بالكامل ⇒ 101 عنصر فريد بلا خطأ", async () => {
+    const items = Array.from({ length: 101 }, (_, i) => ({ id: i }));
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true, status: 200, text: async () => JSON.stringify({ categories: items }),
+    }));
+    const result = await fetchAll("/categories", "KEY");
+    expect(result).toHaveLength(101);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("[إضافة] عناصر جديدة فعليًا بكل صفحة (id مختلفة) لا تُطلِق كاشف التكرار مطلقًا", async () => {
