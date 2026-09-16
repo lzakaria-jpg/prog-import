@@ -39,6 +39,8 @@ export const TOOL_PERMISSIONS = [
   { key: "tool.bills", label: { ar: "استيراد فواتير المشتريات", en: "Purchase Invoice Import" } },
   { key: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Sales Invoice Import" } },
   { key: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" } },
+  { key: "tool.customers", label: { ar: "استيراد العملاء", en: "Customer Import" } },
+  { key: "tool.vendors", label: { ar: "استيراد الموردين", en: "Vendor Import" } },
   { key: "tool.chat", label: { ar: "الشات", en: "Chat" } },
   { key: "tool.ai", label: { ar: "الذكاء الاصطناعي", en: "AI Assistant" } },
 ];
