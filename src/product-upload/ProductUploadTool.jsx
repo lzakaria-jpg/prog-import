@@ -49,7 +49,7 @@ const ProductUploadTool = forwardRef(function ProductUploadTool({ showHeader = t
           <div className="qpu-header-left">
             <ToolIcon name="products" />
             <div className="qpu-header-title">
-              <h1>{t({ ar: "أداة رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" })}</h1>
+              <h1>{t({ ar: "مطابقة واستيراد المنتجات", en: "Match & Import Products" })}</h1>
               <p>{t({ ar: "ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.", en: "Uploads the customer's products directly to their Qoyod account via API key — missing categories and units are created automatically." })}</p>
             </div>
           </div>

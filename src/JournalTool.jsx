@@ -1253,7 +1253,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
           <div className="flex items-center gap-3">
             <ToolIcon name="journal" />
             <div>
-              <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" })}</h1>
+              <h1 className="text-xl font-bold" style={{ color: COLORS.ink }}>{t({ ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" })}</h1>
               <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
             </div>
           </div>

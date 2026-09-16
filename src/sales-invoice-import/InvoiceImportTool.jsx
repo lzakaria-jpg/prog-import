@@ -43,7 +43,7 @@ const InvoiceImportTool = forwardRef(function InvoiceImportTool({ showHeader = t
           <div className="qsv-header-left">
             <ToolIcon name="sales" />
             <div className="qsv-header-title">
-              <h1>{t({ ar: 'أداة تجهيز والتحقق من ملف استيراد فواتير المبيعات', en: 'Sales Invoice Import File Preparation & Validation Tool' })}</h1>
+              <h1>{t({ ar: 'مطابقة واستيراد فواتير المبيعات', en: 'Match & Import Sales Invoices' })}</h1>
               <p>{t({ ar: 'تعمل بالكامل داخل متصفحك — بياناتك لا تُرسَل لأي خادم خارجي.', en: "Runs entirely inside your browser — your data is never sent to any external server." })}</p>
             </div>
           </div>

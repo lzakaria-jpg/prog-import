@@ -34,11 +34,11 @@ export const ROLE_LABELS = {
 
 /** أدوات التطبيق — تُطابق tab ids في App.jsx بالضبط */
 export const TOOL_PERMISSIONS = [
-  { key: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Journal Entries Import" } },
-  { key: "tool.merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Chart of Accounts Import" } },
+  { key: "tool.journal", label: { ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" } },
+  { key: "tool.merge", label: { ar: "مطابقة واستيراد شجرة الحسابات", en: "Match & Import Chart of Accounts" } },
   { key: "tool.bills", label: { ar: "مطابقة واستيراد فواتير المشتريات", en: "Match & Import Purchase Bills" } },
-  { key: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Sales Invoice Import" } },
-  { key: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" } },
+  { key: "tool.sales", label: { ar: "مطابقة واستيراد فواتير المبيعات", en: "Match & Import Sales Invoices" } },
+  { key: "tool.products", label: { ar: "مطابقة واستيراد المنتجات", en: "Match & Import Products" } },
   { key: "tool.customers", label: { ar: "مطابقة واستيراد العملاء", en: "Match & Import Customers" } },
   { key: "tool.vendors", label: { ar: "مطابقة واستيراد الموردين", en: "Match & Import Vendors" } },
   { key: "tool.chat", label: { ar: "الشات", en: "Chat" } },
