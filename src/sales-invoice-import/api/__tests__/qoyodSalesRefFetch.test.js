@@ -3,6 +3,7 @@ import {
   buildProductsIndexFromApi,
   buildStockIndexFromApi,
   buildLocationIdIndexFromApi,
+  buildLocationIdIndexFromInventories,
   buildCustomersIndexFromApi,
   buildProjectsIndexFromApi,
   buildTaxesIndexFromApi,
@@ -56,6 +57,35 @@ describe('buildLocationIdIndexFromApi', () => {
     expect(idx.get('المركز الرئيسي')).toBe(1);
     expect(idx.get('Main Branch')).toBe(1);
     expect(idx.get('النسيم')).toBe(2);
+  });
+});
+
+// [إضافة، إصلاح خطأ حقيقي 2026-09-16] راجع تعليق رأس buildLocationIdIndexFromInventories
+// — موقع حقيقي بمنشأة العميل بلا أي مخزون منتج مسجَّل عليه بعد لا يظهر إطلاقًا
+// بـbuildLocationIdIndexFromApi (المصدر الجزئي، المشتق من inventories المُضمَّنة
+// بكل منتج)، فيظهر "ناقصًا" بالخطأ بلوحة الكيانات الناقصة، ومحاولة إنشائه تُرفَض
+// فعليًا من قيود (موجود أصلًا: 422 "name has already been taken").
+describe('buildLocationIdIndexFromInventories — [إضافة، إصلاح خطأ حقيقي] المصدر الكامل عبر GET /inventories مباشرة', () => {
+  const SAMPLE_INVENTORY = { id: 7, name: 'Main Branch', ar_name: 'المركز الرئيسي', account_id: 40 };
+
+  it('يبني فهرس اسم الموقع (عربي وإنجليزي) → معرّف المخزون من name/ar_name', () => {
+    const idx = buildLocationIdIndexFromInventories([SAMPLE_INVENTORY]);
+    expect(idx.get('المركز الرئيسي')).toBe(7);
+    expect(idx.get('Main Branch')).toBe(7);
+  });
+
+  it('موقع بلا أي مخزون منتج مسجَّل عليه (لا يظهر بـinventories المُضمَّنة بأي منتج) يظهر هنا رغم ذلك', () => {
+    // نفس السيناريو الحي الذي وقع فعليًا: "المركز الرئيسي" موجود فعلًا بمنشأة
+    // العميل لكن buildLocationIdIndexFromApi (من المنتجات فقط) لا يجده أبدًا لو
+    // لا منتج واحد له مخزون مسجَّل عنده — بينما هذه الدالة (GET /inventories
+    // مباشرة) تجده دومًا بغض النظر عن وجود أي مخزون.
+    const productsWithNoStockAtThisLocation = [{ ...SAMPLE_PRODUCT, inventories: [] }];
+    expect(buildLocationIdIndexFromApi(productsWithNoStockAtThisLocation).has('المركز الرئيسي')).toBe(false);
+    expect(buildLocationIdIndexFromInventories([SAMPLE_INVENTORY]).has('المركز الرئيسي')).toBe(true);
+  });
+
+  it('موقع بلا id يُتجاهَل', () => {
+    expect(buildLocationIdIndexFromInventories([{ name: 'بلا رقم', ar_name: 'بلا رقم' }]).size).toBe(0);
   });
 });
 
@@ -169,5 +199,27 @@ describe('fetchSalesReferencesFromApi', () => {
   it('يرمي خطأ عربي واضح عند فشل الشبكة', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('network down'));
     await expect(fetchSalesReferencesFromApi('KEY')).rejects.toThrow(/تعذّر جلب/);
+  });
+
+  // [إضافة، إصلاح خطأ حقيقي] السيناريو الحي بالضبط: منتج مجلوب بلا أي مخزون
+  // مسجَّل بموقع "فرع جديد" (فلا يظهر بمصدر المنتجات الجزئي)، لكن GET /inventories
+  // يُرجعه ضمن قائمة مواقع المنشأة الكاملة — يجب أن يظهر بـlocationIdByName
+  // النهائي رغم ذلك (وإلا يُعامَل "ناقصًا" بالخطأ فتُحاول الأداة إنشاؤه فيُرفَض
+  // من قيود لأنه موجود أصلًا).
+  it('يدمج GET /inventories مباشرة — موقع بلا أي مخزون منتج مسجَّل عليه لا يزال يظهر بـlocationIdByName', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      if (String(url).includes('/products')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ products: [{ ...SAMPLE_PRODUCT, inventories: [] }] }) };
+      }
+      if (String(url).includes('/customers')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ customers: [SAMPLE_CUSTOMER] }) };
+      }
+      if (String(url).includes('/inventories')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ inventories: [{ id: 7, name: 'New Branch', ar_name: 'فرع جديد' }] }) };
+      }
+      return { ok: false, status: 404, text: async () => 'not found' };
+    });
+    const result = await fetchSalesReferencesFromApi('KEY');
+    expect(result.locationIdByName.get('فرع جديد')).toBe(7);
   });
 });
