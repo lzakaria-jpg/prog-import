@@ -347,7 +347,15 @@ export async function pushMissingEntitiesToQoyod(plan, apiKey, opts = {}) {
       if (!built.ok) { failed++; emit({ kind: 'location', ref: loc.name, status: 'error', reason: built.error }); tick(); continue; }
       try {
         const res = await api('POST', '/inventories', built.payload, key);
-        const inventory = res && res.inventory;
+        // [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية تصف الرد
+        // كـ{inventory:{id,...}} — لكن الرد الفعلي الحي كائن المخزون الخام مباشرة
+        // بلا أي غلاف ({id, ar_name, name, account_id,...})، نفس فئة الخطأ
+        // الموثَّقة سابقًا مع GET /projects (مصفوفة خام بلا مفتاح جذر). كانت
+        // النتيجة: المواقع تُنشأ فعليًا بمنشأة العميل الحقيقية بنجاح تام، لكن
+        // الأداة تُبلّغ فشلًا صامتًا (created.locations لا يُحدَّث)، فتحاول
+        // إعادة إنشائها لاحقًا فتُرفَض ("name has already been taken" — موجودة
+        // أصلًا). الآن نقبل كلا الشكلين.
+        const inventory = res && (res.inventory || (res.id != null ? res : null));
         if (inventory && inventory.id != null) {
           sent++;
           created.locations.set(loc.name, { id: inventory.id, name: loc.name });
