@@ -65,6 +65,28 @@ export default function Step1References({ engine }) {
   // بـApiFetchPanel.jsx لحفظ المفتاح) — تجميلية بحتة، بلا أي أثر على البيانات.
   const filenamePrefix = customerName?.trim() ? `${customerName.trim()}-` : '';
 
+  // [إضافة، إصلاح خطأ حقيقي 2026-09-16] رفع ملف يدوي لبطاقة سبق جلبها عبر API
+  // (raw===null) كان يستبدل الفهرس الحقيقي (يحمل id حقيقي بقيود لكل سجل) بفهرس
+  // يدوي بلا أي id إطلاقًا (buildProductsIndex/buildCustomersIndex/buildStockIndex
+  // لا تنتج id أبدًا) بصمت تام — بلاغ اختبار حي: مستخدم جلب كل شيء عبر API بنجاح
+  // ثم رفع "تقرير المنتجات" يدويًا فوقه (عادة قديمة من قبل ميزة الجلب)، فتحوّلت
+  // كل أخطاء المنتج لحاجبة صلبة بلا code (لا يُعرض إنشاء تلقائي، ولا يمكن إرسال
+  // أي فاتورة تحمل ذلك المنتج لاحقًا عبر API حتى لو طابَق فعليًا — لا id حقيقي).
+  // الآن نطلب تأكيدًا صريحًا يوضّح العواقب قبل الاستبدال، بدل استبدال صامت.
+  const guardManualOverride = (ref, kind, onFile) => (file) => {
+    if (ref.loaded && ref.raw === null) {
+      const label = kind === 'products' ? t({ ar: 'تقرير المنتجات', en: 'Products report' })
+        : kind === 'stock' ? t({ ar: 'تقرير مواقع المنتجات', en: 'Product locations report' })
+        : t({ ar: 'ملف العملاء', en: 'Customers file' });
+      const msg = t({
+        ar: `${label} مجلوب حاليًا عبر API (يحمل معرّفات قيود الحقيقية). رفع ملف يدوي الآن سيستبدله بالكامل بملف بلا معرّفات حقيقية — لن يُعرض إنشاء تلقائي لعناصره الناقصة، ولن تنجح أي فاتورة عبر API تستخدمه حتى لو تطابق. متابعة؟`,
+        en: `${label} is currently fetched via API (carries real Qoyod ids). Uploading a manual file now will fully replace it with one that has no real ids — its missing items won't offer auto-creation, and no API invoice using it will succeed even if matched. Continue?`,
+      });
+      if (!window.confirm(msg)) return;
+    }
+    onFile(file);
+  };
+
   const stockIsWide = stockRef.raw && detectStockFormat(stockRef.headers, stockRef.raw, template.dropdowns.G) === 'wide';
 
   return (
@@ -99,7 +121,7 @@ export default function Step1References({ engine }) {
             })
             : (productsRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={productsRef.loaded}
-          onFile={(f) => uploadReferenceFile('products', f)}
+          onFile={guardManualOverride(productsRef, 'products', (f) => uploadReferenceFile('products', f))}
         >
           {productsRef.loaded && !productsRef.raw && (
             <ApiRefDownloadButton onClick={() => downloadProductsRefFile(productsRef, `${filenamePrefix}منتجات.xlsx`, t)} />
@@ -116,7 +138,7 @@ export default function Step1References({ engine }) {
             })
             : (stockRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={stockRef.loaded}
-          onFile={(f) => uploadReferenceFile('stock', f)}
+          onFile={guardManualOverride(stockRef, 'stock', (f) => uploadReferenceFile('stock', f))}
         >
           {stockRef.loaded && !stockRef.raw && (
             <ApiRefDownloadButton onClick={() => downloadStockRefFile(stockRef, productsRef, `${filenamePrefix}مواقع-المنتجات.xlsx`, t)} />
@@ -130,7 +152,7 @@ export default function Step1References({ engine }) {
             ? t({ ar: `تم ✓ — ${customersRef.byRef.size} عميل مفهرس`, en: `Done ✓ — ${customersRef.byRef.size} customer(s) indexed` })
             : (customersRef.raw ? t({ ar: 'جارٍ التحليل...', en: 'Analyzing...' }) : t({ ar: 'لم يُرفع بعد', en: 'Not uploaded yet' }))}
           loaded={customersRef.loaded}
-          onFile={(f) => uploadReferenceFile('customers', f)}
+          onFile={guardManualOverride(customersRef, 'customers', (f) => uploadReferenceFile('customers', f))}
         >
           {customersRef.loaded && !customersRef.raw && (
             <ApiRefDownloadButton onClick={() => downloadCustomersRefFile(customersRef, `${filenamePrefix}العملاء.xlsx`, t)} />
