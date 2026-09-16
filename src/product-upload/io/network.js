@@ -73,6 +73,18 @@ const MAX_FETCH_ALL_PAGES = 500;
 export async function fetchAll(path, apiKey, { onPage } = {}) {
   let all = [];
   let page = 1;
+  // [إضافة] اكتُشِف ميدانيًا (2026-09-16، /categories لمنشأة عميل حقيقية) أن
+  // ترقيم صفحات بعض موارد Qoyod قد لا يتقدّم فعليًا رغم إرسال page/per_page
+  // صحيحين — كل صفحة تُرجع نفس المئة عنصر بالضبط، فتستمر الحلقة "بنجاح ظاهري"
+  // (items.length===100 كل مرة) حتى تصطدم بـMAX_FETCH_ALL_PAGES بعد وقت طويل
+  // فعليًا (500 طلب شبكة)، وتُظهر عدّاد onPage رقمًا كبيرًا وهميًا (تكرار العناصر
+  // نفسها لا عناصر حقيقية جديدة). الآن نتتبّع معرّفات العناصر (id) عبر الصفحات:
+  // أي صفحة تالية للأولى بلا أي معرّف جديد إطلاقًا = ترقيم الصفحات عالق فعليًا
+  // (لا يحدث هذا أبدًا مع ترقيم سليم — الصفحة التالية دومًا عناصر مختلفة)، نتوقف
+  // فورًا بخطأ واضح بدل الانتظار حتى الحد الأقصى. لا يُطبَّق لو العناصر بلا حقل
+  // id أصلًا (نادر، مثل بعض الموارد الخام) — عندها يبقى فقط حد الصفحات الدفاعي.
+  const seenIds = new Set();
+  let itemsHaveIds = true;
   while (true) {
     if (page > MAX_FETCH_ALL_PAGES) {
       throw new Error(`fetchAll(${path}): تجاوز الحد الأقصى لعدد الصفحات (${MAX_FETCH_ALL_PAGES}) — توقف الجلب لمنع تكرار لا نهائي.`);
@@ -96,6 +108,16 @@ export async function fetchAll(path, apiKey, { onPage } = {}) {
     // عبر fetchAll نفسها). الآن مصفوفة خام تُستخدَم مباشرة كما هي.
     const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
     if (!items.length) break;
+
+    if (page === 1) itemsHaveIds = items.every((it) => it && it.id !== undefined && it.id !== null);
+    if (itemsHaveIds && page > 1) {
+      const anyNew = items.some((it) => !seenIds.has(it.id));
+      if (!anyNew) {
+        throw new Error(`fetchAll(${path}): الصفحة ${page} لا تحمل أي عنصر جديد (نفس العناصر تتكرر) — ترقيم صفحات هذا المورد لا يتقدّم فعليًا. توقف الجلب بعد ${all.length} عنصر فريد لتفادي تكرار لا نهائي.`);
+      }
+    }
+    if (itemsHaveIds) items.forEach((it) => seenIds.add(it.id));
+
     all.push(...items);
     if (onPage) onPage(all.length, page);
     if (items.length < 100) break;

@@ -63,6 +63,43 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
     expect(result).toEqual([{ id: 1, name: 'مشروع أ' }, { id: 2, name: 'مشروع ب' }]);
   });
 
+  // [إضافة، إصلاح خطأ حقيقي] اكتُشِف ميدانيًا مع /categories لمنشأة عميل حقيقية:
+  // API يُرجع نفس المئة عنصر (نفس id) بلا تقدّم فعلي مهما زاد رقم page — بلا هذا
+  // الإصلاح كانت الحلقة تستمر "بنجاح ظاهري" حتى MAX_FETCH_ALL_PAGES (500 طلب،
+  // دقائق طويلة) قبل أن تتوقف. الآن تتوقف فورًا عند أول صفحة تالية بلا id جديد.
+  it("[إضافة] الصفحة الثانية بنفس معرّفات (id) الصفحة الأولى بلا أي جديد ⇒ خطأ فوري بدل الانتظار حتى الحد الأقصى", async () => {
+    const sameItems = Array.from({ length: 100 }, (_, i) => ({ id: i }));
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true, status: 200, text: async () => JSON.stringify({ categories: sameItems }),
+    }));
+    await expect(fetchAll("/categories", "KEY")).rejects.toThrow(/لا تحمل أي عنصر جديد/);
+    expect(global.fetch).toHaveBeenCalledTimes(2); // صفحة 1 (كل شيء جديد) + صفحة 2 (لا جديد) فقط، لا 500
+  });
+
+  it("[إضافة] عناصر جديدة فعليًا بكل صفحة (id مختلفة) لا تُطلِق كاشف التكرار مطلقًا", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      const items = call === 1
+        ? Array.from({ length: 100 }, (_, i) => ({ id: i }))
+        : Array.from({ length: 50 }, (_, i) => ({ id: 100 + i })); // صفحة ثانية بمعرّفات جديدة كليًا، أقل من 100 فتنهي الحلقة طبيعيًا
+      return { ok: true, status: 200, text: async () => JSON.stringify({ categories: items }) };
+    });
+    const result = await fetchAll("/categories", "KEY");
+    expect(result).toHaveLength(150);
+  });
+
+  it("[إضافة] عناصر بلا حقل id أصلًا ⇒ كاشف التكرار يُعطَّل بلا أي تأثير على السلوك السابق", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      const items = call === 1 ? Array.from({ length: 100 }, () => ({ name: 'x' })) : [{ name: 'y' }];
+      return { ok: true, status: 200, text: async () => JSON.stringify({ categories: items }) };
+    });
+    const result = await fetchAll("/categories", "KEY");
+    expect(result).toHaveLength(101);
+  });
+
   it("[إضافة] onPage يُستدعى بعد كل صفحة بإجمالي العناصر المُجمَّعة ورقم الصفحة", async () => {
     let call = 0;
     global.fetch = vi.fn().mockImplementation(async () => {

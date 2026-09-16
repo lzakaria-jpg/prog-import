@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { fetchAll } from '../../product-upload/io/network.js';
+import SearchableSelect from './SearchableSelect.jsx';
+
+const accountLabel = (a) => `${a.code ? a.code + ' — ' : ''}${a.name_ar || a.name_en || ''}`;
 
 /**
  * [إضافة] لوحة مراجعة الفواتير التي فيها نقص كمية متوقَّع (تحذير لا خطأ حاجب —
@@ -37,6 +40,7 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
   const [expenseAccountId, setExpenseAccountId] = useState('');
   const [ackImpact, setAckImpact] = useState(false);
   const [accountsProgress, setAccountsProgress] = useState(0);
+  const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
 
   useEffect(() => {
     if (!showTopUp || !apiKey || accounts.length) return;
@@ -126,17 +130,11 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                   <div style={{ flex: '1 1 220px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب الإيراد (للزيادة)', en: 'Revenue account (for increases)' })}</label>
-                    <select value={revenueAccountId} onChange={(e) => setRevenueAccountId(e.target.value ? Number(e.target.value) : '')}>
-                      <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
-                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
-                    </select>
+                    <SearchableSelect options={accountOptions} value={revenueAccountId} onChange={setRevenueAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                   </div>
                   <div style={{ flex: '1 1 220px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب المصروف (للنقص)', en: 'Expense account (for decreases)' })}</label>
-                    <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value ? Number(e.target.value) : '')}>
-                      <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
-                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
-                    </select>
+                    <SearchableSelect options={accountOptions} value={expenseAccountId} onChange={setExpenseAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                   </div>
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 10 }}>

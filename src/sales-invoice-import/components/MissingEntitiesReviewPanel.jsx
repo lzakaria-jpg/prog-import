@@ -4,8 +4,12 @@ import { normKey } from '../engine/text.js';
 import { fetchAll, api } from '../../product-upload/io/network.js';
 import { buildCategoryCreatePayload, buildUnitCreatePayload } from '../api/qoyodEntityCreate.js';
 import { resolveTaxEntry } from '../api/qoyodSalesInvoicePush.js';
+import SearchableSelect from './SearchableSelect.jsx';
 
 const normLower = (s) => (s || '').trim().toLowerCase();
+// [إضافة] تسمية حساب قابلة للبحث بجزء من الكود (طلب صريح: كتابة "51" تُظهر
+// 5101 وكل ما تحته) — الكود بادئة النص المعروض/المبحوث عنه فعليًا بـSearchableSelect.
+const accountLabel = (a) => `${a.code ? a.code + ' — ' : ''}${a.name_ar || a.name_en || ''}`;
 
 /**
  * [إضافة] لوحة مراجعة الكيانات الناقصة (عملاء/منتجات/مواقع غير موجودين فعليًا
@@ -58,8 +62,16 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
   // Qoyod الرسمية. selling_price يأتي دومًا من سعر الوحدة الحقيقي بالفاتورة (لا
   // اختيار هنا) — الثلاثة الباقية تحتاج مدخلًا صريحًا من المستخدم لكل الدفعة.
   const [cogsAccountId, setCogsAccountId] = useState('');
+  const [salesAccountId, setSalesAccountId] = useState('');
   const [buyingPriceDraft, setBuyingPriceDraft] = useState('0');
   const [defaultTaxLabel, setDefaultTaxLabel] = useState('');
+
+  // [إضافة] خيارات SearchableSelect — تُبنى مرة واحدة من القوائم المجلوبة، تُعاد
+  // حسابها فقط عند تغيّرها فعليًا (accounts/categories/units).
+  const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  const categoryOptions = useMemo(() => categories.map((c) => ({ value: c.name, label: c.name })), [categories]);
+  const unitOptions = useMemo(() => units.map((u) => ({ value: u.unit_name, label: u.unit_name })), [units]);
+  const taxOptions = useMemo(() => (taxesIndex && taxesIndex.byLabel ? Array.from(taxesIndex.byLabel.keys()).map((k) => ({ value: k, label: k })) : []), [taxesIndex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +202,12 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
       setError(t({ ar: 'اختر حساب تكلفة المبيعات (COGS) الافتراضي للمنتجات الجديدة قبل المتابعة.', en: 'Choose a default cost-of-sales (COGS) account for the new products before continuing.' }));
       return;
     }
+    // [إضافة، إصلاح خطأ حقيقي] اختبار حي ثانٍ (بعد إصلاح COGS/الضريبة/السعر أعلاه)
+    // كشف رفض Qoyod الفعلي أيضًا بلا sales_account_id — نفس فلسفة COGS بالضبط.
+    if (selectedProducts.length > 0 && !salesAccountId) {
+      setError(t({ ar: 'اختر حساب الإيراد الافتراضي للمنتجات الجديدة قبل المتابعة.', en: 'Choose a default revenue account for the new products before continuing.' }));
+      return;
+    }
     if (hasRealTaxes) {
       const missingTax = selectedProducts.some((p) => !effectiveTaxEntry(p));
       if (missingTax) {
@@ -226,7 +244,8 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
       products: productsSel,
       locations: locations.filter((l) => checkedLocations.has(l.typedName)).map((l) => ({ name: l.typedName, accountId: locationAccountId[l.typedName] })),
       defaultBuyingPrice: parseFloat(buyingPriceDraft) || 0,
-      defaultCogsAccountId: cogsAccountId ? Number(cogsAccountId) : undefined,
+      defaultCogsAccountId: cogsAccountId || undefined,
+      defaultSalesAccountId: salesAccountId || undefined,
     };
     onConfirm(selections);
   };
@@ -285,10 +304,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', margin: '8px 0 12px' }}>
                 <div style={{ flex: '1 1 240px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الفئة الافتراضية للدفعة (لمنتجات بلا فئة بالملف)', en: 'Default category for the batch (products with no file category)' })}</label>
-                  <select value={defaultCategoryName} onChange={(e) => setDefaultCategoryName(e.target.value)}>
-                    <option value="">— {t({ ar: 'بلا فئة', en: 'No category' })} —</option>
-                    {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                  </select>
+                  <SearchableSelect options={categoryOptions} value={defaultCategoryName} onChange={setDefaultCategoryName} placeholder={t({ ar: '— بلا فئة —', en: '— no category —' })} />
                   <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                     <input type="text" placeholder={t({ ar: 'اسم فئة جديدة...', en: 'New category name...' })} value={newCategoryDraft} onChange={(e) => setNewCategoryDraft(e.target.value)} />
                     <button type="button" className="qsv-btn secondary" disabled={!newCategoryDraft.trim() || creatingCategory} onClick={createCategoryNow}>
@@ -298,10 +314,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                 </div>
                 <div style={{ flex: '1 1 240px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الوحدة الافتراضية للدفعة (لمنتجات بلا وحدة بالملف)', en: 'Default unit for the batch (products with no file unit)' })}</label>
-                  <select value={defaultUnitName} onChange={(e) => setDefaultUnitName(e.target.value)}>
-                    <option value="">— {t({ ar: 'بلا وحدة', en: 'No unit' })} —</option>
-                    {units.map((u) => <option key={u.id} value={u.unit_name}>{u.unit_name}</option>)}
-                  </select>
+                  <SearchableSelect options={unitOptions} value={defaultUnitName} onChange={setDefaultUnitName} placeholder={t({ ar: '— بلا وحدة —', en: '— no unit —' })} />
                   <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                     <input type="text" placeholder={t({ ar: 'اسم وحدة جديدة...', en: 'New unit name...' })} value={newUnitDraft} onChange={(e) => setNewUnitDraft(e.target.value)} />
                     <button type="button" className="qsv-btn secondary" disabled={!newUnitDraft.trim() || creatingUnit} onClick={createUnitNow}>
@@ -311,10 +324,11 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                 </div>
                 <div style={{ flex: '1 1 240px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب تكلفة المبيعات (COGS) الافتراضي — إلزامي *', en: 'Default cost-of-sales (COGS) account — required *' })}</label>
-                  <select value={cogsAccountId} onChange={(e) => setCogsAccountId(e.target.value)}>
-                    <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
-                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
-                  </select>
+                  <SearchableSelect options={accountOptions} value={cogsAccountId} onChange={setCogsAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                </div>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب الإيراد الافتراضي — إلزامي *', en: 'Default revenue account — required *' })}</label>
+                  <SearchableSelect options={accountOptions} value={salesAccountId} onChange={setSalesAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                 </div>
                 <div style={{ flex: '1 1 160px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'سعر التكلفة الافتراضي (buying price)', en: 'Default cost price (buying price)' })}</label>
@@ -324,10 +338,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                 {hasRealTaxes && (
                   <div style={{ flex: '1 1 220px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'الفئة الضريبية الافتراضية (لمنتجات بلا فئة مطابقة بالملف)', en: 'Default tax category (products with no matching file tax)' })}</label>
-                    <select value={defaultTaxLabel} onChange={(e) => setDefaultTaxLabel(e.target.value)}>
-                      <option value="">— {t({ ar: 'اختر فئة ضريبية', en: 'Choose a tax category' })} —</option>
-                      {Array.from(taxesIndex.byLabel.keys()).map((k) => <option key={k} value={k}>{k}</option>)}
-                    </select>
+                    <SearchableSelect options={taxOptions} value={defaultTaxLabel} onChange={setDefaultTaxLabel} placeholder={t({ ar: '— اختر فئة ضريبية —', en: '— choose a tax category —' })} />
                   </div>
                 )}
               </div>
@@ -392,13 +403,12 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                       <td><input type="checkbox" checked={checkedLocations.has(l.typedName)} onChange={() => toggle(setCheckedLocations)(l.typedName)} /></td>
                       <td>{l.typedName}</td>
                       <td>
-                        <select
+                        <SearchableSelect
+                          options={accountOptions}
                           value={locationAccountId[l.typedName] || ''}
-                          onChange={(e) => setLocationAccountId((prev) => ({ ...prev, [l.typedName]: e.target.value ? Number(e.target.value) : undefined }))}
-                        >
-                          <option value="">— {t({ ar: 'اختر الحساب', en: 'Choose account' })} —</option>
-                          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name_ar || a.name_en} {a.code ? `(${a.code})` : ''}</option>)}
-                        </select>
+                          onChange={(v) => setLocationAccountId((prev) => ({ ...prev, [l.typedName]: v || undefined }))}
+                          placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })}
+                        />
                       </td>
                     </tr>
                   ))}
