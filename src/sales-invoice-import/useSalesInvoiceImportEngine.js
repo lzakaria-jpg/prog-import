@@ -61,6 +61,11 @@ export default function useSalesInvoiceImportEngine() {
   // صفر يقينًا" عن "منتج قديم بلا بيانات مخزون لسبب غامض" — راجع تعليق رأس تلك
   // الدالة لتفصيل الخطأ الذي يمنعه هذا التمييز.
   const [newlyCreatedSkus, setNewlyCreatedSkus] = useState(() => new Set());
+  // [إضافة، إصلاح خطأ حقيقي] نفس فلسفة newlyCreatedSkus أعلاه بالضبط، لكن
+  // لأسماء المواقع — موقع أُنشئ للتو هذه الجلسة رصيد كل منتج عنده صفر يقينًا
+  // كذلك (لم يكن موجودًا أصلًا ليُسجَّل عليه أي مخزون). بلا هذا، فاتورة لمنتج
+  // موجود مسبقًا لكن بموقع جديد كليًا لا تحصل على تحذير نقص/تغذية مخزون أيضًا.
+  const [newlyCreatedLocations, setNewlyCreatedLocations] = useState(() => new Set());
   // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
   // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
   const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
@@ -148,7 +153,8 @@ export default function useSalesInvoiceImportEngine() {
 
   const refs = useMemo(() => ({
     template, products: productsRef, customers: customersRef, stock: stockRef, taxes: taxesRef, locationIdByName,
-  }), [template, productsRef, customersRef, stockRef, taxesRef, locationIdByName]);
+    newSkus: newlyCreatedSkus, newLocations: newlyCreatedLocations,
+  }), [template, productsRef, customersRef, stockRef, taxesRef, locationIdByName, newlyCreatedSkus, newlyCreatedLocations]);
 
   // [إضافة] أسماء المواقع الحقيقية المجلوبة عبر API (نفس مفاتيح locationIdByName)
   // — تُستخدَم كقائمة منسدلة بديلة لعمود الموقع (G) بلا قالب مرفوع (GridCell.jsx).
@@ -520,6 +526,7 @@ export default function useSalesInvoiceImportEngine() {
       nextCustomersRef = { ...customersRef, byRef, byName };
       setCustomersRef(nextCustomersRef);
     }
+    let nextNewSkus = newlyCreatedSkus;
     if (result.created && result.created.products && result.created.products.size) {
       const bySku = new Map(productsRef.bySku);
       const byName = new Map(productsRef.byName);
@@ -536,28 +543,37 @@ export default function useSalesInvoiceImportEngine() {
       });
       nextProductsRef = { ...productsRef, bySku, byName };
       setProductsRef(nextProductsRef);
-      setNewlyCreatedSkus((prev) => new Set([...prev, ...result.created.products.keys()]));
+      nextNewSkus = new Set([...newlyCreatedSkus, ...result.created.products.keys()]);
+      setNewlyCreatedSkus(nextNewSkus);
     }
     let nextLocationIdByName = locationIdByName;
+    let nextNewLocations = newlyCreatedLocations;
     if (result.created && result.created.locations && result.created.locations.size) {
       nextLocationIdByName = new Map(locationIdByName || []);
-      result.created.locations.forEach(({ id }, name) => { nextLocationIdByName.set(name, id); });
+      nextNewLocations = new Set(newlyCreatedLocations);
+      result.created.locations.forEach(({ id }, name) => { nextLocationIdByName.set(name, id); nextNewLocations.add(name); });
       setLocationIdByName(nextLocationIdByName);
+      setNewlyCreatedLocations(nextNewLocations);
     }
 
     setRows((prev) => {
       const resolved = resolveNamesToRefs(prev, false, nextCustomersRef, nextProductsRef).rows;
       const filled = fillDownHeaderFields(resolved);
-      // [إصلاح] locationIdByName هنا يجب أن يعكس الموقع المُنشأ للتو بنفس هذا
-      // الاستدعاء — refs.locationIdByName وحدها تبقى القيمة القديمة (setLocationIdByName
-      // أعلاه لن ينعكس إلا بإعادة رسم لاحقة)، فتُعاد محاكاة نقص الموقع خطأً هنا مباشرة.
-      const nextRefs = { ...refs, customers: nextCustomersRef, products: nextProductsRef, locationIdByName: nextLocationIdByName };
+      // [إصلاح] locationIdByName/newSkus/newLocations هنا يجب أن تعكس ما أُنشئ
+      // للتو بنفس هذا الاستدعاء — refs.* وحدها تبقى القيم القديمة (setState
+      // أعلاه لن تنعكس إلا بإعادة رسم لاحقة)، فتُعاد محاكاة نقص الموقع/المخزون
+      // خطأً هنا مباشرة (بلاغ اختبار حي: فواتير لمنتجات/موقع أُنشئوا جميعًا
+      // بنفس الجلسة أُرسلت كمسودة صامتة بدل عرض خيار تغذية المخزون).
+      const nextRefs = {
+        ...refs, customers: nextCustomersRef, products: nextProductsRef,
+        locationIdByName: nextLocationIdByName, newSkus: nextNewSkus, newLocations: nextNewLocations,
+      };
       setIssues(runValidation(filled, nextRefs));
       return filled;
     });
 
     return result;
-  }, [customersRef, productsRef, locationIdByName, refs]);
+  }, [customersRef, productsRef, locationIdByName, newlyCreatedSkus, newlyCreatedLocations, refs]);
 
   const stopEntityCreate = useCallback(() => { entityCreateStoppedRef.current.current = true; }, []);
 
@@ -584,7 +600,7 @@ export default function useSalesInvoiceImportEngine() {
   // [إضافة] يحسب احتياج تغذية المخزون الفعلي (raw، لا نصوصًا) من الحالة الحالية —
   // يُستدعى من StockShortageReviewPanel (عبر Step4Export.jsx) عند اختيار مسار
   // "تغذية المخزون تلقائيًا" لبناء adjustments أعلاه (مجمَّعة حسب inventory_id).
-  const getStockTopUpPlan = useCallback(() => getStockTopUpNeeds(rows, { productsIndex: productsRef, stockIndex: stockRef, newSkus: newlyCreatedSkus }), [rows, productsRef, stockRef, newlyCreatedSkus]);
+  const getStockTopUpPlan = useCallback(() => getStockTopUpNeeds(rows, { productsIndex: productsRef, stockIndex: stockRef, newSkus: newlyCreatedSkus, newLocations: newlyCreatedLocations }), [rows, productsRef, stockRef, newlyCreatedSkus, newlyCreatedLocations]);
 
   // [إضافة] "إعادة تعيين" — مسح كل بيانات الجلسة الحالية (الملفات المرفوعة/المجلوبة، الصفوف،
   // نتائج التحقق والتصدير والإرسال) والعودة للخطوة 1، بنفس مبدأ resetAll بأداتي الشجرة
@@ -630,6 +646,7 @@ export default function useSalesInvoiceImportEngine() {
     setStockTopUpEntries([]);
     setStockTopUpProgress({ current: 0, total: 0 });
     setNewlyCreatedSkus(new Set());
+    setNewlyCreatedLocations(new Set());
   }, [revokePrevExportUrl]);
 
   /* ========================= التنقل بين الخطوات ========================= */

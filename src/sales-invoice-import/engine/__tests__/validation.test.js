@@ -267,6 +267,25 @@ describe("getStockShortageDraftGroups — [إضافة] فواتير نقص ال�
     const { byRow } = runValidation(rows, refs);
     expect(getStockShortageDraftGroups(rows, byRow)).toEqual([]);
   });
+
+  // [إضافة، إصلاح خطأ حقيقي] راجع تعليق checkStockSequential بـstockSimulation.js
+  // — runValidation يجب أن يُمرِّر refs.newSkus/newLocations فعليًا لـ
+  // checkStockSequential (لا يتجاهلهما)، وإلا منتج/موقع أُنشئ للتو هذه الجلسة
+  // لا يظهر ضمن stockShortageGroups فتُرسَل فاتورته مباشرة كمسودة صامتة بلا
+  // عرض خيار تغذية المخزون على المستخدم — بلاغ اختبار حي بالضبط.
+  it("منتج جديد ضمن refs.newSkus (بلا أي بيانات مخزون سابقة) ⇒ يظهر ضمن stockShortageGroups", () => {
+    const rows = [validRow({ id: 1, A: 'INV-NEW', N: 'SKU-NEW', G: 'الرياض', P: '5' })];
+    const refs = { stock: { loaded: true, raw: null, byKey: new Map() }, newSkus: new Set(['SKU-NEW']) };
+    const { byRow } = runValidation(rows, refs);
+    expect(getStockShortageDraftGroups(rows, byRow).map((g) => g.ref)).toEqual(['INV-NEW']);
+  });
+
+  it("موقع جديد ضمن refs.newLocations (منتج قديم بلا بيانات مخزون بذلك الموقع) ⇒ يظهر ضمن stockShortageGroups أيضًا", () => {
+    const rows = [validRow({ id: 1, A: 'INV-NEW-LOC', N: 'SKU-OLD', G: 'فرع جديد', P: '3' })];
+    const refs = { stock: { loaded: true, raw: null, byKey: new Map() }, newLocations: new Set(['فرع جديد']) };
+    const { byRow } = runValidation(rows, refs);
+    expect(getStockShortageDraftGroups(rows, byRow).map((g) => g.ref)).toEqual(['INV-NEW-LOC']);
+  });
 });
 
 describe("runValidation — [إضافة] code:'missing_customer'/'missing_product' فقط بمسار المرجعيات المجلوبة عبر API", () => {

@@ -83,6 +83,27 @@ describe("checkStockSequential — §6.15 (محاكاة استهلاك تسلس�
     expect(checkStockSequential(rows, {})).toEqual([]);
   });
 
+  // [إضافة، إصلاح خطأ حقيقي] راجع تعليق getStockTopUpNeeds بـstockSimulation.js —
+  // بلا newSkus هنا، منتج/موقع أُنشئ للتو هذه الجلسة كان يُصدر تحذير "لا تتوفر
+  // بيانات" العام (لا code) بدل stock_shortage_draft، فـstockShortageGroups
+  // (المبني من هذا الـcode بالضبط) يخرج فارغًا ولوحة تغذية المخزون لا تظهر أصلًا
+  // — الفاتورة تُرسَل مباشرة وتُنشأ كمسودة صامتة بلا أي تنبيه للمستخدم.
+  it("[إضافة] منتج جديد ضمن newSkus بلا أي مدخل بالفهرس ⇒ تحذير stock_shortage_draft (لا 'لا تتوفر بيانات' العام)", () => {
+    const rows = [createRow(1, { N: 'SKU-NEW', G: 'الرياض', P: '7' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const issues = checkStockSequential(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-NEW']) });
+    expect(issues.length).toBe(1);
+    expect(issues[0].code).toBe('stock_shortage_draft');
+  });
+
+  it("[إضافة] موقع جديد ضمن newLocations (منتج قديم) ⇒ نفس المعاملة — stock_shortage_draft لا 'لا تتوفر بيانات'", () => {
+    const rows = [createRow(1, { N: 'SKU-OLD', G: 'فرع جديد', P: '3' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const issues = checkStockSequential(rows, { stockIndex: apiStockIndex, newLocations: new Set(['فرع جديد']) });
+    expect(issues.length).toBe(1);
+    expect(issues[0].code).toBe('stock_shortage_draft');
+  });
+
   it("صف بلا منتج أو موقع أو كمية غير صالحة يُتجاهَل بلا فحص", () => {
     const rows = [
       createRow(1, { N: '', G: 'الرياض', P: '5' }),
@@ -165,6 +186,18 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     const apiStockIndex = { raw: null, byKey: new Map() };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-OTHER']) });
     expect(needs).toEqual([]);
+  });
+
+  // [إضافة، إصلاح خطأ حقيقي] بلاغ اختبار حي: منتجات وموقع أُنشئوا جميعًا بنفس
+  // الجلسة، ومع ذلك أُرسلت الفواتير كمسودة صامتة بدل عرض خيار تغذية المخزون —
+  // السبب: newLocations لم تكن موجودة أصلًا (فقط newSkus)، فمنتج قديم موجود
+  // مسبقًا لكن بموقع جديد كليًا (رصيده هناك صفر يقينًا) كان لا يزال يُعامَل
+  // كـ"لا بيانات" (مستبعَد) بدل "نقص كامل".
+  it("موقع جديد ضمن newLocations (منتج قديم لكن بموقع جديد كليًا) ⇒ يُعامَل كصفر، والنقص = الكمية المطلوبة كاملة", () => {
+    const rows = [createRow(1, { N: 'SKU-OLD', G: 'فرع جديد', P: '9' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newLocations: new Set(['فرع جديد']) });
+    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'فرع جديد', shortfall: 9 }]);
   });
 
   it("منتجات/مواقع مختلفة تُحسَب بشكل مستقل عن بعضها", () => {
