@@ -45,8 +45,8 @@ export default function Step3Review({ eng }) {
         <h2>{t({ ar: 'المراجعة والتعديل', en: 'Review & edit' })}</h2>
         <p className="hint">
           {t({
-            ar: 'عدّل أي خانة مباشرة في الجدول — يُعاد فحص صفها فوراً وحده. اضغط أي تصنيف بالأسفل لعرض صفوفه فقط. لو ظهر تكرار بالاسم (تام أو مشابه جداً) مقابل عميل/مورد موجود فعلاً، اختر صراحةً: إنشاء جديد، أو تحديث الموجود، أو تجاوز الصف.',
-            en: 'Edit any cell directly in the table — only its own row is re-checked, instantly. Click any category below to show just those rows. If a name duplicate appears (exact or very similar) against an existing contact, explicitly choose: create new, update the existing one, or skip the row.',
+            ar: 'عدّل أي خانة مباشرة في الجدول — يُعاد فحص صفها فوراً وحده. اضغط أي تصنيف بالأسفل لعرض صفوفه فقط. لو ظهر تكرار بالاسم (تام أو مشابه جداً) مقابل عميل موجود فعلاً، اختر صراحةً: إنشاء جديد، أو تحديث الموجود، أو تجاوز الصف.',
+            en: 'Edit any cell directly in the table — only its own row is re-checked, instantly. Click any category below to show just those rows. If a name duplicate appears (exact or very similar) against an existing customer, explicitly choose: create new, update the existing one, or skip the row.',
           })}
         </p>
 

@@ -54,7 +54,7 @@ const QoyodBillImport = forwardRef(function QoyodBillImport({
         <header className="qbi-header">
           <div className="qbi-header-icon" aria-hidden="true">📥</div>
           <div className="qbi-header-title">
-            <h1>{t({ ar: 'مُجهِّز فواتير المشتريات', en: 'Purchase Invoice Preparer' })}</h1>
+            <h1>{t({ ar: 'مطابقة واستيراد فواتير المشتريات', en: 'Match & Import Purchase Bills' })}</h1>
             <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب الاستيراد المعتمد في قيود', en: "Converts customers' unstructured files into Qoyod's approved import template" })}</div>
           </div>
         </header>
