@@ -111,11 +111,11 @@ export function validateRowWithDuplicates(row, index) {
   row.dupExact = exact;
   row.dupFuzzy = fuzzy;
   if (exact) {
-    row.issues.push({ l: 'w', m: `اسم مطابق تماماً لعميل/مورد موجود فعلاً: «${exact.name}»${exact.id != null ? ` (#${exact.id})` : ''} — اختر إنشاء جديد أو تحديث الموجود` });
+    row.issues.push({ l: 'w', m: `اسم مطابق تماماً لعميل موجود فعلاً: «${exact.name}»${exact.id != null ? ` (#${exact.id})` : ''} — اختر إنشاء جديد أو تحديث الموجود` });
     if (row.action === undefined) row.action = null;
   } else if (fuzzy.length) {
     const best = fuzzy[0];
-    row.issues.push({ l: 'w', m: `اسم مشابه جداً لعميل/مورد موجود: «${best.contact.name}»${best.contact.id != null ? ` (#${best.contact.id})` : ''} (تشابه ${(best.score * 100).toFixed(0)}%) — اختر إنشاء جديد أو تحديث الموجود` });
+    row.issues.push({ l: 'w', m: `اسم مشابه جداً لعميل موجود: «${best.contact.name}»${best.contact.id != null ? ` (#${best.contact.id})` : ''} (تشابه ${(best.score * 100).toFixed(0)}%) — اختر إنشاء جديد أو تحديث الموجود` });
     if (row.action === undefined) row.action = null;
   } else if (row.action === undefined || row.action === null) {
     row.action = 'create';

@@ -43,7 +43,7 @@ export default function Step1Connect({ eng }) {
 
         <div className="qvi-actions">
           <button className="qvi-btn" disabled={eng.busy} onClick={eng.connect}>
-            {eng.busy ? t({ ar: 'جاري الجلب…', en: 'Fetching…' }) : t({ ar: 'جلب الموردين الموجودين', en: 'Fetch existing contacts' })}
+            {eng.busy ? t({ ar: 'جاري الجلب…', en: 'Fetching…' }) : t({ ar: 'جلب الموردين الموجودين', en: 'Fetch existing vendors' })}
           </button>
         </div>
         <Note note={eng.notes.api} />
@@ -54,7 +54,7 @@ export default function Step1Connect({ eng }) {
         )}
         <div className="qvi-msg info" style={{ marginTop: 12 }}>
           {t({
-            ar: 'هذا الاتصال يُستخدَم فقط لكشف تكرار الاسم قبل الإنشاء (اسم مطابق أو مشابه جداً لعميل/مورد موجود فعلاً) — ولا حاجة له لمتابعة رفع الملف وتصدير القالب، لكنه ضروري لتفعيل «الإرسال المباشر عبر API» بالخطوة الأخيرة.',
+            ar: 'هذا الاتصال يُستخدَم فقط لكشف تكرار الاسم قبل الإنشاء (اسم مطابق أو مشابه جداً لمورد موجود فعلاً) — ولا حاجة له لمتابعة رفع الملف وتصدير القالب، لكنه ضروري لتفعيل «الإرسال المباشر عبر API» بالخطوة الأخيرة.',
             en: 'This connection is used only to detect name duplicates before creating a record — you can continue to file upload and template export without it, but it is required to enable "Send directly via API" in the last step.',
           })}
         </div>

@@ -57,8 +57,8 @@ export default function Step2Mapping({ eng }) {
           />
           <div className="qci-msg info">
             {t({
-              ar: 'الرقم المرجعي غير متاح حالياً عبر واجهة Qoyod البرمجية للعملاء/الموردين (لا قراءة من الحساب ولا إرسال عند الإنشاء المباشر) — يظهر هنا كمرجع داخل الأداة فقط، ويُقترح تلقائياً من تسلسل الملف نفسه عند غيابه، ويُكتب في ملف القالب عند التصدير.',
-              en: "The reference number is not available via Qoyod's customer/vendor API today (no reading from the account, no sending on direct create) — it appears here only as an in-tool reference, is auto-suggested from the file's own sequence when missing, and is written into the exported template file.",
+              ar: 'الرقم المرجعي غير متاح حالياً عبر واجهة Qoyod البرمجية للعملاء (لا قراءة من الحساب ولا إرسال عند الإنشاء المباشر) — يظهر هنا كمرجع داخل الأداة فقط، ويُقترح تلقائياً من تسلسل الملف نفسه عند غيابه، ويُكتب في ملف القالب عند التصدير.',
+              en: "The reference number is not available via Qoyod's customer API today (no reading from the account, no sending on direct create) — it appears here only as an in-tool reference, is auto-suggested from the file's own sequence when missing, and is written into the exported template file.",
             })}
           </div>
           <MappingGrid

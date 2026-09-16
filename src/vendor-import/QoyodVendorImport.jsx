@@ -47,8 +47,8 @@ const QoyodVendorImport = forwardRef(function QoyodVendorImport({
         <header className="qvi-header">
           <div className="qvi-header-icon" aria-hidden="true">🚚</div>
           <div className="qvi-header-title">
-            <h1>{t({ ar: 'مُجهِّز استيراد الموردين', en: 'Vendor Import Preparer' })}</h1>
-            <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب استيراد الموردين المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Converts customers' unstructured files into Qoyod's approved vendor import template, with direct API creation" })}</div>
+            <h1>{t({ ar: 'مطابقة واستيراد الموردين', en: 'Match & Import Vendors' })}</h1>
+            <div className="sub">{t({ ar: 'يطابق أسماء الموردين مع الموجودين بالمنشأة، ويحوّل ملف الموردين غير المنظم إلى قالب استيراد الموردين المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Matches vendor names against those already in the account, and converts an unstructured vendor file into Qoyod's approved vendor import template, with direct API creation" })}</div>
           </div>
         </header>
       )}

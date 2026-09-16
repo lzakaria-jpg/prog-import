@@ -47,8 +47,8 @@ const QoyodCustomerImport = forwardRef(function QoyodCustomerImport({
         <header className="qci-header">
           <div className="qci-header-icon" aria-hidden="true">👥</div>
           <div className="qci-header-title">
-            <h1>{t({ ar: 'مُجهِّز استيراد العملاء', en: 'Customer Import Preparer' })}</h1>
-            <div className="sub">{t({ ar: 'يحوّل ملفات العملاء غير المنظمة إلى قالب استيراد العملاء المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Converts customers' unstructured files into Qoyod's approved customer import template, with direct API creation" })}</div>
+            <h1>{t({ ar: 'مطابقة واستيراد العملاء', en: 'Match & Import Customers' })}</h1>
+            <div className="sub">{t({ ar: 'يطابق أسماء العملاء مع الموجودين بالمنشأة، ويحوّل ملف العملاء غير المنظم إلى قالب استيراد العملاء المعتمد في قيود، مع إنشاء مباشر عبر API', en: "Matches customer names against those already in the account, and converts an unstructured customer file into Qoyod's approved customer import template, with direct API creation" })}</div>
           </div>
         </header>
       )}
@@ -68,8 +68,8 @@ const QoyodCustomerImport = forwardRef(function QoyodCustomerImport({
             <li><b>{t({ ar: 'الهاتف:', en: 'Phone:' })}</b> {t({ ar: 'إن وُجد، يجب أن يبدأ بـ966 ويتكوّن من 12 رقماً بالضبط (مثال: 966501234567+).', en: 'When present, it must start with 966 and be exactly 12 digits (example: +966501234567).' })}</li>
             <li><b>{t({ ar: 'الرقم الضريبي:', en: 'Tax number:' })}</b> {t({ ar: 'إن وُجد، يجب أن يتكوّن من 15 رقماً، يبدأ وينتهي بالرقم 3.', en: 'When present, it must be exactly 15 digits, starting and ending with 3.' })}</li>
             <li><b>{t({ ar: 'الرمز البريدي:', en: 'Zip code:' })}</b> {t({ ar: 'تنبيه فقط لو ليس 5 أرقام — الإلزام مشروط بتفعيل ZATCA، لا يمكن التأكد منه هنا.', en: "A warning only if it's not 5 digits — the requirement is conditional on ZATCA, which can't be confirmed here." })}</li>
-            <li><b>{t({ ar: 'التكرار بالاسم:', en: 'Name duplicates:' })}</b> {t({ ar: 'تحذير عند تطابق أو تشابه كبير مع عميل/مورد موجود فعلاً — يتطلب اختياراً صريحاً (إنشاء/تحديث/تجاوز) قبل الإرسال المباشر.', en: 'A warning on an exact or highly similar match with an existing contact — requires an explicit choice (create/update/skip) before direct send.' })}</li>
-            <li><b>{t({ ar: 'الرقم المرجعي:', en: 'Ref. No.:' })}</b> {t({ ar: 'غير موثَّق بواجهة قيود البرمجية للعملاء/الموردين — مرجع محلي بالأداة/ملف التصدير فقط، لا يُرسَل عبر API.', en: "Not documented in Qoyod's customer/vendor API — a local, tool/export-file-only reference, never sent via the API." })}</li>
+            <li><b>{t({ ar: 'التكرار بالاسم:', en: 'Name duplicates:' })}</b> {t({ ar: 'تحذير عند تطابق أو تشابه كبير مع عميل موجود فعلاً — يتطلب اختياراً صريحاً (إنشاء/تحديث/تجاوز) قبل الإرسال المباشر.', en: 'A warning on an exact or highly similar match with an existing customer — requires an explicit choice (create/update/skip) before direct send.' })}</li>
+            <li><b>{t({ ar: 'الرقم المرجعي:', en: 'Ref. No.:' })}</b> {t({ ar: 'غير موثَّق بواجهة قيود البرمجية للعملاء — مرجع محلي بالأداة/ملف التصدير فقط، لا يُرسَل عبر API.', en: "Not documented in Qoyod's customer API — a local, tool/export-file-only reference, never sent via the API." })}</li>
           </ul>
         </details>
       </div>

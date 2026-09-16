@@ -20,11 +20,11 @@ import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages,
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
   { id: "merge", permKey: "tool.merge", label: { ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart" }, icon: GitBranch, desc: { ar: "تحليل ودمج شجرة الحسابات", en: "Analyze & merge chart of accounts" } },
-  { id: "bills", permKey: "tool.bills", label: { ar: "استيراد فواتير المشتريات", en: "Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
+  { id: "bills", permKey: "tool.bills", label: { ar: "مطابقة واستيراد فواتير المشتريات", en: "Match & Import Purchase Bills" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المشتريات لقيود", en: "Prepare purchase bills for Qoyod" } },
   { id: "sales", permKey: "tool.sales", label: { ar: "استيراد فواتير المبيعات", en: "Import Sales Invoices" }, icon: ArrowDownToLine, desc: { ar: "تهيئة فواتير المبيعات لقيود", en: "Prepare sales invoices for Qoyod" } },
   { id: "products", permKey: "tool.products", label: { ar: "رفع المنتجات إلى قيود", en: "Upload Products to Qoyod" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
-  { id: "customers", permKey: "tool.customers", label: { ar: "استيراد العملاء", en: "Customer Import" }, icon: Users, desc: { ar: "تجهيز وإنشاء عملاء العميل مباشرة عبر API", en: "Prepare & create the client's customers directly via API" } },
-  { id: "vendors", permKey: "tool.vendors", label: { ar: "استيراد الموردين", en: "Vendor Import" }, icon: Truck, desc: { ar: "تجهيز وإنشاء موردي العميل مباشرة عبر API", en: "Prepare & create the client's vendors directly via API" } },
+  { id: "customers", permKey: "tool.customers", label: { ar: "مطابقة واستيراد العملاء", en: "Match & Import Customers" }, icon: Users, desc: { ar: "مطابقة أسماء العملاء وإنشاؤهم مباشرة عبر API", en: "Match customer names and create them directly via API" } },
+  { id: "vendors", permKey: "tool.vendors", label: { ar: "مطابقة واستيراد الموردين", en: "Match & Import Vendors" }, icon: Truck, desc: { ar: "مطابقة أسماء الموردين وإنشاؤهم مباشرة عبر API", en: "Match vendor names and create them directly via API" } },
 ];
 
 // ── تجميع الأدوات ضمن 3 تبويبات رئيسية للصفحة الرئيسية ──────────────

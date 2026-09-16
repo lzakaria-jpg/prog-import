@@ -68,8 +68,8 @@ export default function Step4Export({ eng }) {
 
         <div className="qci-msg info">
           {t({
-            ar: 'الرقم المرجعي (Ref. No.) يُكتب في ملف القالب المُصدَّر كالمعتاد، لكنه لا يُرسَل إطلاقاً عبر الإرسال المباشر — لا حقل موثَّق له بواجهة Qoyod البرمجية للعملاء/الموردين. راجع الملاحظة بخطوة الربط لتفاصيل أوسع.',
-            en: "The Ref. No. is written into the exported template file as usual, but is never sent via direct send — there's no documented field for it in Qoyod's customer/vendor API. See the note on the mapping step for more.",
+            ar: 'الرقم المرجعي (Ref. No.) يُكتب في ملف القالب المُصدَّر كالمعتاد، لكنه لا يُرسَل إطلاقاً عبر الإرسال المباشر — لا حقل موثَّق له بواجهة Qoyod البرمجية للعملاء. راجع الملاحظة بخطوة الربط لتفاصيل أوسع.',
+            en: "The Ref. No. is written into the exported template file as usual, but is never sent via direct send — there's no documented field for it in Qoyod's customer API. See the note on the mapping step for more.",
           })}
         </div>
 
