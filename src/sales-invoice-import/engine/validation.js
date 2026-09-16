@@ -286,7 +286,7 @@ export function getStockShortageDraftGroups(rows, issuesByRow){
 //    (المسار المجلوب عبر API فقط — locationIdByName غير فارغ يعني ذلك).
 export function computeMissingEntitiesPlan(rows, issuesByRow, {locationIdByName} = {}){
   const customers = new Map(); // normKey(typedName) -> {typedName, rowIds}
-  const products = new Map(); // normKey(typedSku) -> {typedSku, typedName, rowIds, categoryFromFile, unitFromFile}
+  const products = new Map(); // normKey(typedSku) -> {typedSku, typedName, rowIds, categoryFromFile, unitFromFile, sellingPriceFromFile, taxLabelFromFile}
   const locations = new Map(); // normKey(typedName) -> {typedName, rowIds}
 
   const hasCode = (row, colKey, code) => {
@@ -306,12 +306,22 @@ export function computeMissingEntitiesPlan(rows, issuesByRow, {locationIdByName}
       const typedSku = norm(row.N);
       const key = normKey(typedSku);
       if(!products.has(key)){
+        // [إضافة] سعر الوحدة (R) وفئة الضريبة (V) من أول ظهور لهذا المنتج بالملف —
+        // نفس نمط categoryFromFile/unitFromFile بالضبط (أول قيمة فقط، لا يُعاد
+        // حسابها لكل صف). تُستخدَمان لاحقًا (qoyodEntityCreate.js) لتعبئة
+        // selling_price/tax_id الحقيقيين عند إنشاء المنتج — منشأة العميل الحقيقية
+        // (2026-09-16) رفضت POST /products بلا هذين الحقلين فعليًا رغم كونهما
+        // اختياريين بمواصفة OpenAPI الرسمية (ProductInput)، فتفشل كل الفواتير
+        // لاحقًا بصمت عند البحث عن معرّف منتج لم يُنشأ أصلًا.
+        const priceNum = parseFloat(row.R);
         products.set(key, {
           typedSku,
           typedName: norm(row.O) || typedSku,
           rowIds: [],
           categoryFromFile: isBlank(row.categoryRef) ? undefined : norm(row.categoryRef),
           unitFromFile: isBlank(row.unitRef) ? undefined : norm(row.unitRef),
+          sellingPriceFromFile: isNaN(priceNum) ? undefined : priceNum,
+          taxLabelFromFile: isBlank(row.V) ? undefined : norm(row.V),
         });
       }
       products.get(key).rowIds.push(row.id);

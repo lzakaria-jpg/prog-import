@@ -28,7 +28,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   const { t } = useLanguage();
   const {
     apiKey, stockShortageGroups, missingEntitiesPlan, apiSendBusy, apiSendResult, apiSendProgress, stopApiSend,
-    entityCreateBusy, entityCreateResult, entityCreateEntries, stockTopUpResult, stockTopUpEntries,
+    entityCreateBusy, entityCreateResult, entityCreateEntries, stockTopUpResult, stockTopUpEntries, taxesRef,
   } = engine;
   const [reportBusy, setReportBusy] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(apiKey || '');
@@ -40,8 +40,22 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   // الفعلي (entityCreateBusy) وrows/issues تُعاد محاكاتها بالهوك — عندها فقط
   // نقرأ stockShortageGroups (الطازجة، لا القديمة قبل الإنشاء) لتقرير الخطوة التالية.
   const [pendingAfterEntities, setPendingAfterEntities] = useState(false);
+  // [إضافة، إصلاح خطأ حقيقي] كان الانتقال بعد لوحة الكيانات الناقصة يفحص
+  // stockShortageGroups فقط ثم يرسل الفواتير مباشرة — لو فشل إنشاء منتج/عميل واحد
+  // أو أكثر فعليًا (مثلًا 422 من قيود)، rows/issues بعد إعادة المحاكاة تبقى تحمل
+  // نفس أخطاء missing_product/missing_customer لتلك العناصر تحديدًا (لم تُحَل)،
+  // لكن checkStockSequential لا يُصدر code:'stock_shortage_draft' لمنتج غير موجود
+  // أصلًا بالفهرس (فرع مختلف تمامًا: "لا تتوفر بيانات كمية")، فـstockShortageGroups
+  // كانت تخرج فارغة والتدفق يكمل مباشرة لإرسال فواتير مصيرها الفشل الحتمي (لا معرّف
+  // منتج حقيقي) — بلا أي تنبيه للمستخدم بأن الإنشاء فشل أصلًا. الآن نعيد فحص
+  // missingEntitiesPlan هنا أيضًا (لا فقط بـhandleSendClick) قبل المتابعة.
+  const [showEntityFailureWarning, setShowEntityFailureWarning] = useState(false);
 
   const proceedAfterMissingEntities = () => {
+    if (!isMissingEntitiesPlanEmpty(missingEntitiesPlan)) {
+      setShowEntityFailureWarning(true);
+      return;
+    }
     if (stockShortageGroups && stockShortageGroups.length > 0) {
       setShowStockReview(true);
     } else {
@@ -149,9 +163,34 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
         <MissingEntitiesReviewPanel
           plan={missingEntitiesPlan}
           apiKey={apiKeyInput.trim()}
+          taxesIndex={taxesRef}
           onCancel={() => setShowMissingEntities(false)}
           onConfirm={handleMissingEntitiesConfirm}
         />
+      )}
+      {showEntityFailureWarning && (
+        <div className="qsv-modal-overlay" role="dialog" aria-modal="true" onClick={() => setShowEntityFailureWarning(false)}>
+          <div className="qsv-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>⚠️ {t({ ar: 'بعض الكيانات لم يُنشأ فعليًا', en: 'Some entities were not actually created' })}</h3>
+            <p className="qsv-hint">
+              {t({
+                ar: 'فشل إنشاء عميل/منتج/موقع واحد أو أكثر بمنشأة العميل الحقيقية — الفواتير المعتمِدة عليها ستفشل عند الإرسال. راجع سبب الفشل بالتقرير، ثم افتح لوحة الكيانات الناقصة مرة أخرى (ستعرض فقط ما تبقّى غير محلول).',
+                en: 'One or more customers/products/locations failed to actually get created on the client\'s real company — invoices depending on them will fail on send. Check the reason in the report, then reopen the missing-entities panel (it will show only what is still unresolved).',
+              })}
+            </p>
+            <div className="qsv-modal-actions" style={{ marginTop: 14, flexWrap: 'wrap', gap: 8 }}>
+              <button type="button" className="qsv-btn ghost" onClick={() => setShowEntityFailureWarning(false)}>{t({ ar: 'إغلاق', en: 'Close' })}</button>
+              {hasEntityCreateReport && (
+                <button type="button" className="qsv-btn secondary" disabled={reportBusy} onClick={downloadEntityReport}>
+                  🧩 {t({ ar: 'تحميل تقرير الإنشاء', en: 'Download creation report' })}
+                </button>
+              )}
+              <button type="button" className="qsv-btn" onClick={() => { setShowEntityFailureWarning(false); setShowMissingEntities(true); }}>
+                {t({ ar: 'مراجعة الكيانات الناقصة مرة أخرى', en: 'Review missing entities again' })}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showStockReview && (
         <StockShortageReviewPanel

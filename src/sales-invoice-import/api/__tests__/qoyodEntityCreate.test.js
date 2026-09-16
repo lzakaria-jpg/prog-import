@@ -39,11 +39,14 @@ describe('buildUnitCreatePayload', () => {
 });
 
 describe('buildProductCreatePayload', () => {
-  it('يبني حمولة كاملة مع فئة/وحدة، وtrack_quantity/sale_item/purchase_item ثابتة', () => {
-    const built = buildProductCreatePayload({ sku: 'SKU-1', name: 'منتج تجريبي', categoryId: 7, unitId: 9 });
+  it('يبني حمولة كاملة مع فئة/وحدة/سعر/ضريبة/حساب تكلفة، وtrack_quantity/sale_item/purchase_item ثابتة', () => {
+    const built = buildProductCreatePayload({ sku: 'SKU-1', name: 'منتج تجريبي', categoryId: 7, unitId: 9, sellingPrice: 100, buyingPrice: 60, taxId: 3, cogsAccountId: 12 });
     expect(built).toEqual({
       ok: true,
-      payload: { sku: 'SKU-1', name: 'منتج تجريبي', track_quantity: 1, sale_item: true, purchase_item: true, category_id: 7, product_unit_type_id: 9 },
+      payload: {
+        sku: 'SKU-1', name: 'منتج تجريبي', track_quantity: 1, sale_item: true, purchase_item: true,
+        category_id: 7, product_unit_type_id: 9, selling_price: 100, buying_price: 60, tax_id: 3, cogs_account_id: 12,
+      },
     });
   });
   it('يسقط على sku كاسم احتياطي لو لا اسم متاح', () => {
@@ -51,6 +54,16 @@ describe('buildProductCreatePayload', () => {
     expect(built.payload.name).toBe('SKU-2');
     expect(built.payload).not.toHaveProperty('category_id');
     expect(built.payload).not.toHaveProperty('product_unit_type_id');
+    expect(built.payload).not.toHaveProperty('tax_id');
+    expect(built.payload).not.toHaveProperty('cogs_account_id');
+  });
+  // [إضافة، إصلاح خطأ حقيقي — راجع تعليق رأس الدالة] منشأة عميل حقيقية رفضت
+  // POST /products فعليًا (422) بلا selling_price/buying_price كرقمين صريحين —
+  // الآن يُرسَلان دومًا، ولو غير مُمرَّرين فـ0 لا حذفًا.
+  it('selling_price/buying_price يُرسَلان دومًا كرقم (0 افتراضيًا) — لا يُحذَفان أبدًا', () => {
+    const built = buildProductCreatePayload({ sku: 'SKU-3' });
+    expect(built.payload.selling_price).toBe(0);
+    expect(built.payload.buying_price).toBe(0);
   });
   it('يفشل لو sku فارغ', () => {
     expect(buildProductCreatePayload({ name: 'بلا كود' }).ok).toBe(false);
@@ -173,6 +186,21 @@ describe('pushMissingEntitiesToQoyod', () => {
     expect(result.failed).toBe(2); // فشل الفئة + فشل المنتج المعتمِد عليها
     expect(result.entries.find((e) => e.kind === 'product').reason).toMatch(/فشل إنشاء الفئة/);
     expect(global.fetch).toHaveBeenCalledTimes(1); // فقط محاولة إنشاء الفئة، لا استدعاء لـ/products
+  });
+
+  // [إضافة، إصلاح خطأ حقيقي] راجع تعليق رأس buildProductCreatePayload — selling_price
+  // من بيانات بند المنتج نفسه، buying_price/cogs_account_id من افتراضيات الدفعة بـplan.
+  it('يمرّر sellingPrice/taxId لكل منتج وdefaultBuyingPrice/defaultCogsAccountId من الخطة لكل منتجاتها', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ product: { id: 500 } }) });
+    const plan = {
+      products: [{ sku: 'SKU-P', name: 'منتج', sellingPrice: 250, taxId: 7 }],
+      defaultBuyingPrice: 100,
+      defaultCogsAccountId: 33,
+    };
+    const result = await pushMissingEntitiesToQoyod(plan, 'KEY');
+    expect(result.sent).toBe(1);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.product).toMatchObject({ selling_price: 250, buying_price: 100, tax_id: 7, cogs_account_id: 33 });
   });
 
   it('يُنشئ موقعًا مع account_id المرسَل', async () => {

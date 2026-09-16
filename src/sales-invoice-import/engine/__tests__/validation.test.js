@@ -309,6 +309,21 @@ describe("computeMissingEntitiesPlan — [إضافة] خطة الكيانات ا
     expect(plan.products[0].unitFromFile).toBe('قطعة');
   });
 
+  // [إضافة، إصلاح خطأ حقيقي] راجع تعليق رأس buildProductCreatePayload بـ
+  // qoyodEntityCreate.js — منشأة عميل حقيقية رفضت إنشاء منتج بلا selling_price/
+  // tax_id حقيقيين؛ هذان الحقلان يأتيان من أول ظهور للمنتج بالملف (R/V).
+  it("يلتقط sellingPriceFromFile/taxLabelFromFile من R/V لأول ظهور للمنتج فقط", () => {
+    const rows = [
+      validRow({ id: 1, N: 'SKU-X', R: '99.5', V: '15%' }),
+      validRow({ id: 2, N: 'SKU-X', R: '999', V: '0%' }), // نفس المنتج بسعر/ضريبة مختلفين — يُتجاهَل (ليس أول ظهور)
+    ];
+    const refs = { products: { loaded: true, raw: null, bySku: new Map(), byName: new Map() } };
+    const { byRow } = runValidation(rows, refs);
+    const plan = computeMissingEntitiesPlan(rows, byRow, {});
+    expect(plan.products[0].sellingPriceFromFile).toBe(99.5);
+    expect(plan.products[0].taxLabelFromFile).toBe('15%');
+  });
+
   it("لا يلتقط أي عميل/منتج بلا code (مسار ملف مرجعي مرفوع يدويًا)", () => {
     const row = validRow({ C: 'CUST-X', N: 'SKU-X' });
     const refs = {

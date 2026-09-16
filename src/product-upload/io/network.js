@@ -48,7 +48,11 @@ export async function api(method, path, body, apiKey) {
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(PROXY_BASE + path, opts);
   const text = await resp.text();
-  if (!resp.ok) throw new Error(`API ${resp.status}: ${text.substring(0, 200)}`);
+  // [إصلاح] 200 حرف كانت تقطع رسائل 422 المتعددة الحقول (كل حقل ناقص برسالته
+  // الخاصة) في منتصف الجملة — حالة حقيقية وقعت فعليًا مع POST /products (راجع
+  // تعليق رأس buildProductCreatePayload بـqoyodEntityCreate.js)، فأخفت حقولًا
+  // ناقصة إضافية محتملة عن تقرير الفشل المعروض للمستخدم.
+  if (!resp.ok) throw new Error(`API ${resp.status}: ${text.substring(0, 1000)}`);
   return text ? JSON.parse(text) : {};
 }
 

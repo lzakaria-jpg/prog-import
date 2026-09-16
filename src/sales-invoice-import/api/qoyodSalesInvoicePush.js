@@ -70,7 +70,7 @@ const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليً�
 // وإلا مطابقة رقمية بالنسبة المئوية نفسها (تسامح 0.01) تحسبًا لأي فرق تنسيقي طفيف
 // (فاصلة عشرية زائدة، مسافة، إلخ) لم يمر فعليًا عبر snapTaxCategory. راجع تعليق الرأس
 // أعلاه لسبب الإصلاح.
-function resolveTaxEntry(vValue, taxesIndex) {
+export function resolveTaxEntry(vValue, taxesIndex) {
   if (!taxesIndex || !taxesIndex.byLabel) return undefined;
   const key = norm(vValue);
   const exact = taxesIndex.byLabel.get(key);
