@@ -128,12 +128,21 @@ export function runValidation(rows, refs = {}){
     // المنتج
     if(!isBlank(row.N) && products.loaded){
       const p = products.bySku.get(norm(row.N));
-      // [إضافة] code:'missing_product' فقط لو فهرس المنتجات مجلوب عبر API (products.raw===null
-      // — نفس التمييز المستخدم حرفيًا بـstockSimulation.js لمعرفة أصل البيانات): منتج غير
-      // موجود بملف مرجعي مرفوع يدويًا لا يمكن "إنشاؤه" (لا API متاح لذلك المسار أصلًا)، بينما
-      // منتج غير موجود بمنشأة العميل الحقيقية (API) قابل للإنشاء التلقائي — راجع
-      // MissingEntitiesReviewPanel/missingEntitiesPlan بالهوك.
-      if(!p) addIssue(row.id,'N','err',`السطر ${rn}: كود المنتج "${row.N}" غير موجود في تقرير المنتجات المرفوع.`, products.raw===null ? MISSING_PRODUCT_CODE : undefined);
+      // [تصحيح 2026-09-16، بلاغ اختبار حي] code:'missing_product' كان مقصورًا على
+      // products.raw===null (فهرس منتجات مجلوب عبر API) بحجة أن منتجًا "يُنشأ" من
+      // لوحة الكيانات الناقصة يحتاج نتيجة POST /products الحقيقية لا أي شيء من
+      // الملف اليدوي — لكن هذا صحيح فقط لمنتج يُنشأ فعليًا (المنشِئ نفسه يخزّن id
+      // الحقيقي من رد قيود دومًا — راجع resolveMissingEntities بالهوك)، لا لأصل
+      // فهرس المطابقة نفسه. نفس فلسفة إصلاح missing_customer أعلاه بالضبط: مستخدم
+      // رفع ملف منتجات يدويًا (بجانب عملاء/مواقع عبر API) لم يكن يستطيع إكمال
+      // الاستيراد إطلاقًا لأن كل منتج ناقص يبقى خطأً حاجبًا صلبًا بلا مسار إنشاء.
+      // الآن code:'missing_product' يُطبَّق دومًا؛ رسالة النص فقط تبقى تفرّق المصدر.
+      if(!p){
+        const msg = products.raw===null
+          ? `السطر ${rn}: كود المنتج "${row.N}" غير موجود بمنشأة العميل الحقيقية.`
+          : `السطر ${rn}: كود المنتج "${row.N}" غير موجود في تقرير المنتجات المرفوع.`;
+        addIssue(row.id,'N','err',msg, MISSING_PRODUCT_CODE);
+      }
       else if(p.sellable===false) addIssue(row.id,'N','err',`السطر ${rn}: المنتج "${p.name||row.N}" غير قابل للبيع (حالته "لا" في تقرير المنتجات) ولا يمكن اعتماده ضمن الاستيراد.`);
     }
     // العميل
