@@ -55,6 +55,12 @@ export default function useSalesInvoiceImportEngine() {
   const [productsRef, setProductsRef] = useState(EMPTY_REF);
   const [stockRef, setStockRef] = useState(EMPTY_REF);
   const [customersRef, setCustomersRef] = useState(EMPTY_REF);
+  // [إضافة] أكواد المنتجات المُنشأة حديثًا هذه الجلسة عبر resolveMissingEntities —
+  // منفصل تمامًا عن productsRef (الذي يحمل بياناتها الآن أيضًا). السبب الوحيد
+  // لوجوده: getStockTopUpNeeds (stockSimulation.js) يحتاج يميّز "منتج جديد رصيده
+  // صفر يقينًا" عن "منتج قديم بلا بيانات مخزون لسبب غامض" — راجع تعليق رأس تلك
+  // الدالة لتفصيل الخطأ الذي يمنعه هذا التمييز.
+  const [newlyCreatedSkus, setNewlyCreatedSkus] = useState(() => new Set());
   // [إضافة، غير مؤكَّد ميدانيًا] مشاريع منشأة العميل — تُملأ فقط عبر API (لا مسار
   // رفع يدوي مقابل لها، بخلاف الثلاثة أعلاه). راجع تعليق رأس fetchSalesReferencesFromApi.
   const [projectsRef, setProjectsRef] = useState(EMPTY_REF);
@@ -526,6 +532,7 @@ export default function useSalesInvoiceImportEngine() {
       });
       nextProductsRef = { ...productsRef, bySku, byName };
       setProductsRef(nextProductsRef);
+      setNewlyCreatedSkus((prev) => new Set([...prev, ...result.created.products.keys()]));
     }
     if (result.created && result.created.locations && result.created.locations.size) {
       const nextMap = new Map(locationIdByName || []);
@@ -569,7 +576,7 @@ export default function useSalesInvoiceImportEngine() {
   // [إضافة] يحسب احتياج تغذية المخزون الفعلي (raw، لا نصوصًا) من الحالة الحالية —
   // يُستدعى من StockShortageReviewPanel (عبر Step4Export.jsx) عند اختيار مسار
   // "تغذية المخزون تلقائيًا" لبناء adjustments أعلاه (مجمَّعة حسب inventory_id).
-  const getStockTopUpPlan = useCallback(() => getStockTopUpNeeds(rows, { productsIndex: productsRef, stockIndex: stockRef }), [rows, productsRef, stockRef]);
+  const getStockTopUpPlan = useCallback(() => getStockTopUpNeeds(rows, { productsIndex: productsRef, stockIndex: stockRef, newSkus: newlyCreatedSkus }), [rows, productsRef, stockRef, newlyCreatedSkus]);
 
   // [إضافة] "إعادة تعيين" — مسح كل بيانات الجلسة الحالية (الملفات المرفوعة/المجلوبة، الصفوف،
   // نتائج التحقق والتصدير والإرسال) والعودة للخطوة 1، بنفس مبدأ resetAll بأداتي الشجرة
@@ -614,6 +621,7 @@ export default function useSalesInvoiceImportEngine() {
     setStockTopUpResult(null);
     setStockTopUpEntries([]);
     setStockTopUpProgress({ current: 0, total: 0 });
+    setNewlyCreatedSkus(new Set());
   }, [revokePrevExportUrl]);
 
   /* ========================= التنقل بين الخطوات ========================= */

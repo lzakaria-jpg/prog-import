@@ -148,6 +148,25 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([]);
   });
 
+  // [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (resolveMissingEntities) لا يملك
+  // أي مدخل بـstockIndex.byKey (بُني قبل إنشائه) — بلا هذا الإصلاح كان يقع بنفس
+  // فرع "لا بيانات كمية" أعلاه فيُستبعَد من التغذية كليًا، فتبقى فاتورته معتمدة على
+  // draft_if_out_of_stock الصامت بدل تغذية فعلية — يناقض هدف الميزة بالضبط لأهم
+  // حالة تخدمها (منتج جديد كليًا، لا منتج قديم ناقص الكمية فقط).
+  it("منتج جديد ضمن newSkus بلا أي مدخل بالفهرس ⇒ يُعامَل كصفر، والنقص = الكمية المطلوبة كاملة", () => {
+    const rows = [createRow(1, { N: 'SKU-NEW', G: 'الرياض', P: '7' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-NEW']) });
+    expect(needs).toEqual([{ sku: 'SKU-NEW', loc: 'الرياض', shortfall: 7 }]);
+  });
+
+  it("منتج قديم بلا بيانات كمية (ليس ضمن newSkus) ⇒ يبقى مستبعدًا كما كان — لا نفترض صفرًا لمنتج قائم فعليًا", () => {
+    const rows = [createRow(1, { N: 'SKU-OLD', G: 'جدة', P: '4' })];
+    const apiStockIndex = { raw: null, byKey: new Map() };
+    const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-OTHER']) });
+    expect(needs).toEqual([]);
+  });
+
   it("منتجات/مواقع مختلفة تُحسَب بشكل مستقل عن بعضها", () => {
     const rows = [
       createRow(1, { N: 'SKU-1', G: 'الرياض', P: '15' }),

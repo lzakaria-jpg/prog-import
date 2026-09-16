@@ -60,7 +60,18 @@ export function checkStockSequential(rows, {productsIndex, stockIndex} = {}){
 // بعد أن يختار المستخدم صراحةً هذا المسار. فقط لمسار المخزون المجلوب عبر API
 // (stockIndex.raw===null) — بلا هذا الشرط لا يوجد رقم مخزون حقيقي (inventory_id)
 // لنرسل له تعديل مخزون أصلًا، ولا معنى لتغذية آلية بلا API فعلي.
-export function getStockTopUpNeeds(rows, {productsIndex, stockIndex} = {}){
+//
+// [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (عبر resolveMissingEntities) لا
+// يملك أي مدخل بـstockIndex.byKey إطلاقًا (الفهرس بُني من جلب /products قبل
+// إنشائه) — بلا newSkus، كان "لا مدخل" يُعامَل كـ"لا تتوفر بيانات" (rem=null)
+// فيُتجاهَل تمامًا هنا (needs تبقى فارغة له)، فيبقى معتمدًا على draft_if_out_of_stock
+// الصامت بدل التغذية الفعلية — يناقض صراحةً هدف الميزة (ضمان فاتورة معتمدة
+// لمنتج جديد، لا مسودة صامتة). الآن: مدخل غائب لكود منتج ضمن newSkus (أُنشئ
+// حديثًا، نعرف يقينًا أن رصيده صفر قبل أي إنشاء) يُعامَل كـ0 فيُحسَب نقصه كاملًا؛
+// أي منتج آخر غائب من الفهرس (موجود مسبقًا لكن بلا بيانات مخزون لسبب آخر — حالة
+// غامضة حقًا) يبقى بسلوكه الأصلي بلا تغيير (يُتجاهَل هنا، يبقى تحذيرًا فقط
+// بـcheckStockSequential) — تمييز مقصود، لا نفترض صفرًا لمنتج قائم فعليًا.
+export function getStockTopUpNeeds(rows, {productsIndex, stockIndex, newSkus} = {}){
   const needs = new Map(); // sku||loc -> {sku, loc, shortfall}
   if(!stockIndex || stockIndex.raw !== null) return [];
   const running = new Map();
@@ -73,7 +84,8 @@ export function getStockTopUpNeeds(rows, {productsIndex, stockIndex} = {}){
     if(prod && prod.stocked===false) return;
     const key = sku+'||'+loc;
     if(!running.has(key)){
-      const avail = stockIndex.byKey.has(key) ? stockIndex.byKey.get(key) : null;
+      const known = stockIndex.byKey.has(key);
+      const avail = known ? stockIndex.byKey.get(key) : (newSkus && newSkus.has(sku) ? 0 : null);
       running.set(key, avail===null ? null : avail);
     }
     const rem = running.get(key);
