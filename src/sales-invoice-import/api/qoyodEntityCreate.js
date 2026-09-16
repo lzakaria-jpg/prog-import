@@ -144,14 +144,26 @@ export function buildLocationCreatePayload({ name, accountId } = {}) {
 }
 
 /**
- * lineItems: [{productId, quantity}] — actual_quantity تُرسَل نصًا (مواصفة Qoyod
- * الرسمية: نوعها string، مثال "50.0") لا رقمًا. date افتراضيًا اليوم (قرار صريح
- * من المستخدم: "اليوم، الأبسط" — لا محاولة اشتقاق تاريخ محاسبي "صحيح").
+ * lineItems: [{productId, quantity, rate}] — actual_quantity/rate تُرسَلان نصًا
+ * (مواصفة Qoyod الرسمية: نوعهما string، مثال "50.0"/"25.00") لا رقمًا. date
+ * افتراضيًا اليوم (قرار صريح من المستخدم: "اليوم، الأبسط" — لا محاولة اشتقاق
+ * تاريخ محاسبي "صحيح").
+ *
+ * [إصلاح خطأ حقيقي، اختبار حي 2026-09-16] المواصفة الرسمية تصف rate/description
+ * كحقلين اختياريين — لكن منشأة العميل الحقيقية رفضت POST /inventory_adjustments
+ * فعليًا بلا كليهما (422: "internal_line_items.value: Must be greater than 0"
+ * — القيمة المحاسبية = rate×الكمية، صفر بلا rate؛ "description: Please enter
+ * the description"). description نص ثابت معقول (لا معنى لطلبه من المستخدم لكل
+ * تعديل)؛ rate يأتي من سعر بيع المنتج بالفاتورة نفسها (لا بيانات تكلفة حقيقية
+ * متاحة من فاتورة مبيعات — راجع تعليق getStockTopUpNeeds بـstockSimulation.js)،
+ * ويُفرَض >0 صراحةً هنا (لا نرسل طلبًا مصيره الرفض المؤكَّد بصمت).
  */
 export function buildInventoryAdjustmentPayload({ inventoryId, revenueAccountId, expenseAccountId, date, lineItems } = {}) {
   if (!inventoryId) return { ok: false, error: 'معرّف الموقع (inventory_id) مفقود' };
   if (!revenueAccountId || !expenseAccountId) return { ok: false, error: 'حساب الإيراد/المصروف لتعديل المخزون مفقود' };
   if (!lineItems || !lineItems.length) return { ok: false, error: 'لا توجد بنود منتجات لتغذية المخزون' };
+  const badRate = lineItems.find((l) => !(typeof l.rate === 'number' && l.rate > 0));
+  if (badRate) return { ok: false, error: `سعر تكلفة الوحدة (rate) مفقود أو غير صالح للمنتج (معرّف ${badRate.productId}) — لا يمكن إرسال تعديل مخزون بقيمة صفرية.` };
   return {
     ok: true,
     payload: {
@@ -160,8 +172,9 @@ export function buildInventoryAdjustmentPayload({ inventoryId, revenueAccountId,
         revenue_account_id: revenueAccountId,
         expense_account_id: expenseAccountId,
         date: date || todayIsoDate(),
+        description: 'تغذية مخزون افتتاحي — استيراد فواتير مبيعات',
         status: 'Completed',
-        line_items: lineItems.map((l) => ({ product_id: l.productId, actual_quantity: String(l.quantity) })),
+        line_items: lineItems.map((l) => ({ product_id: l.productId, actual_quantity: String(l.quantity), rate: String(l.rate) })),
       },
     },
   };
