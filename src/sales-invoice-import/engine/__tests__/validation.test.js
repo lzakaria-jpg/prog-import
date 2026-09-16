@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups, computeMissingEntitiesPlan, MISSING_CUSTOMER_CODE, MISSING_PRODUCT_CODE } from "../validation.js";
+import { runValidation, findInvoicesMissingLocation, getValidOnlyRows, getStockShortageDraftGroups, computeMissingEntitiesPlan, MISSING_CUSTOMER_CODE, MISSING_PRODUCT_CODE, MISSING_LOCATION_CODE } from "../validation.js";
 import { createRow } from "../rows.js";
 
 function validRow(overrides) {
@@ -99,6 +99,45 @@ describe("runValidation — القوائم المنسدلة مقابل القا�
     const row = validRow({ H: 'شيك' });
     const { byRow } = runValidation([row], { template });
     expect(byRow[row.id].H[0].sev).toBe('warn');
+  });
+});
+
+// [إضافة، إصلاح خطأ حقيقي] راجع تعليق فصل شرط G برأس validation.js — كان
+// الموقع يُتحقَّق منه حصرًا مقابل template.dropdowns.G (لقطة ثابتة وقت رفع
+// القالب) حتى مع توفر فهرس مواقع حقيقي حي مجلوب عبر API، بلا أي code يستثنيه
+// من hardErr — يمنع الوصول للوحة الكيانات الناقصة بالخطوة 4 لأي موقع جديد
+// فعليًا موجود أو قابل للإنشاء (بلاغ اختبار حي 2026-09-16: موقع حقيقي موجود
+// بمنشأة العميل رُفض كـ"غير موجود بالقالب" فقط لأن القالب لم يتضمّنه وقت رفعه).
+describe("runValidation — الموقع (G) مقابل locationIdByName الحقيقي (API) — [إضافة، إصلاح خطأ حقيقي]", () => {
+  const template = { loaded: true, dropdowns: { G: ['الرياض'], V: ['15%'], H: [] } };
+
+  it("locationIdByName حقيقي متاح وموقع غير مطابق ⇒ خطأ بكود missing_location (يُستبعَد من hardErr لاحقًا)", () => {
+    const row = validRow({ G: 'فرع جديد' });
+    const locationIdByName = new Map([['الرياض', 1]]); // لا يحوي "فرع جديد" — لكن هذا فهرس API حقيقي (غير فارغ)
+    const { byRow } = runValidation([row], { template, locationIdByName });
+    expect(byRow[row.id].G[0]).toMatchObject({ sev: 'err', code: MISSING_LOCATION_CODE });
+  });
+
+  it("locationIdByName حقيقي يحتوي الموقع فعليًا ⇒ لا خطأ إطلاقًا، حتى لو غائب عن قائمة القالب الثابتة", () => {
+    // نفس السيناريو الحي بالضبط: موقع حقيقي بمنشأة العميل لكن غير مذكور بالقالب
+    // الثابت (لم يكن موجودًا وقت تصدير/رفع ذلك الملف).
+    const row = validRow({ G: 'موقع جديد غير موجود بالقالب' });
+    const locationIdByName = new Map([['موقع جديد غير موجود بالقالب', 5]]);
+    const { byRow } = runValidation([row], { template, locationIdByName });
+    expect(byRow[row.id]?.G).toBeUndefined();
+  });
+
+  it("بلا locationIdByName إطلاقًا (لا جلب API) ⇒ يبقى التحقق مقابل القالب الثابت كما كان تمامًا (بلا code)", () => {
+    const row = validRow({ G: 'مدينة غير معروفة' });
+    const { byRow } = runValidation([row], { template });
+    expect(byRow[row.id].G[0]).toEqual({ sev: 'err', msg: expect.stringContaining('غير موجود في قائمة المواقع المحمَّلة من القالب') });
+    expect(byRow[row.id].G[0].code).toBeUndefined();
+  });
+
+  it("locationIdByName فارغة (Map بلا عناصر) ⇒ تُعامَل كـ'غير متاحة'، التحقق يبقى مقابل القالب الثابت", () => {
+    const row = validRow({ G: 'مدينة غير معروفة' });
+    const { byRow } = runValidation([row], { template, locationIdByName: new Map() });
+    expect(byRow[row.id].G[0].code).toBeUndefined();
   });
 });
 

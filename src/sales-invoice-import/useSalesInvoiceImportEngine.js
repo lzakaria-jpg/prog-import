@@ -147,8 +147,8 @@ export default function useSalesInvoiceImportEngine() {
   }, []);
 
   const refs = useMemo(() => ({
-    template, products: productsRef, customers: customersRef, stock: stockRef, taxes: taxesRef,
-  }), [template, productsRef, customersRef, stockRef, taxesRef]);
+    template, products: productsRef, customers: customersRef, stock: stockRef, taxes: taxesRef, locationIdByName,
+  }), [template, productsRef, customersRef, stockRef, taxesRef, locationIdByName]);
 
   // [إضافة] أسماء المواقع الحقيقية المجلوبة عبر API (نفس مفاتيح locationIdByName)
   // — تُستخدَم كقائمة منسدلة بديلة لعمود الموقع (G) بلا قالب مرفوع (GridCell.jsx).
@@ -403,7 +403,7 @@ export default function useSalesInvoiceImportEngine() {
     // بالخطوة 3 (Step3Validate.jsx) وبوابة الحجب الثانوية بالخطوة 4 (Step4Export.jsx)
     // بدل stats.err الخام — ملف مشاكله الوحيدة كيانات ناقصة قابلة للإنشاء يجب أن
     // يصل لخطوة المراجعة/الإرسال، لا أن يُحجَب بالكامل قبلها.
-    const hardErrCount = issues.list.filter((i) => i.sev === 'err' && i.code !== 'missing_customer' && i.code !== 'missing_product').length;
+    const hardErrCount = issues.list.filter((i) => i.sev === 'err' && i.code !== 'missing_customer' && i.code !== 'missing_product' && i.code !== 'missing_location').length;
     const groups = groupRowsByInvoiceRef(rows);
     let okInvoices = 0;
     groups.forEach((rowsInGroup, key) => {
@@ -538,16 +538,20 @@ export default function useSalesInvoiceImportEngine() {
       setProductsRef(nextProductsRef);
       setNewlyCreatedSkus((prev) => new Set([...prev, ...result.created.products.keys()]));
     }
+    let nextLocationIdByName = locationIdByName;
     if (result.created && result.created.locations && result.created.locations.size) {
-      const nextMap = new Map(locationIdByName || []);
-      result.created.locations.forEach(({ id }, name) => { nextMap.set(name, id); });
-      setLocationIdByName(nextMap);
+      nextLocationIdByName = new Map(locationIdByName || []);
+      result.created.locations.forEach(({ id }, name) => { nextLocationIdByName.set(name, id); });
+      setLocationIdByName(nextLocationIdByName);
     }
 
     setRows((prev) => {
       const resolved = resolveNamesToRefs(prev, false, nextCustomersRef, nextProductsRef).rows;
       const filled = fillDownHeaderFields(resolved);
-      const nextRefs = { ...refs, customers: nextCustomersRef, products: nextProductsRef };
+      // [إصلاح] locationIdByName هنا يجب أن يعكس الموقع المُنشأ للتو بنفس هذا
+      // الاستدعاء — refs.locationIdByName وحدها تبقى القيمة القديمة (setLocationIdByName
+      // أعلاه لن ينعكس إلا بإعادة رسم لاحقة)، فتُعاد محاكاة نقص الموقع خطأً هنا مباشرة.
+      const nextRefs = { ...refs, customers: nextCustomersRef, products: nextProductsRef, locationIdByName: nextLocationIdByName };
       setIssues(runValidation(filled, nextRefs));
       return filled;
     });
