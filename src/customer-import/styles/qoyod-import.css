@@ -46,7 +46,6 @@
 /* [إعادة تصميم] رأس الأداة — نفس تكوين رأس MergeTool.jsx (أيقونة كحلية مربّعة
    الزوايا خفيفة الانحناء + عنوان/عنوان فرعي) بدل الشريط المتدرّج السابق. */
 .qci-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
-.qci-header-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--qci-accent); color: #fff; font-size: 20px; box-shadow: var(--qci-shadow-card); }
 .qci-header-title { min-width: 0; }
 .qci-header h1 { font-size: 19px; color: var(--qci-ink); line-height: 1.35; }
 .qci-header .sub { font-size: 12.5px; color: var(--qci-ink-2); margin-top: 2px; }

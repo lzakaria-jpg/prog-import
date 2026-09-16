@@ -1,5 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle } from "react";
 import { useLanguage } from "../language.jsx";
+import ToolIcon from "../lib/ToolIcon.jsx";
 import useProductUploadEngine from "./useProductUploadEngine.js";
 import ApiKeyCard from "./components/ApiKeyCard.jsx";
 import FileUploadCard from "./components/FileUploadCard.jsx";
@@ -46,7 +47,7 @@ const ProductUploadTool = forwardRef(function ProductUploadTool({ showHeader = t
         // بدل الشريط المتدرّج السابق — بلا أي تأثير على منطق الأداة.
         <header className="qpu-header">
           <div className="qpu-header-left">
-            <div className="qpu-header-icon" aria-hidden="true">📦</div>
+            <ToolIcon name="products" />
             <div className="qpu-header-title">
               <h1>{t({ ar: "أداة رفع المنتجات إلى قيود", en: "Product Upload to Qoyod" })}</h1>
               <p>{t({ ar: "ترفع منتجات العميل مباشرة إلى حساب Qoyod الخاص به عبر مفتاح API — الفئات والوحدات المفقودة تُنشأ تلقائياً.", en: "Uploads the customer's products directly to their Qoyod account via API key — missing categories and units are created automatically." })}</p>

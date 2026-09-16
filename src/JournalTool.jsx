@@ -9,6 +9,7 @@ import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport
 import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
+import ToolIcon from "./lib/ToolIcon.jsx";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
 // [إضافة] وضع API — جلب شجرة الحسابات/العملاء/الموردين/المشاريع من منشأة
@@ -1249,9 +1250,12 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     <div dir={dir} className="h-full w-full overflow-auto font-cairo" style={{ color: COLORS.ink }}>
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8">
         <div className="mb-6 flex items-center justify-between border-b pb-4" style={{ borderColor: COLORS.line }}>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" })}</h1>
-            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
+          <div className="flex items-center gap-3">
+            <ToolIcon name="journal" />
+            <div>
+              <h1 className="text-xl font-bold tracking-tight" style={{ color: COLORS.teal }}>{t({ ar: "تحليل القيود واستيرادها", en: "Analyze & Import Entries" })}</h1>
+              <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{t({ ar: "ارفع شجرة الحسابات وملف القيود، وسيتم فحصها وتجهيزها للاستيراد تلقائياً", en: "Upload the chart of accounts and the journal file — they will be audited and prepared for import automatically" })}</p>
+            </div>
           </div>
           {(chartAccounts || entries) && (
             <button onClick={resetAll} className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs" style={{ borderColor: COLORS.line, color: COLORS.tealLight }}>

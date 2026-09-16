@@ -3,10 +3,11 @@ import * as XLSX from "xlsx";
 import * as d3 from "d3";
 import {
   Upload, Download, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
-  FileSpreadsheet, Sparkles, Copy, Settings2, ArrowRight, Info, Loader2,
+  Sparkles, Copy, Settings2, ArrowRight, Info, Loader2,
   Search, X, GitBranch, Pencil, Plus, Trash2, Wand2, Layers, Send, KeyRound, StopCircle, Minus,
 } from "lucide-react";
 import { useLanguage } from "./language";
+import ToolIcon from "./lib/ToolIcon.jsx";
 import { useAuth } from "./auth";
 import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityTracker";
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
@@ -2490,7 +2491,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
       <div className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-8 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-sm" style={{ background: "#162560" }}><FileSpreadsheet size={22} /></div>
+            <ToolIcon name="accounts" />
             <div>
               <h1 className="text-xl font-bold text-[#0F172A]">{t({ ar: "تحليل الشجرة واستيرادها", en: "Analyze & Import Chart of Accounts" })}</h1>
               <p className="text-sm text-[#64748B]">{t({ ar: "استخراج الحسابات الجديدة الناقصة وتحديد الأنواع والفئات تلقائيًا", en: "Extract missing new accounts and auto-assign types & categories" })}</p>
