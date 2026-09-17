@@ -139,7 +139,12 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
   // لتقليل عدد الطلبات)، ثم إرسال كل الفواتير بالحالة المطلوبة أصلًا (لا Draft قسرًا)
   // — فقط لو نجحت التغذية بالكامل (راجع topUpStockAndFinish بالهوك). نفس بوابة
   // مراجعة حسابات الدفع (hasReceipts) تُطبَّق هنا أيضًا قبل التنفيذ الفعلي.
-  const handleTopUpConfirm = async ({ revenueAccountId, expenseAccountId }) => {
+  // [تصحيح 2026-09-17، خطأ محاسبي فادح حسب المستخدم] rate لكل بند لم يعد يأتي
+  // من n.rate (كان يُشتَق تلقائيًا من سعر البيع بـgetStockTopUpNeeds، أُزيل
+  // كليًا هناك) — يأتي الآن من costBySku، إدخال يدوي إلزامي لكل SKU بلوحة
+  // المراجعة نفسها (StockShortageReviewPanel) قبل تفعيل زر التأكيد أصلًا؛
+  // date كذلك من اختيار المستخدم الصريح بنفس اللوحة (لم يعد "اليوم" ثابتًا).
+  const handleTopUpConfirm = async ({ revenueAccountId, expenseAccountId, date, costBySku }) => {
     setShowStockReview(false);
     const needs = engine.getStockTopUpPlan();
     const byInventory = new Map();
@@ -147,8 +152,8 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
       const product = engine.productsRef.bySku ? engine.productsRef.bySku.get(n.sku) : null;
       const inventoryId = engine.locationIdByName ? engine.locationIdByName.get(n.loc) : undefined;
       if (!product || product.id == null || inventoryId === undefined) return;
-      if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, ref: n.loc, lineItems: [] });
-      byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall, rate: n.rate });
+      if (!byInventory.has(inventoryId)) byInventory.set(inventoryId, { inventoryId, revenueAccountId, expenseAccountId, date, ref: n.loc, lineItems: [] });
+      byInventory.get(inventoryId).lineItems.push({ productId: product.id, quantity: n.shortfall, rate: parseFloat(costBySku[n.sku]), sku: n.sku, loc: n.loc });
     });
     const adjustments = Array.from(byInventory.values());
     if (hasReceipts) {

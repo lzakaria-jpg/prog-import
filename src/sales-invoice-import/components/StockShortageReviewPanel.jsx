@@ -1,7 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { fetchAll } from '../../product-upload/io/network.js';
+import { isRevenueAccount, isExpenseAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
+
+function todayIsoDate() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 const accountLabel = (a) => `${a.code ? a.code + ' — ' : ''}${a.name_ar || a.name_en || ''}`;
 
@@ -24,11 +33,16 @@ const accountLabel = (a) => `${a.code ? a.code + ' — ' : ''}${a.name_ar || a.n
  * كل الفواتير (بما فيها المحفوفة بالمخاطر) بالحالة المطلوبة أصلًا (مثلًا معتمدة)
  * بدل إجبارها Draft. هذا قيد محاسبي حقيقي ودائم بدفاتر العميل الحية — يظهر تحذير
  * واضح بالأثر المحاسبي (عربي/إنجليزي) لا يمكن تفويته، ويحتاج المستخدم اختيار
- * حساب إيراد/مصروف صراحةً لكل ضغطة. onTopUpConfirm({revenueAccountId,
- * expenseAccountId}) اختياري تمامًا — بلا تمريره (أو apiKey فارغ)، لا يظهر هذا
- * الخيار إطلاقًا (نفس الخيارين الأصليين أعلاه يبقيان متاحين دومًا).
+ * حساب إيراد/مصروف صراحةً لكل ضغطة، تاريخًا لعملية الجرد، وسعر تكلفة (rate)
+ * يدويًا لكل منتج ناقص (راجع تعليق رأس getStockTopUpNeeds بـstockSimulation.js
+ * — [تصحيح 2026-09-17، خطأ محاسبي فادح] لم يعد يُشتَق تلقائيًا من سعر البيع
+ * إطلاقًا). onTopUpConfirm({revenueAccountId, expenseAccountId, date, costBySku})
+ * اختياري تمامًا — بلا تمريره (أو apiKey فارغ)، لا يظهر هذا الخيار إطلاقًا
+ * (نفس الخيارين الأصليين أعلاه يبقيان متاحين دومًا). stockTopUpNeeds (مطلوب
+ * لو onTopUpConfirm مُمرَّرة): نفس ناتج engine.getStockTopUpPlan() — [{sku,
+ * loc, shortfall}] — لعرض جدول التكلفة اليدوية لكل منتج ناقص فعليًا.
  */
-export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, apiKey, onTopUpConfirm }) {
+export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, apiKey, onTopUpConfirm, stockTopUpNeeds }) {
   const { t } = useLanguage();
   const [checked, setChecked] = useState(() => new Set(groups.map((g) => g.ref)));
 
@@ -40,7 +54,24 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
   const [expenseAccountId, setExpenseAccountId] = useState('');
   const [ackImpact, setAckImpact] = useState(false);
   const [accountsProgress, setAccountsProgress] = useState(0);
-  const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  // [إضافة، طلب صريح من المستخدم 2026-09-17] حساب الإيراد يعرض حسابات "إيراد"
+  // فقط، وحساب المصروف يعرض حسابات "مصروف" فقط — نفس فلسفة تصفية حسابات
+  // المنتج بلوحة الكيانات الناقصة تمامًا. راجع تعليق رأس engine/accountFilters.js.
+  const revenueAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isRevenueAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  const expenseAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isExpenseAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+
+  // [إضافة، تصحيح 2026-09-17، خطأ محاسبي فادح حسب المستخدم] القيمة المخزنية
+  // المُرحَّلة بقيد تعديل المخزون تُحسَب بسعر البيع خطأً سابقًا (rate تلقائي من
+  // row.R بـgetStockTopUpNeeds) — سعر البيع ليس سعر التكلفة (هامش الربح يفصل
+  // بينهما). الآن المستخدم يُدخِل متوسط التكلفة الحقيقي يدويًا لكل منتج (مفتاحه
+  // sku فقط — نفس المنتج بأكثر من موقع ناقص يشارك نفس التكلفة المُدخَلة)، إلزاميًا
+  // وبلا أي قيمة افتراضية (لا تخمين، لا سعر بيع كبديل احتياطي كما كان). تاريخ
+  // عملية الجرد نفسها صار اختيارًا صريحًا أيضًا (كان "اليوم" ثابتًا دومًا).
+  const [costBySku, setCostBySku] = useState({});
+  const [topUpDate, setTopUpDate] = useState(() => todayIsoDate());
+  const needs = stockTopUpNeeds || [];
+  const distinctSkus = useMemo(() => Array.from(new Map(needs.map((n) => [n.sku, n])).values()), [needs]);
+  const allCostsValid = distinctSkus.every((n) => { const c = parseFloat(costBySku[n.sku]); return !isNaN(c) && c > 0; });
 
   useEffect(() => {
     if (!showTopUp || !apiKey || accounts.length) return;
@@ -130,13 +161,61 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                   <div style={{ flex: '1 1 220px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب الإيراد (للزيادة)', en: 'Revenue account (for increases)' })}</label>
-                    <SearchableSelect options={accountOptions} value={revenueAccountId} onChange={setRevenueAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                    <SearchableSelect options={revenueAccountOptions} value={revenueAccountId} onChange={setRevenueAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                   </div>
                   <div style={{ flex: '1 1 220px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب المصروف (للنقص)', en: 'Expense account (for decreases)' })}</label>
-                    <SearchableSelect options={accountOptions} value={expenseAccountId} onChange={setExpenseAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                    <SearchableSelect options={expenseAccountOptions} value={expenseAccountId} onChange={setExpenseAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                  </div>
+                  <div style={{ flex: '1 1 160px' }}>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'تاريخ عملية الجرد', en: 'Stock-take date' })}</label>
+                    <input type="date" value={topUpDate} onChange={(e) => setTopUpDate(e.target.value)} />
                   </div>
                 </div>
+
+                {distinctSkus.length > 0 && (
+                  <>
+                    <p className="qsv-hint" style={{ marginBottom: 6 }}>
+                      {t({
+                        ar: '⚠️ إلزامي: أدخل متوسط سعر التكلفة الحقيقي لكل منتج — هذا ما ينعكس فعليًا على قيمة المخزون بدفاتر العميل. لا تدخل سعر البيع.',
+                        en: '⚠️ Required: enter the real average cost price for each product — this is what actually posts to the client\'s inventory valuation. Do not enter the selling price.',
+                      })}
+                    </p>
+                    <table className="qsv-send-table" style={{ marginBottom: 10 }}>
+                      <thead>
+                        <tr>
+                          <th>{t({ ar: 'كود المنتج', en: 'SKU' })}</th>
+                          <th>{t({ ar: 'المواقع الناقصة', en: 'Short locations' })}</th>
+                          <th>{t({ ar: 'إجمالي النقص', en: 'Total shortfall' })}</th>
+                          <th>{t({ ar: 'متوسط سعر التكلفة *', en: 'Average cost price *' })}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {distinctSkus.map((n) => {
+                          const skuNeeds = needs.filter((x) => x.sku === n.sku);
+                          const totalShortfall = skuNeeds.reduce((s, x) => s + x.shortfall, 0);
+                          return (
+                            <tr key={n.sku}>
+                              <td style={{ fontFamily: 'monospace' }}>{n.sku}</td>
+                              <td>{skuNeeds.map((x) => x.loc).join('، ')}</td>
+                              <td>{totalShortfall}</td>
+                              <td>
+                                <input
+                                  type="number" step="0.01" min="0"
+                                  value={costBySku[n.sku] ?? ''}
+                                  onChange={(e) => setCostBySku((prev) => ({ ...prev, [n.sku]: e.target.value }))}
+                                  placeholder={t({ ar: 'سعر التكلفة...', en: 'Cost price...' })}
+                                  style={{ width: 120 }}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 10 }}>
                   <input type="checkbox" checked={ackImpact} onChange={(e) => setAckImpact(e.target.checked)} />
                   {t({ ar: 'أفهم أن هذا سيُنشئ قيدًا محاسبيًا حقيقيًا ودائمًا بدفاتر العميل الحية.', en: 'I understand this will create a real, permanent accounting entry in the client\'s live books.' })}
@@ -146,8 +225,8 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                   <button
                     type="button"
                     className="qsv-btn"
-                    disabled={!revenueAccountId || !expenseAccountId || !ackImpact}
-                    onClick={() => onTopUpConfirm({ revenueAccountId, expenseAccountId })}
+                    disabled={!revenueAccountId || !expenseAccountId || !ackImpact || !topUpDate || !allCostsValid}
+                    onClick={() => onTopUpConfirm({ revenueAccountId, expenseAccountId, date: topUpDate, costBySku })}
                   >
                     ✅ {t({ ar: 'تأكيد التغذية وإرسال كل الفواتير', en: 'Confirm top-up & send all invoices' })}
                   </button>

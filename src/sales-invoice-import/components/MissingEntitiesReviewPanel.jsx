@@ -4,6 +4,7 @@ import { normKey } from '../engine/text.js';
 import { fetchAll, api } from '../../product-upload/io/network.js';
 import { buildCategoryCreatePayload, buildUnitCreatePayload } from '../api/qoyodEntityCreate.js';
 import { resolveTaxEntry } from '../api/qoyodSalesInvoicePush.js';
+import { isExpenseAccount, isRevenueAccount, isInventoryAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
 
 const normLower = (s) => (s || '').trim().toLowerCase();
@@ -77,7 +78,18 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
 
   // [إضافة] خيارات SearchableSelect — تُبنى مرة واحدة من القوائم المجلوبة، تُعاد
   // حسابها فقط عند تغيّرها فعليًا (accounts/categories/units).
-  const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  // [إضافة، طلب صريح من المستخدم 2026-09-17] كل حقل حساب يعرض فقط الحسابات
+  // المناسبة لنوعه — لا دليل الحسابات كاملًا كما كان: تكلفة المبيعات (COGS)
+  // ⇐ حسابات "مصروف" فقط، الإيراد ⇐ حسابات "إيراد" فقط، حساب الموقع ⇐ حسابات
+  // "مخزون" فقط (استدلالي — راجع تعليق رأس engine/accountFilters.js للقيد
+  // المعروف: GET /accounts لا يكشف تصنيف الحساب الدقيق، فالمخزون تحديدًا
+  // يُطابَق بكلمة مفتاحية بالاسم/group_type، بتراجع آمن لكل حسابات الأصول لو
+  // لم يطابق شيئًا بدل حقل بلا أي خيار). البحث اليدوي بالكود/الاسم يبقى متاحًا
+  // دومًا (SearchableSelect) لأي حساب لم تلتقطه التصفية.
+  const toAccountOptions = (list) => list.map((a) => ({ value: a.id, label: accountLabel(a) }));
+  const cogsAccountOptions = useMemo(() => toAccountOptions(filterAccountsWithFallback(accounts, isExpenseAccount)), [accounts]);
+  const salesAccountOptions = useMemo(() => toAccountOptions(filterAccountsWithFallback(accounts, isRevenueAccount)), [accounts]);
+  const locationAccountOptions = useMemo(() => toAccountOptions(filterAccountsWithFallback(accounts, isInventoryAccount)), [accounts]);
   const categoryOptions = useMemo(() => categories.map((c) => ({ value: c.name, label: c.name })), [categories]);
   const unitOptions = useMemo(() => units.map((u) => ({ value: u.unit_name, label: u.unit_name })), [units]);
   const taxOptions = useMemo(() => (taxesIndex && taxesIndex.byLabel ? Array.from(taxesIndex.byLabel.keys()).map((k) => ({ value: k, label: k })) : []), [taxesIndex]);
@@ -335,11 +347,11 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                 </div>
                 <div style={{ flex: '1 1 240px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب تكلفة المبيعات (COGS) الافتراضي — إلزامي *', en: 'Default cost-of-sales (COGS) account — required *' })}</label>
-                  <SearchableSelect options={accountOptions} value={cogsAccountId} onChange={setCogsAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                  <SearchableSelect options={cogsAccountOptions} value={cogsAccountId} onChange={setCogsAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                 </div>
                 <div style={{ flex: '1 1 240px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'حساب الإيراد الافتراضي — إلزامي *', en: 'Default revenue account — required *' })}</label>
-                  <SearchableSelect options={accountOptions} value={salesAccountId} onChange={setSalesAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
+                  <SearchableSelect options={salesAccountOptions} value={salesAccountId} onChange={setSalesAccountId} placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })} />
                 </div>
                 <div style={{ flex: '1 1 160px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'سعر التكلفة الافتراضي (buying price)', en: 'Default cost price (buying price)' })}</label>
@@ -443,7 +455,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                       <td>{l.typedName}</td>
                       <td>
                         <SearchableSelect
-                          options={accountOptions}
+                          options={locationAccountOptions}
                           value={locationAccountId[l.typedName] || ''}
                           onChange={(v) => setLocationAccountId((prev) => ({ ...prev, [l.typedName]: v || undefined }))}
                           placeholder={t({ ar: 'اكتب كود أو اسم الحساب...', en: 'Type account code or name...' })}
