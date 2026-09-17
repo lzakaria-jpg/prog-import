@@ -143,7 +143,7 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     ];
     const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
-    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 3, rate: 0 }]); // rem بعد السطر الأول = 2، والمطلوب 5 ⇒ نقص 3، بلا R بالصفوف ⇒ rate:0
+    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 3 }]); // rem بعد السطر الأول = 2، والمطلوب 5 ⇒ نقص 3
   });
 
   it("نقص متكرر لنفس المنتج/الموقع بأكثر من سطر ⇒ يُجمَع (لا آخر قيمة فقط)", () => {
@@ -153,20 +153,22 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     ];
     const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
-    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 8, rate: 0 }]);
+    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 8 }]);
   });
 
-  // [إضافة، إصلاح خطأ حقيقي، اختبار حي 2026-09-16] راجع تعليق رأس الدالة —
-  // POST /inventory_adjustments يرفض فعليًا بلا rate>0 (القيمة المحاسبية تصير
-  // صفرًا). rate يُشتَق من سعر الوحدة (R) بأول ظهور للمنتج/الموقع بالملف.
-  it("سعر الوحدة (R) بأول سطر يُستخدَم كـrate — لا يتغيّر بتكرار المنتج/الموقع بسطر لاحق بسعر مختلف", () => {
+  // [تصحيح 2026-09-17، خطأ محاسبي فادح حسب المستخدم] راجع تعليق رأس الدالة —
+  // rate لم يعد يُشتَق تلقائيًا من سعر البيع (R) إطلاقًا (سعر البيع ≠ سعر
+  // التكلفة، والفرق بينهما هو هامش الربح نفسه) — needs لا تحمل rate بعد الآن،
+  // مهما كانت قيمة R بالملف؛ المستخدم يُدخِل التكلفة يدويًا بلوحة المراجعة.
+  it("R بالملف لا يؤثر إطلاقًا على needs — لا rate ضمن الناتج مهما كانت قيمته", () => {
     const rows = [
       createRow(1, { N: 'SKU-1', G: 'الرياض', P: '15', R: '100' }),
       createRow(2, { N: 'SKU-1', G: 'الرياض', P: '3', R: '999' }),
     ];
     const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10 })) };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
-    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 8, rate: 100 }]);
+    expect(needs).toEqual([{ sku: 'SKU-1', loc: 'الرياض', shortfall: 8 }]);
+    expect(needs[0]).not.toHaveProperty('rate');
   });
 
   it("مخزون مرفوع يدويًا (raw غير null) ⇒ مصفوفة فارغة دومًا (لا معنى للتغذية بلا API)", () => {
@@ -197,7 +199,7 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
   it("منتج/موقع بلا بيانات كمية أصلًا بمسار API ⇒ يُعامَل كصفر (النقص = الكمية المطلوبة كاملة)، لا استبعاد بعد الآن", () => {
     const rows = [createRow(1, { N: 'SKU-9', G: 'جدة', P: '1' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
-    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([{ sku: 'SKU-9', loc: 'جدة', shortfall: 1, rate: 0 }]);
+    expect(getStockTopUpNeeds(rows, { stockIndex: apiStockIndex })).toEqual([{ sku: 'SKU-9', loc: 'جدة', shortfall: 1 }]);
   });
 
   // [إصلاح خطأ حقيقي] منتج أُنشئ للتو هذه الجلسة (resolveMissingEntities) لا يملك
@@ -209,14 +211,14 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     const rows = [createRow(1, { N: 'SKU-NEW', G: 'الرياض', P: '7' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-NEW']) });
-    expect(needs).toEqual([{ sku: 'SKU-NEW', loc: 'الرياض', shortfall: 7, rate: 0 }]);
+    expect(needs).toEqual([{ sku: 'SKU-NEW', loc: 'الرياض', shortfall: 7 }]);
   });
 
   it("منتج قديم بلا بيانات كمية (ليس ضمن newSkus) بمسار API ⇒ يُعامَل كصفر أيضًا الآن (نفس أي مفتاح غائب بمسار API)", () => {
     const rows = [createRow(1, { N: 'SKU-OLD', G: 'جدة', P: '4' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newSkus: new Set(['SKU-OTHER']) });
-    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'جدة', shortfall: 4, rate: 0 }]);
+    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'جدة', shortfall: 4 }]);
   });
 
   // [إضافة] المسار اليدوي النظري (raw!==null) يبقى بسلوكه الأصلي — لا تغذية
@@ -236,7 +238,7 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     const rows = [createRow(1, { N: 'SKU-OLD', G: 'فرع جديد', P: '9' })];
     const apiStockIndex = { raw: null, byKey: new Map() };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex, newLocations: new Set(['فرع جديد']) });
-    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'فرع جديد', shortfall: 9, rate: 0 }]);
+    expect(needs).toEqual([{ sku: 'SKU-OLD', loc: 'فرع جديد', shortfall: 9 }]);
   });
 
   it("منتجات/مواقع مختلفة تُحسَب بشكل مستقل عن بعضها", () => {
@@ -247,8 +249,8 @@ describe("getStockTopUpNeeds — [إضافة] احتياج تغذية المخز
     const apiStockIndex = { raw: null, byKey: new Map(Object.entries({ 'SKU-1||الرياض': 10, 'SKU-2||جدة': 10 })) };
     const needs = getStockTopUpNeeds(rows, { stockIndex: apiStockIndex });
     expect(needs.sort((a, b) => a.sku.localeCompare(b.sku))).toEqual([
-      { sku: 'SKU-1', loc: 'الرياض', shortfall: 5, rate: 0 },
-      { sku: 'SKU-2', loc: 'جدة', shortfall: 2, rate: 0 },
+      { sku: 'SKU-1', loc: 'الرياض', shortfall: 5 },
+      { sku: 'SKU-2', loc: 'جدة', shortfall: 2 },
     ]);
   });
 });

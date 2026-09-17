@@ -609,6 +609,37 @@ export default function useSalesInvoiceImportEngine() {
     });
     setStockTopUpResult(result);
     setStockTopUpBusy(false);
+    // [إضافة، طلب صريح من المستخدم 2026-09-17] بلا هذا، إعادة إرسال/إعادة تحقق
+    // الملف بعد تغذية ناجحة فعليًا تعيد حساب نفس النقص من stockRef القديم (لم
+    // يتغيّر) وتعرض/تُنشئ تغذية مخزون مكرَّرة لنفس الكمية — نُحدِّث stockRef.byKey
+    // فورًا بكل تعديل نجح فعليًا (adj.ref يطابق entry بنفس الاسم — كل تعديل
+    // مُجمَّع حسب الموقع أصلًا، راجع handleTopUpConfirm/getStockTopUpPlan)، بصرف
+    // النظر عن نجاح التغذية بالكامل أو جزئيًا (تعديل موقع نجح يبقى نجاحًا حقيقيًا
+    // بدفاتر قيود حتى لو فشل تعديل موقع آخر بنفس الدفعة). nextStockRef يُحسَب
+    // محليًا (لا refs.stock مباشرة — نفس نمط resolveMissingEntities تمامًا، القيمة
+    // الجديدة يجب أن تُستخدَم بنفس هذا الاستدعاء لإعادة المحاكاة فورًا لا بإعادة
+    // رسم لاحقة) ثم تُستخدَم لكل من setStockRef وrunValidation فورًا.
+    let nextStockRef = stockRef;
+    if (stockRef && stockRef.byKey) {
+      const entriesByRef = new Map(result.entries.map((e) => [e.ref, e]));
+      let changed = false;
+      const nextByKey = new Map(stockRef.byKey);
+      (adjustments || []).forEach((adj) => {
+        const entry = entriesByRef.get(adj.ref);
+        if (!entry || entry.status !== 'success') return;
+        (adj.lineItems || []).forEach((li) => {
+          if (!li.sku || !li.loc) return;
+          const k = li.sku + '||' + li.loc;
+          nextByKey.set(k, (nextByKey.has(k) ? nextByKey.get(k) : 0) + li.quantity);
+          changed = true;
+        });
+      });
+      if (changed) {
+        nextStockRef = { ...stockRef, byKey: nextByKey };
+        setStockRef(nextStockRef);
+        setIssues(runValidation(rows, { ...refs, stock: nextStockRef }));
+      }
+    }
     // [إصلاح خطأ حقيقي] كان الإرسال يكمل دومًا حتى لو فشلت تغذية مخزون واحدة أو
     // أكثر فعليًا (422 من قيود، مثلًا) — الفواتير تُرسَل رغم ذلك، والمخزون
     // الحقيقي لم يزد فعليًا، فتُنشأ الفواتير كمسودة صامتة بلا أي تنبيه بأن سبب
@@ -618,7 +649,7 @@ export default function useSalesInvoiceImportEngine() {
     // ليعرض تنبيهًا صريحًا بدل المتابعة بصمت.
     if (result.failed > 0 || result.fatalError) return result;
     return sendInvoicesViaApi(key, sendOpts);
-  }, [sendInvoicesViaApi]);
+  }, [sendInvoicesViaApi, stockRef, rows, refs]);
 
   const stopStockTopUp = useCallback(() => { stockTopUpStoppedRef.current.current = true; }, []);
 

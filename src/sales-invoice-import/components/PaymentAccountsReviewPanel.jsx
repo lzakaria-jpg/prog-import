@@ -3,6 +3,7 @@ import { useLanguage } from '../../language.jsx';
 import { norm } from '../engine/text.js';
 import { parseDateParts } from '../engine/dates.js';
 import { fetchAll } from '../../product-upload/io/network.js';
+import { isCashOrBankAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
 
 const accountLabel = (a) => `${a.code ? a.code + ' — ' : ''}${a.name_ar || a.name_en || ''}`;
@@ -33,7 +34,14 @@ export default function PaymentAccountsReviewPanel({ receiptsPlan, apiKey, onCan
   const [accountIdByCode, setAccountIdByCode] = useState({}); // accountCode -> accountId
   const [error, setError] = useState('');
 
-  const accountOptions = useMemo(() => accounts.map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  // [إضافة، طلب صريح من المستخدم 2026-09-17] القائمة تعرض فقط حسابات الأصول
+  // المتداولة القابلة للدفع/التحصيل بها (نقدية/بنك) — راجع تعليق رأس
+  // engine/accountFilters.js للقيد المعروف (استدلالي، بتراجع آمن لكل حسابات
+  // الأصول لو لم يطابق شيء بدل حقل بلا أي خيار).
+  const accountOptions = useMemo(
+    () => filterAccountsWithFallback(accounts, isCashOrBankAccount).map((a) => ({ value: a.id, label: accountLabel(a) })),
+    [accounts],
+  );
 
   useEffect(() => {
     let cancelled = false;
