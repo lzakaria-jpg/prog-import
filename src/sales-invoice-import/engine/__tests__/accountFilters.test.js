@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isExpenseAccount, isRevenueAccount, isCashOrBankAccount, isInventoryAccount, filterAccountsWithFallback } from '../accountFilters.js';
+import { isExpenseAccount, isRevenueAccount, isEquityAccount, isRevenueOrEquityAccount, isExpenseOrEquityAccount, isCashOrBankAccount, isInventoryAccount, filterAccountsWithFallback } from '../accountFilters.js';
 
 const expenseAcc = { id: 1, type: 'Expense', group_type: 'Cost of Sales', name_ar: 'تكلفة البضاعة المباعة' };
 const revenueAcc = { id: 2, type: 'Revenue', group_type: 'Sales', name_ar: 'إيرادات المبيعات' };
@@ -8,6 +8,7 @@ const cashAcc = { id: 4, type: 'Asset', group_type: 'Current Assets', name_ar: '
 const inventoryAcc = { id: 5, type: 'Asset', group_type: 'Current Assets', name_ar: 'مخزون البضائع' };
 const receivableAcc = { id: 6, type: 'Asset', group_type: 'Current Assets', name_ar: 'العملاء' };
 const liabilityAcc = { id: 7, type: 'Liability', group_type: 'Current Liabilities', name_ar: 'الموردون' };
+const equityAcc = { id: 8, type: 'Equity', group_type: 'Equity', name_ar: 'الأرباح المُحتجزة' };
 
 describe('isExpenseAccount / isRevenueAccount', () => {
   it('يعتمد على type فقط (طلب صريح: مصروف/إيراد عام، لا تكلفة مبيعات تحديدًا)', () => {
@@ -15,6 +16,25 @@ describe('isExpenseAccount / isRevenueAccount', () => {
     expect(isExpenseAccount(revenueAcc)).toBe(false);
     expect(isRevenueAccount(revenueAcc)).toBe(true);
     expect(isRevenueAccount(expenseAcc)).toBe(false);
+  });
+});
+
+describe('isEquityAccount / isRevenueOrEquityAccount / isExpenseOrEquityAccount', () => {
+  it('يميّز حساب حقوق الملكية بمفرده', () => {
+    expect(isEquityAccount(equityAcc)).toBe(true);
+    expect(isEquityAccount(revenueAcc)).toBe(false);
+  });
+
+  // [إضافة، طلب صريح من المستخدم 2026-09-17] تسوية جرد مخزون افتتاحي تُرحَّل
+  // غالبًا لحقوق الملكية لا إيراد/مصروف تشغيلي فعلي — حساب حقوق الملكية يظهر
+  // بكلا قائمتَي الإيراد والمصروف الخاصتين بتسوية المخزون.
+  it('حساب حقوق الملكية يُقبَل ضمن قائمة الإيراد وقائمة المصروف معًا', () => {
+    expect(isRevenueOrEquityAccount(equityAcc)).toBe(true);
+    expect(isExpenseOrEquityAccount(equityAcc)).toBe(true);
+  });
+
+  it('حساب إيراد عادي لا يُقبَل ضمن قائمة المصروف رغم الدمج مع حقوق الملكية', () => {
+    expect(isExpenseOrEquityAccount(revenueAcc)).toBe(false);
   });
 });
 

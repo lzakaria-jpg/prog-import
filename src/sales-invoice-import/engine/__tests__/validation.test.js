@@ -41,6 +41,42 @@ describe("runValidation — الحقول الإلزامية على مستوى ا
   });
 });
 
+// [إضافة، طلب صريح من المستخدم 2026-09-17] تاريخ الاستحقاق (E) لا يصح أن
+// يسبق تاريخ الإصدار (D) — خطأ حاجب صريح بلا code (بيانات خاطئة، لا كيان
+// قابل للإنشاء التلقائي).
+describe("runValidation — تاريخ الاستحقاق (E) لا يسبق تاريخ الإصدار (D)", () => {
+  it("الاستحقاق قبل الإصدار ⇒ خطأ حاجب على عمود E", () => {
+    const row = validRow({ D: '10/01/2026', E: '01/01/2026' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id].E.some(i => i.sev === 'err' && i.msg.includes('لا يمكن أن يكون قبل تاريخ الإصدار'))).toBe(true);
+  });
+  it("الاستحقاق بنفس تاريخ الإصدار ⇒ لا خطأ (>= مقبول)", () => {
+    const row = validRow({ D: '10/01/2026', E: '10/01/2026' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id]?.E).toBeUndefined();
+  });
+  it("الاستحقاق بعد الإصدار ⇒ لا خطأ", () => {
+    const row = validRow({ D: '01/01/2026', E: '10/01/2026' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id]?.E).toBeUndefined();
+  });
+  it("الاستحقاق فارغ (اختياري) ⇒ لا خطأ إطلاقًا مهما كان تاريخ الإصدار", () => {
+    const row = validRow({ D: '10/01/2026', E: '' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id]?.E).toBeUndefined();
+  });
+  it("أحد التاريخين غير قابل للقراءة أصلًا ⇒ لا تُطبَّق مقارنة السبق (خطأ صيغة التاريخ يكفي وحده)", () => {
+    const row = validRow({ D: '10/01/2026', E: 'ليس تاريخًا' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id].E.some(i => i.msg.includes('لا يمكن أن يكون قبل تاريخ الإصدار'))).toBe(false);
+  });
+  it("صف سند قبض (docType) ⇒ لا تُطبَّق هذي القاعدة إطلاقًا (D لسند القبض تاريخه هو، لا تاريخ إصدار فاتورة)", () => {
+    const row = createRow(1, { A: 'INV-1', C: 'C-1', docType: 'سند قبض', D: '01/01/2026', E: '01/01/2020', paymentAmount: '500', paymentAccountCode: '1102' });
+    const { byRow } = runValidation([row]);
+    expect(byRow[row.id].E?.some(i => i.msg.includes('لا يمكن أن يكون قبل تاريخ الإصدار'))).toBeFalsy();
+  });
+});
+
 describe("runValidation — قواعد الأرقام", () => {
   it("الكمية صفر أو سالبة ⇒ خطأ", () => {
     const row = validRow({ P: '0' });

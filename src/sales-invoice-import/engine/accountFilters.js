@@ -29,7 +29,15 @@ function accountText(a) {
 
 export const isExpenseAccount = (a) => a?.type === 'Expense';
 export const isRevenueAccount = (a) => a?.type === 'Revenue';
+export const isEquityAccount = (a) => a?.type === 'Equity';
 export const isAssetAccount = (a) => a?.type === 'Asset';
+
+// [إضافة، طلب صريح من المستخدم 2026-09-17] حسابا الإيراد/المصروف بتسوية جرد
+// المخزون (POST /inventory_adjustments) يجب أن يعرضا حسابات حقوق الملكية أيضًا
+// بجانب الإيراد/المصروف — تسوية مخزون افتتاحي غالبًا تُرحَّل محاسبيًا لحساب
+// أرباح مُحتجزة/حقوق ملكية لا حساب إيراد/مصروف تشغيلي فعلي لفترة حالية.
+export const isRevenueOrEquityAccount = (a) => isRevenueAccount(a) || isEquityAccount(a);
+export const isExpenseOrEquityAccount = (a) => isExpenseAccount(a) || isEquityAccount(a);
 
 export const isCashOrBankAccount = (a) => isAssetAccount(a) && CASH_BANK_KEYWORDS.some((kw) => accountText(a).includes(kw));
 export const isInventoryAccount = (a) => isAssetAccount(a) && INVENTORY_KEYWORDS.some((kw) => accountText(a).includes(kw));

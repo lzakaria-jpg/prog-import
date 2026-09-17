@@ -287,6 +287,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
         <StockShortageReviewPanel
           groups={stockShortageGroups}
           apiKey={apiKeyInput.trim()}
+          stockTopUpNeeds={engine.getStockTopUpPlan()}
           onCancel={() => setShowStockReview(false)}
           onConfirm={handleStockReviewConfirm}
           onTopUpConfirm={handleTopUpConfirm}

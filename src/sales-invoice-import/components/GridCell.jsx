@@ -21,7 +21,11 @@ export default function GridCell({ row, col, template, customersRef, productsRef
     return (
       <input
         {...dataAttrs}
-        type="date" className={cls} title={title}
+        // [إضافة، طلب صريح من المستخدم 2026-09-17] lang="en" يفرض أرقامًا/تقويمًا
+        // إنجليزيًا (ميلادي، أرقام لاتينية) على عنصر <input type="date"> الأصلي،
+        // بصرف النظر عن lang="ar" الموروث من <html> (language.jsx) — المتصفح
+        // يعرض واجهة التقويم/الأرقام حسب lang العنصر نفسه لا اتجاه الصفحة (dir).
+        type="date" lang="en" className={cls} title={title}
         value={fromDMY(val) || val}
         onChange={(e) => onChange(e.target.value)}
       />

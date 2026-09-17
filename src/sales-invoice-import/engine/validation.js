@@ -100,6 +100,18 @@ export function runValidation(rows, refs = {}){
 
     if(!isBlank(row.S) && !['نعم','لا'].includes(norm(row.S))) addIssue(row.id,'S','err',`السطر ${rn}: "شامل الضريبة؟" يجب أن تكون نعم أو لا فقط.`);
 
+    // [إضافة، طلب صريح من المستخدم 2026-09-17] تاريخ الاستحقاق (E) لا يصح أن
+    // يسبق تاريخ الإصدار (D) — لا معنى محاسبيًا لفاتورة "مستحقة" قبل إصدارها
+    // أصلًا. خطأ حاجب صريح بلا code (بيانات خاطئة بالملف، لا كيان قابل للإنشاء
+    // التلقائي) يمنع الوصول للخطوة 4 حتى تُصحَّح القيمة بالملف/الجدول.
+    if(!isBlank(row.D) && !isBlank(row.E)){
+      const pD = parseDateParts(row.D), pE = parseDateParts(row.E);
+      if(pD && pE){
+        const dVal = pD.y*10000 + pD.m*100 + pD.d, eVal = pE.y*10000 + pE.m*100 + pE.d;
+        if(eVal < dVal) addIssue(row.id,'E','err',`السطر ${rn}: تاريخ الاستحقاق (${row.E}) لا يمكن أن يكون قبل تاريخ الإصدار (${row.D}).`);
+      }
+    }
+
     // القوائم المنسدلة مقابل القالب
     if(template.loaded){
       if(!isBlank(row.V) && !template.dropdowns.V.includes(norm(row.V))) addIssue(row.id,'V','err',`السطر ${rn}: قيمة الضريبة "${row.V}" غير مطابقة لأي فئة ضريبية في القالب.`);

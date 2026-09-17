@@ -355,7 +355,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
                 </div>
                 <div style={{ flex: '1 1 160px' }}>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'سعر التكلفة الافتراضي (buying price)', en: 'Default cost price (buying price)' })}</label>
-                  <input type="number" step="0.01" value={buyingPriceDraft} onChange={(e) => setBuyingPriceDraft(e.target.value)} />
+                  <input type="number" lang="en" step="0.01" value={buyingPriceDraft} onChange={(e) => setBuyingPriceDraft(e.target.value)} />
                   <p className="qsv-hint" style={{ margin: '4px 0 0' }}>{t({ ar: 'فاتورة المبيعات لا تحمل تكلفة شراء — 0 افتراضيًا، عدّله لاحقًا بقيود لو لزم.', en: 'A sales invoice carries no cost data — defaults to 0, adjust later in Qoyod if needed.' })}</p>
                 </div>
                 {hasRealTaxes && (

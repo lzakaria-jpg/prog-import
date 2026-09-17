@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { fetchAll } from '../../product-upload/io/network.js';
-import { isRevenueAccount, isExpenseAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
+import { isRevenueOrEquityAccount, isExpenseOrEquityAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
 
 function todayIsoDate() {
@@ -55,10 +55,11 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
   const [ackImpact, setAckImpact] = useState(false);
   const [accountsProgress, setAccountsProgress] = useState(0);
   // [إضافة، طلب صريح من المستخدم 2026-09-17] حساب الإيراد يعرض حسابات "إيراد"
-  // فقط، وحساب المصروف يعرض حسابات "مصروف" فقط — نفس فلسفة تصفية حسابات
-  // المنتج بلوحة الكيانات الناقصة تمامًا. راجع تعليق رأس engine/accountFilters.js.
-  const revenueAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isRevenueAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
-  const expenseAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isExpenseAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  // وحسابات "حقوق ملكية" معًا، وحساب المصروف يعرض حسابات "مصروف" وحسابات
+  // "حقوق ملكية" معًا — تسوية جرد مخزون افتتاحي غالبًا تُرحَّل لحقوق الملكية لا
+  // إيراد/مصروف تشغيلي فعلي. راجع تعليق رأس engine/accountFilters.js.
+  const revenueAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isRevenueOrEquityAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
+  const expenseAccountOptions = useMemo(() => filterAccountsWithFallback(accounts, isExpenseOrEquityAccount).map((a) => ({ value: a.id, label: accountLabel(a) })), [accounts]);
 
   // [إضافة، تصحيح 2026-09-17، خطأ محاسبي فادح حسب المستخدم] القيمة المخزنية
   // المُرحَّلة بقيد تعديل المخزون تُحسَب بسعر البيع خطأً سابقًا (rate تلقائي من
@@ -169,7 +170,7 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                   </div>
                   <div style={{ flex: '1 1 160px' }}>
                     <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--qsv-muted)' }}>{t({ ar: 'تاريخ عملية الجرد', en: 'Stock-take date' })}</label>
-                    <input type="date" value={topUpDate} onChange={(e) => setTopUpDate(e.target.value)} />
+                    <input type="date" lang="en" value={topUpDate} onChange={(e) => setTopUpDate(e.target.value)} />
                   </div>
                 </div>
 
@@ -201,7 +202,7 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                               <td>{totalShortfall}</td>
                               <td>
                                 <input
-                                  type="number" step="0.01" min="0"
+                                  type="number" lang="en" step="0.01" min="0"
                                   value={costBySku[n.sku] ?? ''}
                                   onChange={(e) => setCostBySku((prev) => ({ ...prev, [n.sku]: e.target.value }))}
                                   placeholder={t({ ar: 'سعر التكلفة...', en: 'Cost price...' })}
