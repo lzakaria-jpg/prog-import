@@ -185,7 +185,7 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                     <table className="qsv-send-table" style={{ marginBottom: 10 }}>
                       <thead>
                         <tr>
-                          <th>{t({ ar: 'كود المنتج', en: 'SKU' })}</th>
+                          <th>{t({ ar: 'المنتج', en: 'Product' })}</th>
                           <th>{t({ ar: 'المواقع الناقصة', en: 'Short locations' })}</th>
                           <th>{t({ ar: 'إجمالي النقص', en: 'Total shortfall' })}</th>
                           <th>{t({ ar: 'متوسط سعر التكلفة *', en: 'Average cost price *' })}</th>
@@ -197,7 +197,14 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
                           const totalShortfall = skuNeeds.reduce((s, x) => s + x.shortfall, 0);
                           return (
                             <tr key={n.sku}>
-                              <td style={{ fontFamily: 'monospace' }}>{n.sku}</td>
+                              <td>
+                                {/* [إضافة، طلب صريح من المستخدم 2026-09-17] اسم
+                                    المنتج فوق بخط كحلي غامق، وكوده تحته أصغر
+                                    ورفيع برمادي — name قد يغيب (منتج لم يُحمَّل
+                                    فهرسه بعد) فيبقى الكود وحده ظاهرًا كما كان. */}
+                                {n.name && <div style={{ fontWeight: 700, color: '#1e3a5f' }}>{n.name}</div>}
+                                <div style={{ fontFamily: 'monospace', fontSize: n.name ? 11 : undefined, fontWeight: n.name ? 300 : undefined, color: n.name ? '#8a8f98' : undefined }}>{n.sku}</div>
+                              </td>
                               <td>{skuNeeds.map((x) => x.loc).join('، ')}</td>
                               <td>{totalShortfall}</td>
                               <td>

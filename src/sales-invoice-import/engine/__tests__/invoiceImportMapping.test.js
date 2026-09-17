@@ -115,6 +115,27 @@ describe("applyInvoiceImportMapping — استنتاج شامل الضريبة �
     const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
     expect(importedRows[0].S).toBe('نعم');
   });
+
+  // [إضافة، إصلاح خطأ حقيقي 2026-09-17] راجع تعليق رأس groupBaseUsable —
+  // فاتورة بأكثر من سطر (بلا _lineTotal، فقط _grandTotal للفاتورة كاملة)
+  // تعتمد استنتاج S على مقارنة *مجموع* (كمية×سعر) لكل سطورها بالإجمالي —
+  // سند قبض بنفس المرجع (كمية/سعر فارغَين دومًا) كان يُسقِط هذا المجموع
+  // بالكامل (groupBaseUsable=false)، فيرتد كل سطر فاتورة لمقارنة سطره
+  // المفرد وحده بالإجمالي الكامل، فيُستنتَج 'لا' خطأً رغم تطابق المجموع الحقيقي.
+  it("سند قبض بنفس مرجع فاتورة متعددة السطور لا يُفسِد استنتاج شامل الضريبة (لا يُسقِط groupBaseUsable)", () => {
+    const headers = ['Type', 'Ref', 'Qty', 'Price', 'Grand', 'Date', 'Cust', 'Loc', 'SKU'];
+    const rawRows = [
+      ['فاتورة', 'INV-1', '2', '50', '115', '01/01/2026', 'C-1', 'الرياض', 'SKU-1'], // 2×50=100
+      ['فاتورة', 'INV-1', '1', '15', '115', '01/01/2026', 'C-1', 'الرياض', 'SKU-2'], // 1×15=15، المجموع=115
+      ['سند قبض', 'INV-1', '', '', '', '01/01/2026', 'C-1', '', ''],
+    ];
+    const mapping = { A: 'Ref', P: 'Qty', R: 'Price', D: 'Date', C: 'Cust', G: 'Loc', N: 'SKU', _grandTotal: 'Grand', _docType: 'Type' };
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, mapping, {}, rowFactory());
+    const invoiceRows = importedRows.filter((r) => r.docType !== 'سند قبض');
+    expect(invoiceRows).toHaveLength(2);
+    expect(invoiceRows[0].S).toBe('نعم');
+    expect(invoiceRows[1].S).toBe('نعم');
+  });
 });
 
 describe("applyInvoiceImportMapping — تفريغ الخصم الصفري وتوحيد نسبة الخصم", () => {
@@ -317,5 +338,38 @@ describe("applyInvoiceImportMapping — تعبئة رأس الفاتورة وت�
     expect(importedRows[1].D).toBe('01/01/2026');
     expect(importedRows[1].C).toBe('C-1');
     expect(importedRows[1].G).toBe('الرياض');
+  });
+});
+
+// [إضافة، طلب صريح من المستخدم 2026-09-17] راجع تعليق رأس normalizeDueDate
+// بـengine/dates.js — يُطبَّق بعد fillDownHeaderFields على القيم النهائية.
+describe("applyInvoiceImportMapping — [إضافة] تطبيع تاريخ الاستحقاق (E) مقابل الإصدار (D)", () => {
+  const baseMapping = { A: 'Ref', P: 'Qty', R: 'Price', D: 'Date', E: 'Due', C: 'Cust', G: 'Loc', N: 'SKU' };
+  const headers = ['Ref', 'Qty', 'Price', 'Date', 'Due', 'Cust', 'Loc', 'SKU'];
+
+  it("استحقاق فارغ ⇒ يُملأ بتاريخ الإصدار", () => {
+    const rawRows = [['INV-1', '2', '50', '10/01/2026', '', 'C-1', 'الرياض', 'SKU-1']];
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, baseMapping, {}, rowFactory());
+    expect(importedRows[0].E).toBe('10/01/2026');
+  });
+
+  it("استحقاق بعد الإصدار ⇒ يُقصَر على تاريخ الإصدار", () => {
+    const rawRows = [['INV-1', '2', '50', '01/01/2026', '10/01/2026', 'C-1', 'الرياض', 'SKU-1']];
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, baseMapping, {}, rowFactory());
+    expect(importedRows[0].E).toBe('01/01/2026');
+  });
+
+  it("استحقاق قبل الإصدار ⇒ يبقى كما هو تمامًا (يُحتَرم)", () => {
+    const rawRows = [['INV-1', '2', '50', '10/01/2026', '01/01/2026', 'C-1', 'الرياض', 'SKU-1']];
+    const { importedRows } = applyInvoiceImportMapping(rawRows, headers, baseMapping, {}, rowFactory());
+    expect(importedRows[0].E).toBe('01/01/2026');
+  });
+
+  it("صف سند قبض (_docType) ⇒ لا يُطبَّق التطبيع عليه إطلاقًا", () => {
+    const rcHeaders = [...headers, 'Type'];
+    const mapping = { ...baseMapping, _docType: 'Type' };
+    const rawRows = [['INV-1', '', '', '15/01/2026', '01/01/2020', 'C-1', '', '', 'سند قبض']];
+    const { importedRows } = applyInvoiceImportMapping(rawRows, rcHeaders, mapping, {}, rowFactory());
+    expect(importedRows[0].E).toBe('01/01/2020'); // كما كُتب بالملف، بلا أي تعديل
   });
 });

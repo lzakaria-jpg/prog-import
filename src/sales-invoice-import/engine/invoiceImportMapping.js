@@ -13,9 +13,11 @@ import { norm, normKey, isBlank, normalizeNumericText } from './text.js';
 import { guessColumnsBatch } from './columnMatching.js';
 import { columnValues, sampleValuesFor, analyzeColumnShape, dateLikeRatio, normalizeDateToDMY } from './columnShape.js';
 import { normalizeYesNo, normalizePercentValue, normalizeDiscountPercentNumber, parseRateFromDropdownLabel, deriveTaxInclusive, deriveTaxRate, snapTaxCategory } from './taxAndDiscount.js';
+import { normalizeDueDate } from './dates.js';
 import { rowGet } from './referenceIndexes.js';
 import { resolveNamesToRefs } from './resolveNames.js';
 import { fillDownHeaderFields, forwardFillInvoiceRef } from './rows.js';
+import { isReceiptRow } from './receipts.js';
 
 // من renderInvoiceImportMappingUI (أسطر 1101-1172 و 1186-1189 لجزء التخمين، بلا أي HTML/DOM).
 // refs: {template:{loaded,dropdowns}, customers:{loaded}, products:{loaded}} (لأخذ قرارات الاستنتاج بالقيم فقط).
@@ -122,8 +124,17 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
   const groupLineCount = new Map();
   const groupBaseSum = new Map();
   const groupBaseUsable = new Map();
+  // [إضافة، إصلاح خطأ حقيقي 2026-09-17] صف "سند قبض" (mapping._docType) لا
+  // يحمل كمية/سعر بند حقيقيَين إطلاقًا (blank دومًا) — كان يدخل هذا الحساب
+  // كأي صف عادي، فيُسقِط groupBaseUsable للمجموعة كاملة إلى false (لا معنى
+  // محاسبيًا لـNaN×NaN) فور وجود أي سند قبض بنفس مرجع الفاتورة، فيُعطَّل
+  // استنتاج "شامل الضريبة؟" لكل الفاتورة الحقيقية بصمت رغم توفر بياناتها
+  // كاملة. يُستبعَد هنا تمامًا قبل أي حساب.
+  const docTypeH = mapping._docType;
+  const isReceiptRawRow = (r) => docTypeH ? isReceiptRow({ docType: norm(rowGet(r, headers, docTypeH)) }) : false;
   if(refH){
     rawRows.forEach(r=>{
+      if(isReceiptRawRow(r)) return;
       const key = normKey(norm(rowGet(r, headers, refH)));
       if(!key) return;
       groupLineCount.set(key, (groupLineCount.get(key) || 0) + 1);
@@ -300,7 +311,18 @@ export function applyInvoiceImportMapping(rawRows, headers, mapping, refs, creat
   // ثم تُكرَّر بيانات رأس الفاتورة على كل صفوف نفس المرجع.
   const resolved = resolveNamesToRefs(refFilledRows, true, refs.customers, refs.products);
   resolved.ambiguities.forEach(a=>ambiguities.push(a));
-  const finalRows = fillDownHeaderFields(resolved.rows);
+  const filledRows = fillDownHeaderFields(resolved.rows);
+
+  // [إضافة، طلب صريح من المستخدم 2026-09-17] تطبيع تاريخ الاستحقاق (E) مقابل
+  // تاريخ الإصدار (D) بعد اكتمال كل التعبئة/التوريث أعلاه (القيم النهائية لكل
+  // صف) — راجع تعليق رأس normalizeDueDate بـengine/dates.js للقاعدة الكاملة.
+  // لا تُطبَّق على صف "سند قبض" (D لسند القبض تاريخه هو، لا تاريخ إصدار فاتورة
+  // — راجع تعليق رأس engine/receipts.js).
+  const finalRows = filledRows.map(row => {
+    if(isReceiptRow(row) || isBlank(row.D)) return row;
+    const normalizedE = normalizeDueDate(row.D, row.E);
+    return normalizedE === row.E ? row : {...row, E: normalizedE};
+  });
 
   return {importedRows: finalRows, ambiguities};
 }
