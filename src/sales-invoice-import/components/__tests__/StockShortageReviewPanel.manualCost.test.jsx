@@ -16,6 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const MOCK_ACCOUNTS = [
   { id: 10, code: '4001', type: 'Revenue', name_ar: 'إيرادات المبيعات' },
   { id: 20, code: '5001', type: 'Expense', name_ar: 'المصروفات التشغيلية' },
+  { id: 30, code: '3001', type: 'Equity', name_ar: 'الأرباح المُحتجزة' },
 ];
 
 function mockAccountsFetch() {
@@ -133,7 +134,7 @@ describe('StockShortageReviewPanel — سعر التكلفة اليدوي إلز
     expect(arg.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('حساب الإيراد يعرض حسابات Revenue فقط، وحساب المصروف يعرض حسابات Expense فقط', async () => {
+  it('حساب الإيراد يعرض حسابات Revenue+Equity، وحساب المصروف يعرض حسابات Expense+Equity', async () => {
     mockAccountsFetch();
     const { container, root } = renderPanel({ onTopUpConfirm: vi.fn() });
     cleanup.push({ root, container });
@@ -144,7 +145,7 @@ describe('StockShortageReviewPanel — سعر التكلفة اليدوي إلز
     const datalists = container.querySelectorAll('datalist');
     const revenueOptions = Array.from(datalists[0].querySelectorAll('option')).map((o) => o.value);
     const expenseOptions = Array.from(datalists[1].querySelectorAll('option')).map((o) => o.value);
-    expect(revenueOptions).toEqual(['4001 — إيرادات المبيعات']);
-    expect(expenseOptions).toEqual(['5001 — المصروفات التشغيلية']);
+    expect(revenueOptions).toEqual(['4001 — إيرادات المبيعات', '3001 — الأرباح المُحتجزة']);
+    expect(expenseOptions).toEqual(['5001 — المصروفات التشغيلية', '3001 — الأرباح المُحتجزة']);
   });
 });
