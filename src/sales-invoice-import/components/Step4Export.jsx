@@ -287,7 +287,10 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
         <StockShortageReviewPanel
           groups={stockShortageGroups}
           apiKey={apiKeyInput.trim()}
-          stockTopUpNeeds={engine.getStockTopUpPlan()}
+          // [إضافة، طلب صريح من المستخدم 2026-09-17] name يُرفَق هنا فقط (لا
+          // بـgetStockTopUpNeeds نفسها — تبقى دالة نقية بشكلها المُختبَر حرفيًا
+          // {sku,loc,shortfall}) لعرضه فوق كود المنتج بلوحة مراجعة تكلفة الجرد.
+          stockTopUpNeeds={engine.getStockTopUpPlan().map((n) => ({ ...n, name: engine.productsRef.bySku?.get(n.sku)?.name }))}
           onCancel={() => setShowStockReview(false)}
           onConfirm={handleStockReviewConfirm}
           onTopUpConfirm={handleTopUpConfirm}

@@ -338,11 +338,33 @@ export default function useSalesInvoiceImportEngine() {
 
   // revalidate: true لخطوة 3 (data-grid-2 يعيد التحقق مع كل تعديل)، false/undefined لخطوة 2
   // (data-grid لا يعيد التحقق آليًا) — القاعدة #3 بالخطة.
+  // [إصلاح خطأ حقيقي 2026-09-17، بلاغ اختبار حي] تعديل حقل رأس فاتورة (مثل
+  // الموقع G) كان يُطبَّق على الصف المُعدَّل فقط — لو الفاتورة أكثر من سطر
+  // (بند لكل منتج)، بقية الأسطر بقيت تحمل القيمة القديمة (موقع غير موجود
+  // بمنشأة العميل مثلًا) رغم أنها حقل رأس واحد مشترك منطقيًا لكل بنود نفس
+  // الفاتورة (نفس فلسفة fillDownHeaderFields تمامًا) — فتظهر لوحة الكيانات
+  // الناقصة/الإرسال وكأن الموقع "لا يزال ناقصًا" لتلك الأسطر الأخرى تحديدًا،
+  // ويُنشأ موقع جديد فعليًا رغم أن المستخدم صحّح القيمة ظاهريًا. الآن: تعديل
+  // أي حقل من HEADER_COLS يُطبَّق فورًا على كل أسطر نفس مرجع الفاتورة (A) —
+  // باستثناء D (تاريخ الإصدار) بين صفوف "فاتورة" و"سند قبض" (دلالتان مختلفتان
+  // كليًا، راجع تعليق رأس engine/receipts.js): يُطبَّق فقط على أسطر من نفس
+  // النوع (فاتورة↔فاتورة، سند↔سند) لا عبرهما.
   const updateCell = useCallback((rowId, colKey, rawValue, { revalidate } = {}) => {
     const colDef = COLUMNS.find((c) => c.key === colKey);
     const v = colDef && colDef.type === 'date' ? toDMY(rawValue) : rawValue;
     setRows((prev) => {
-      const next = prev.map((r) => (r.id === rowId ? { ...r, [colKey]: v } : r));
+      const editedRow = prev.find((r) => r.id === rowId);
+      const isHeaderField = HEADER_COLS.includes(colKey);
+      const ref = editedRow ? norm(editedRow.A) : '';
+      const editedIsReceipt = editedRow ? isReceiptRow(editedRow) : false;
+      const next = prev.map((r) => {
+        if (r.id === rowId) return { ...r, [colKey]: v };
+        if (isHeaderField && ref && norm(r.A) === ref) {
+          if (colKey === 'D' && isReceiptRow(r) !== editedIsReceipt) return r;
+          return { ...r, [colKey]: v };
+        }
+        return r;
+      });
       if (revalidate) setIssues(runValidation(next, refs));
       return next;
     });

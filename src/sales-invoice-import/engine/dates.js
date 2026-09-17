@@ -16,6 +16,25 @@ export function setDateSep(sep){ DATE_SEP = sep; }
 
 import { MONTH_NAMES } from './constants.js';
 
+// [إضافة، طلب صريح من المستخدم 2026-09-17] تطبيع تاريخ الاستحقاق (E) مقابل
+// تاريخ الإصدار (D)، كلاهما نصًا بصيغة DD/MM/YYYY (بعد normalizeDateToDMY):
+//  - E فارغ ⇐ يُملأ بـD تلقائيًا.
+//  - E بعد D ⇐ يُقصَر على D (الافتراض المطلوب صراحةً — لا يبقى بعد D إطلاقًا).
+//  - E قبل D ⇐ يبقى كما هو تمامًا (يُحتَرم، بلا أي تعديل).
+// يستدعيها applyInvoiceImportMapping بعد fillDownHeaderFields (القيم النهائية
+// لكل صف، بعد أي تعبئة توريث). تُرجِع dueDateDMY كما هو لو تعذّرت قراءة أي
+// من التاريخين كتاريخ صحيح (يُترَك لفحص صيغة التاريخ العادي بـrunValidation
+// يكتشف الخطأ بدل التعديل على قيمة غير مفهومة).
+export function normalizeDueDate(issueDateDMY, dueDateDMY){
+  const pD = parseDateParts(issueDateDMY);
+  if(!pD) return dueDateDMY;
+  if(isBlank(dueDateDMY)) return issueDateDMY;
+  const pE = parseDateParts(dueDateDMY);
+  if(!pE) return dueDateDMY;
+  const dVal = pD.y*10000 + pD.m*100 + pD.d, eVal = pE.y*10000 + pE.m*100 + pE.d;
+  return eVal > dVal ? issueDateDMY : dueDateDMY;
+}
+
 export function toWesternDigits(s){
   return String(s).replace(/[٠-٩]/g, c=>String(c.charCodeAt(0)-0x0660))
                   .replace(/[۰-۹]/g, c=>String(c.charCodeAt(0)-0x06F0));

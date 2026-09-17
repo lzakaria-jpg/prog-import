@@ -6,6 +6,7 @@
 
 import { COL_KEYS, HEADER_COLS } from './constants.js';
 import { norm, isBlank } from './text.js';
+import { isReceiptRow } from './receipts.js';
 
 export function createRow(id, prefill){
   const r = {id};
@@ -43,16 +44,34 @@ const HEADER_FILL_KEYS = [...HEADER_COLS, 'projectRef'];
 // بيانات الفاتورة الرئيسية في كل صف بشكل متطابق حرفيًا. لا نلمس القيم غير الفارغة المختلفة حتى
 // يبقى تعارض البيانات مرئيًا في خطوة التحقق بدل إخفائه.
 // تبديل معماري: تُعيد مصفوفة صفوف جديدة (نسخ سطحي) بدل التعديل بالإشارة المباشرة على rows الأصلية.
+// [إصلاح خطأ حقيقي 2026-09-17، بلاغ اختبار حي] عمود D (تاريخ الإصدار) — بخلاف
+// كل حقل رأس آخر (C/G/...، تُشارَك حقًا بين فاتورة وسند القبض المرتبط بها) —
+// له دلالة مختلفة كليًا بين صف "فاتورة" (تاريخ إصدارها) وصف "سند قبض" (تاريخ
+// السند نفسه، راجع تعليق رأس engine/receipts.js). كانت التعبئة تبحث عن "أول
+// قيمة غير فارغة" بترتيب الملف الخام للمجموعة كاملة بلا تمييز نوع الصف — سند
+// قبض ظاهر بالملف *قبل* سطور فاتورته (حالة حقيقية شوهدت) وله تاريخه الخاص
+// (غير فارغ) كان "يفوز" فيُنشَر خطأً على سطور الفاتورة الفعلية التي تركت D
+// فارغًا معتمدة على التعبئة (أسلوب الخلايا المدمجة الشائع) — فتحمل الفاتورة
+// تاريخ السند بدل تاريخها الحقيقي بصمت. الآن D تُعبَّأ بمعزل تام لكل نوع صف
+// (فاتورة/سند قبض) ضمن نفس مجموعة المرجع — كل نوع من "أول قيمة غير فارغة"
+// بين صفوفه فقط، لا صفوف النوع الآخر.
+const DATE_KEYS_PER_ROW_TYPE = new Set(['D']);
+
 export function fillDownHeaderFields(rows){
   const byId = new Map(rows.map(r=>[r.id, {...r}]));
   const groups = new Map();
   rows.forEach(r=>{ const k = norm(r.A); if(!k) return; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(r); });
   groups.forEach(list=>{
     HEADER_FILL_KEYS.forEach(hk=>{
-      const src = list.find(r=>!isBlank(r[hk]));
-      if(!src) return;
-      const val = src[hk];
-      list.forEach(r=>{ if(isBlank(r[hk])) byId.get(r.id)[hk] = val; });
+      const sublists = DATE_KEYS_PER_ROW_TYPE.has(hk)
+        ? [list.filter(r=>!isReceiptRow(r)), list.filter(isReceiptRow)]
+        : [list];
+      sublists.forEach(sublist=>{
+        const src = sublist.find(r=>!isBlank(r[hk]));
+        if(!src) return;
+        const val = src[hk];
+        sublist.forEach(r=>{ if(isBlank(r[hk])) byId.get(r.id)[hk] = val; });
+      });
     });
   });
   return rows.map(r=>byId.get(r.id));

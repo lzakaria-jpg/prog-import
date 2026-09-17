@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { parseDateParts, formatDateParts, toDMY, fromDMY, expandYear, setDateSep, getDateSep, reformatAllDates } from "../dates.js";
+import { parseDateParts, formatDateParts, toDMY, fromDMY, expandYear, setDateSep, getDateSep, reformatAllDates, normalizeDueDate } from "../dates.js";
 
 afterEach(()=>{ setDateSep('/'); });
 
@@ -46,6 +46,29 @@ describe("DATE_SEP و setDateSep/getDateSep", () => {
 describe("fromDMY", () => {
   it("31/08/2026 → 2026-08-31", () => {
     expect(fromDMY("31/08/2026")).toBe("2026-08-31");
+  });
+});
+
+// [إضافة، طلب صريح من المستخدم 2026-09-17] راجع تعليق رأس normalizeDueDate —
+// استبدال الخطأ الحاجب الصريح لتاريخ استحقاق أسبق من الإصدار بتطبيع تلقائي.
+describe("normalizeDueDate", () => {
+  it("الاستحقاق فارغ ⇒ يُملأ بتاريخ الإصدار تلقائيًا", () => {
+    expect(normalizeDueDate('10/01/2026', '')).toBe('10/01/2026');
+  });
+  it("الاستحقاق بعد الإصدار ⇒ يُقصَر على تاريخ الإصدار", () => {
+    expect(normalizeDueDate('01/01/2026', '10/01/2026')).toBe('01/01/2026');
+  });
+  it("الاستحقاق قبل الإصدار ⇒ يبقى كما هو تمامًا (يُحتَرم، بلا أي تعديل)", () => {
+    expect(normalizeDueDate('10/01/2026', '01/01/2026')).toBe('01/01/2026');
+  });
+  it("الاستحقاق يساوي الإصدار ⇒ يبقى كما هو (ليس بعده)", () => {
+    expect(normalizeDueDate('10/01/2026', '10/01/2026')).toBe('10/01/2026');
+  });
+  it("تاريخ الإصدار غير قابل للقراءة ⇒ الاستحقاق يبقى كما هو بلا أي تعديل", () => {
+    expect(normalizeDueDate('ليس تاريخًا', '10/01/2026')).toBe('10/01/2026');
+  });
+  it("تاريخ الاستحقاق غير قابل للقراءة (لا فارغ) ⇒ يبقى كما هو، يُترَك لفحص الصيغة العادي", () => {
+    expect(normalizeDueDate('10/01/2026', 'نص عشوائي')).toBe('نص عشوائي');
   });
 });
 
