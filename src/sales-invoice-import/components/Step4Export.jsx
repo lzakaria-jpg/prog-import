@@ -298,9 +298,15 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
       )}
       {showSendModal && <ApiSendResultsModal engine={engine} onClose={() => setShowSendModal(false)} />}
       {/* [إضافة 2026-09-14] راجع نفس الإصلاح بـMergeTool.jsx/JournalTool.jsx —
-          أيقونة عائمة تُتيح الرجوع للنافذة (أو مراقبة التقدّم) بعد تصغيرها. */}
+          أيقونة عائمة تُتيح الرجوع للنافذة (أو مراقبة التقدّم) بعد تصغيرها.
+          [تعديل 2026-09-18، بلاغ ميداني: الزرّان كانا يظهران خلف/متلاصقَين مع
+          قسم "أرسل عبر API" (القائمة المنسدلة Draft/Approved) — كلاهما كان
+          يرتكز على نفس زاوية الشاشة (أسفل-يمين بالعربي) التي يحجز فيها الشريط
+          الجانبي القابل للطي مساحته أيضًا. نُقلا لأسفل-يسار (فوق فقاعة
+          الدردشة/جرس الإشعارات الثابتَين هناك — bottom:16/84 — فبدأنا من 150
+          لأعلى منهما بوضوح)، بعيدًا عن أي عنصر آخر في تلك الزاوية. */}
       {!showSendModal && (apiSendBusy || apiSendResult) && (
-        <div className="qsv-btn" style={{ position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 12px 32px rgba(15,23,42,.25)' }}>
+        <div className="qsv-btn" style={{ position: 'fixed', bottom: 150, insetInlineEnd: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 12px 32px rgba(15,23,42,.25)' }}>
           <span style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowSendModal(true)}>
             📤 {apiSendBusy
               ? t({ ar: `جارٍ الإرسال: ${apiSendProgress.current}/${apiSendProgress.total}`, en: `Sending: ${apiSendProgress.current}/${apiSendProgress.total}` })
@@ -315,7 +321,7 @@ function ApiSendSection({ engine, invoiceCount, standalone }) {
         </div>
       )}
       {!entityCreateBusy && hasEntityCreateReport && (
-        <div className="qsv-btn secondary" style={{ position: 'fixed', bottom: (!showSendModal && (apiSendBusy || apiSendResult)) ? 68 : 20, insetInlineStart: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="qsv-btn secondary" style={{ position: 'fixed', bottom: (!showSendModal && (apiSendBusy || apiSendResult)) ? 198 : 150, insetInlineEnd: 20, zIndex: 1001, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ cursor: 'pointer' }} onClick={reportBusy ? undefined : downloadEntityReport}>
             🧩 {reportBusy
               ? t({ ar: 'جارٍ التجهيز...', en: 'Preparing...' })
