@@ -15,6 +15,7 @@
 //    فقط "وصف القيد"). الإصلاح: توسيع المرادفات لتطابق ما يقبله findHeaderRowIndex.
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import {
   readWorkbookRows, fixWorksheetRange, parseEntriesFile, guessEntriesColumnMapping, parseEntriesFileWithMapping, normalizeDateGuess,
   parseNameRefFile, applyAutoContactRules, findAccountCodesByExactName, findSystemAccountCodes,
@@ -79,8 +80,18 @@ describe("readWorkbookRows — ملفات .csv (فك ترميز UTF-8 صريح،
 });
 
 describe("fixWorksheetRange — متوافقة مع نمطي القراءة (dense والمتفرّق)", () => {
-  it("نمط dense (Array.isArray(ws[0])): تُحسَب !ref من فهارس الصفوف/الأعمدة مباشرة", () => {
-    const ws = { 0: [{ v: "a" }, { v: "b" }], 2: [{ v: "c" }] }; // صف 1 مفقود عمداً (شائع بملفات حقيقية)
+  // [إصلاح خطأ حقيقي شهده المستخدم] هذا الاختبار كان يبني ws وهمياً بشكل {0:[...],
+  // 2:[...]} — شكل ظنّه الكود القديم هو تمثيل "dense" الفعلي لمكتبة xlsx، بينما
+  // النسخة المثبَّتة فعلياً (vendor/xlsx-0.20.3) تضع صفوف dense حصراً بـws["!data"][r]
+  // (تأكَّد بقراءة مصدر المكتبة مباشرة: `var dense = ws["!data"] != null`). فكان
+  // Array.isArray(ws[0]) يُقيَّم false دوماً مع أي ورقة dense حقيقية، فيسقط التنفيذ
+  // بصمت للفرع "المتفرّق" الذي لا يجد فيه شيئاً، فيبقى !ref الخاطئ (مثال حقيقي: ملف
+  // "دفتر القيود" من قيود يُصدَّر بـ<dimension ref="A1:A122"> رغم امتداد البيانات
+  // الفعلي حتى العمود E) دون أي تصحيح — فتُقرأ كل صفوف الملف مبتورة لعمود واحد فقط،
+  // فيصل المدين/الدائن null دائماً. الاختبار أدناه يعكس الشكل الحقيقي (!data) بدل
+  // الوهمي القديم الذي أخفى الخلل.
+  it("نمط dense الحقيقي (ws['!data'][r]): تُحسَب !ref من فهارس الصفوف/الأعمدة مباشرة", () => {
+    const ws = { "!data": [[{ v: "a" }, { v: "b" }], undefined, [{ v: "c" }]] }; // صف 1 مفقود عمداً (شائع بملفات حقيقية)
     const fixed = fixWorksheetRange(ws);
     expect(fixed["!ref"]).toBe(XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 2, c: 1 } }));
   });
@@ -89,6 +100,41 @@ describe("fixWorksheetRange — متوافقة مع نمطي القراءة (den
     const ws = { A1: { v: "a" }, B1: { v: "b" }, A3: { v: "c" } };
     const fixed = fixWorksheetRange(ws);
     expect(fixed["!ref"]).toBe(XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 2, c: 1 } }));
+  });
+
+  // [إصلاح خطأ حقيقي شهده المستخدم] اختبار طرف-لطرف بمكتبة xlsx الحقيقية (لا ws
+  // وهمية) يعيد إنتاج البلاغ الفعلي بالضبط: ملف .xlsx يُصرِّح بـ!ref خاطئ يغطي عمودًا
+  // واحدًا فقط بينما بياناته الحقيقية تمتد لعدة أعمدة — readWorkbookRows (المسار
+  // الفعلي المستخدم بكل أدوات الاستيراد) يجب أن يقرأ كل الأعمدة رغم !ref الخاطئ.
+  it("readWorkbookRows: ملف حقيقي ببيانات كاملة الأعمدة لكن وسم <dimension> خاطئ (عمود واحد فقط) يُقرأ بكل أعمدته الفعلية", async () => {
+    // نبني ملفاً صحيحاً كاملاً بمكتبة xlsx نفسها أولاً (كل الخلايا A-E مكتوبة فعلياً
+    // بملف XML)، ثم نُعدِّل وسم <dimension> وحده مباشرة داخل XML الناتج — يحاكي هذا
+    // بدقة الخلل الحقيقي المشاهَد بملف "دفتر القيود" الفعلي من قيود (تحقَّق مباشرة من
+    // XML الملف الحقيقي: <dimension ref="A1:A122"/> رغم أن كل خلايا الأعمدة B-E
+    // مكتوبة فعلياً بنفس XML بقيمها الصحيحة). الكتابة عبر ws["!ref"] قبل XLSX.write
+    // لا تصلح لمحاكاة هذا: الكاتب نفسه يستخدم !ref ليقرر أي خلايا يُصدِّرها فعلياً،
+    // فتُفقَد بيانات الأعمدة الزائدة أثناء الكتابة لا القراءة — بخلاف الملف الحقيقي.
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["الحساب", "التفصيل", "مدين", "دائن", "التعليقات"],
+      ["110402 - إيجار مقدم", "", 1666.67, 0, ""],
+      ["110402 - إيجار مقدم", "", 0, 1666.67, ""],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+
+    const zip = await JSZip.loadAsync(buf);
+    const sheetPath = "xl/worksheets/sheet1.xml";
+    const xml = await zip.file(sheetPath).async("string");
+    expect(xml).toContain('dimension ref="A1:E3"'); // تأكيد أن الكاتب أصدر البُعد الصحيح قبل إفساده عمداً
+    const corrupted = xml.replace('dimension ref="A1:E3"', 'dimension ref="A1:A3"');
+    zip.file(sheetPath, corrupted);
+    const corruptedBuf = await zip.generateAsync({ type: "arraybuffer" });
+    const file = new File([corruptedBuf], "دفتر_قيود.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+    const rows = await readWorkbookRows(file);
+    expect(rows[1]).toEqual(["110402 - إيجار مقدم", "", "1666.67", "0", ""]);
+    expect(rows[2]).toEqual(["110402 - إيجار مقدم", "", "0", "1666.67", ""]);
   });
 });
 
