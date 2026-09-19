@@ -160,9 +160,6 @@ export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy,
                       <label className="mb-1.5 flex items-center gap-2 text-xs font-semibold">
                         <input type="checkbox" checked={s.checked} onChange={(e) => patchAccount(a.code, { checked: e.target.checked })} />
                         {t({ ar: `الرمز ${a.code}`, en: `Code ${a.code}` })}
-                        <span style={{ color: "#94A3B8", fontWeight: 400 }}>
-                          {t({ ar: `(قيود متأثرة: ${a.seqs.join("، ")})`, en: `(affected entries: ${a.seqs.join(", ")})` })}
-                        </span>
                       </label>
                       {s.checked && (
                         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -199,9 +196,6 @@ export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy,
                       <input type="checkbox" checked={s.checked} onChange={(e) => patchContact(setCustomersState, c.typedName, { checked: e.target.checked })} />
                       <input className={inputCls} style={inputStyle} value={s.name} disabled={!s.checked}
                         onChange={(e) => patchContact(setCustomersState, c.typedName, { name: e.target.value })} />
-                      <span className="whitespace-nowrap text-[11px]" style={{ color: "#94A3B8" }}>
-                        {t({ ar: `قيود: ${c.seqs.join("، ")}`, en: `entries: ${c.seqs.join(", ")}` })}
-                      </span>
                     </div>
                   );
                 })}
@@ -215,9 +209,6 @@ export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy,
                       <input type="checkbox" checked={s.checked} onChange={(e) => patchContact(setVendorsState, v.typedName, { checked: e.target.checked })} />
                       <input className={inputCls} style={inputStyle} value={s.name} disabled={!s.checked}
                         onChange={(e) => patchContact(setVendorsState, v.typedName, { name: e.target.value })} />
-                      <span className="whitespace-nowrap text-[11px]" style={{ color: "#94A3B8" }}>
-                        {t({ ar: `قيود: ${v.seqs.join("، ")}`, en: `entries: ${v.seqs.join(", ")}` })}
-                      </span>
                     </div>
                   );
                 })}
@@ -231,9 +222,6 @@ export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy,
                       <label className="mb-1.5 flex items-center gap-2 text-xs font-semibold">
                         <input type="checkbox" checked={s.checked} onChange={(e) => patchLocation(loc.typedName, { checked: e.target.checked })} />
                         {loc.typedName}
-                        <span style={{ color: "#94A3B8", fontWeight: 400 }}>
-                          {t({ ar: `(قيود متأثرة: ${loc.seqs.join("، ")})`, en: `(affected entries: ${loc.seqs.join(", ")})` })}
-                        </span>
                       </label>
                       {s.checked && (
                         <div className="grid grid-cols-2 gap-2">
@@ -261,7 +249,7 @@ export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy,
                   </p>
                   <ul className="space-y-1 text-[11px]" style={{ color: "#78350F" }}>
                     {plan.projects.map((p) => (
-                      <li key={p.typedName}>• {p.typedName} — {t({ ar: `قيود: ${p.seqs.join("، ")}`, en: `entries: ${p.seqs.join(", ")}` })}</li>
+                      <li key={p.typedName}>• {p.typedName}</li>
                     ))}
                   </ul>
                 </div>

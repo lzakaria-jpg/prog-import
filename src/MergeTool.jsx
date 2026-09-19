@@ -141,7 +141,13 @@ const KEYWORD_SYNONYMS = {
   "ضريبة القيمة المضافة المستحقة": ["ضريبة قيمة مضافة", "فات", "vat", "ضريبة المبيعات"],
   "الزكاة المستحقة": ["زكاة مستحقة", "مخصص زكاة"],
   "رأس المال": ["راس المال", "رأس المال", "حصة الشريك", "رأس مال"],
-  "الأرباح المبقاة (أو الخسائر)": ["أرباح مدورة", "أرباح مبقاة", "خسائر مدورة", "أرباح مرحلة"],
+  // [إضافة] "جاري شريك"/"حساب جاري شريك" (بلاغ حقيقي من مستخدم أداة استيراد
+  // القيود: حساب حقوق ملكية باسم شريك تحديدًا لا رأس ماله ولا أرباحه المبقاة)
+  // لم تكن مغطاة هنا — لا يوجد نوع مستوى3 أدق لها من "حقوق ملكية أخرى".
+  "حقوق ملكية أخرى": ["جاري شريك", "جاري الشريك", "حساب جاري شريك", "حسابات جارية للشركاء"],
+  // [إضافة] "تسويات سنوية" (بلاغ حقيقي من نفس المستخدم) تصنيفها عمليًا للعميل
+  // ضمن الأرباح المبقاة (تسوية/تعديل رصيدها في نهاية السنة المالية).
+  "الأرباح المبقاة (أو الخسائر)": ["أرباح مدورة", "أرباح مبقاة", "خسائر مدورة", "أرباح مرحلة", "تسويات سنوية", "تسوية سنوية"],
   "توزيع الأرباح": ["توزيعات أرباح", "مسحوبات شخصية", "مسحوبات شركاء"],
   "المبيعات": ["إيراد مبيعات", "مبيعات", "إيرادات خدمات", "إيراد نشاط", "مبيعات بضاعة"],
   "إيرادات أخرى": ["إيراد أوراق مالية", "إيرادات متنوعة", "إيراد استثمار", "فوائد دائنة", "إيراد تأجير"],
@@ -283,7 +289,7 @@ function levelFromCodeLength(code) {
   return QOYOD_LEVEL_BY_CODE_LENGTH[len] || null;
 }
 
-function matchLevel1RootByKeyword(text) {
+export function matchLevel1RootByKeyword(text) {
   if (!text) return null;
   const n = normalizeArabic(text);
   for (const [root, keywords] of Object.entries(LEVEL1_ROOT_KEYWORDS)) {
@@ -349,6 +355,22 @@ const LEVEL2_ALIAS_INDEX = (() => {
   Object.entries(LEVEL2_EN_ALIASES).forEach(([cat, aliases]) => aliases.forEach((a) => add(a, cat)));
   return idx;
 })();
+
+// [إضافة] مطابقة دقيقة فقط (اسم الفئة الرسمي نفسه أو أحد مرادفاته الصريحة
+// بـLEVEL2_EN_ALIASES) — بخلاف canonicalizeLevel2Category تحت، لا تنزل أبدًا
+// لتشابه نصي تقريبي (similarityNormalized) ولا لتخمين الفئة الافتراضية من جذرها
+// (categoryFromRootKeywords) حين يفشل التطابق الدقيق. تُستخدَم من أداة استيراد
+// القيود المحاسبية (accountsClassifier.js) للتفريق بين حساب "لافتة" فئة فعلي
+// بشجرة العميل (مثال: حساب اسمه حرفيًا "الالتزامات المتداولة") وحساب "لافتة"
+// جذر فقط بلا فئة محددة (مثال: حساب اسمه "حقوق الملكية" فقط) — التخمين التقريبي
+// مناسب لتصنيف صف واحد فورًا بأداة الشجرة، لكنه هنا قد يقفل خطأً نطاق فئة كامل
+// (مثال حقيقي: "حقوق الملكية" يُخمَّن تقريبًا "حقوق الملاك الأخرى" فيستبعد بذلك
+// "رأس المال المصدر"/"الأرباح المبقاة" من كل الحسابات الناقصة تحت نفس الجذر).
+export function matchExactLevel2Category(raw) {
+  const n = normalizeArabic(raw);
+  if (!n) return "";
+  return LEVEL2_ALIAS_INDEX.get(n) || LEVEL2_ALIAS_INDEX.get(n.replace(/\s+/g, "")) || "";
+}
 
 // جذر الشجرة (مستوى 1) الذي تتبعه فئة أو نوع معيّن - أساس التحقق من سلامة الهيكل
 function rootOfCategory(category) {
@@ -527,7 +549,7 @@ function rootFromAnyText(raw) {
 }
 
 // كل أنواع الحسابات (م3) التي تقع تحت جذر معيّن - لتضييق دائرة الاستنتاج
-function level3TypesForRoot(root) {
+export function level3TypesForRoot(root) {
   if (!root) return null;
   const nRoot = normalizeArabic(root);
   const cats = Object.entries(LEVEL2_TO_LEVEL1)
@@ -568,7 +590,7 @@ function guessAncestorCode(code, codesSet) {
   return "";
 }
 
-function inferLevel3TypeFromText(name, level2Category, candidateList) {
+export function inferLevel3TypeFromText(name, level2Category, candidateList) {
   if (!name) return null;
   const normName = normalizeForMatch(name);
 
