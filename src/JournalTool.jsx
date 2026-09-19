@@ -388,8 +388,13 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                       <AccountPicker accounts={chartAccountsList} value={r.code} hasError={!!rowIssue} parentCodes={parentCodes}
                         onChange={(v) => onUpdateRow(entry.seq, r._rowIndex, "code", v)} />
                     </td>
+                    {/* [إصلاح خطأ حقيقي شهده المستخدم] حين لا يطابق الرمز أي حساب بالشجرة كانت
+                        هذه الخانة تعرض "—" فقط، رغم أن اسم الحساب غالبًا موجود صراحةً بالملف
+                        نفسه (r.name — يُقرأ الآن من كل مخططات القراءة، لا قالب الاستيراد فقط).
+                        نعرضه هنا بالأحمر أيضًا (نفس لون خانة الرمز) بدل إخفائه، ليعرف المستخدم
+                        فورًا ما الاسم الذي ورد بالملف قبل إنشاء الحساب أو تصحيح الرمز. */}
                     <td className="py-1.5 pe-2 text-start" style={{ color: !acc ? COLORS.red : rowIssue?.type === "parent_account" ? COLORS.amber : COLORS.ink }}>
-                      {acc ? acc.name : "—"}{rowIssue?.type === "parent_account" && t({ ar: " (رئيسي)", en: " (parent)" })}
+                      {acc ? acc.name : (r.name || "—")}{rowIssue?.type === "parent_account" && t({ ar: " (رئيسي)", en: " (parent)" })}
                     </td>
                     <td className="py-1.5 pe-2">
                       <SafeInput value={r.contact || ""} onChange={(e) => onUpdateRow(entry.seq, r._rowIndex, "contact", e.target.value)}

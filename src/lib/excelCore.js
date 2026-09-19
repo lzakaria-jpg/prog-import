@@ -897,6 +897,12 @@ function parseRawLedgerSchema(rows, hIdx) {
   const cOp = colIndex(header, "رقم العملية", "رقم القيد");
   const cDate = colIndex(header, "تاريخ");
   const cCode = colIndex(header, "رمز الحساب");
+  // [إصلاح خطأ حقيقي شهده المستخدم] هذا المخطط كان يقرأ رمز الحساب فقط ويتجاهل
+  // عمود "اسم الحساب" رغم وجوده فعليًا بهذا التصدير (ملف عميل حقيقي: أعمدة
+  // منفصلة "رمز الحساب"|"اسم الحساب") — فحين يكون الرمز غير موجود بشجرة العميل،
+  // لوحة "الكيانات الناقصة" لا تجد أي اسم لاقتراحه، فيظهر الرمز فقط بلا اسم
+  // بجدول المراجعة. name يُقرأ الآن مثل باقي المخططات (Schema A) تمامًا.
+  const cName = colIndex(header, "اسم الحساب", "اسم", "AccountName", "Account Name");
   const cDesc = colIndex(header, "تعريف", "وصف القيد", "البيان");
   const cDebit = colIndex(header, "مدين");
   const cCredit = colIndex(header, "دائن");
@@ -953,6 +959,7 @@ function parseRawLedgerSchema(rows, hIdx) {
       desc: current.desc,
       accType: "حسابات دفتر الاستاذ",
       code,
+      name: cName !== -1 ? cellText(r[cName]).trim() : "",
       contact: "",
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
@@ -1098,6 +1105,11 @@ function parseQoyodJournalReportSchema(rows) {
       // بلا أي مطابقة خاطئة واحدة (0 اختلاف عن أي مطابقة كانت تنجح أصلاً).
       detail: detailTrimmed,
       comment: finalComment,
+      // [إصلاح خطأ حقيقي شهده المستخدم] اسم الحساب هنا مُستخرَج فعلاً من الخلية
+      // المدمجة "رمز - اسم" (accName أعلاه) لكن لم يكن يُحفَظ بحقل مستقل — فحين
+      // يكون الرمز غير موجود بشجرة العميل، لوحة "الكيانات الناقصة" (تقرأ row.name
+      // تحديدًا) لا تجد اسمًا لاقتراحه رغم وجوده صراحةً بالملف نفسه.
+      name: accName,
       project: projectTrimmed,
       location: locationTrimmed,
       _rowIndex: i,
@@ -1257,6 +1269,7 @@ function parseGenericFlexibleSchema(rows) {
         debit: map.debit !== undefined ? parseAmount(row[map.debit]) : null,
         credit: map.credit !== undefined ? parseAmount(row[map.credit]) : null,
         comment: rowDesc || accName,
+        name: accName,
         project: rowProject,
         location: rowLocation,
         _rowIndex: i,
@@ -1337,6 +1350,7 @@ function parseEnglishExportSchema(rows, hIdx) {
       desc: current.desc,
       accType: "حسابات دفتر الاستاذ",
       code: code || normalizeCode(name),
+      name,
       contact: "",
       debit,
       credit,
@@ -1412,6 +1426,7 @@ function parseArabicFlexibleSchema(rows, hIdx) {
       desc: current.desc,
       accType: "حسابات دفتر الاستاذ",
       code: code || normalizeCode(name),
+      name,
       contact: "",
       debit,
       credit,
