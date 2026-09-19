@@ -15,7 +15,7 @@ import ProductUploadTool from "./product-upload";
 import CustomerImportTool from "./customer-import";
 import VendorImportTool from "./vendor-import";
 import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, ChevronDown, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu, Truck } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu, Truck } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -50,11 +50,6 @@ const CATEGORIES = [
     toolIds: [], // لا أدوات تبويب هنا - تُبنى عناصره (إدارة المستخدمين/الذكاء الاصطناعي) بحسب الصلاحيات داخل AppShell
   },
 ];
-
-function categoryIdForTool(toolId) {
-  const cat = CATEGORIES.find((c) => c.toolIds.includes(toolId));
-  return cat ? cat.id : null;
-}
 
 function LanguageToggle({ compact }) {
   const { lang, toggle, t } = useLanguage();
@@ -188,7 +183,6 @@ function AppShell() {
   // منزلق (overlay) فوق المحتوى بدل عمود ثابت العرض يلتهم أغلب شاشة الجوال —
   // sidebar سطح المكتب (md فأعلى) بلا أي تغيير إطلاقاً.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [openCategory, setOpenCategory] = useState(() => categoryIdForTool("merge"));
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, canAddUsers, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
@@ -207,12 +201,6 @@ function AppShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleNavKey, tab]);
-
-  // إبقاء القائمة المنسدلة التي تحوي الأداة الحالية مفتوحة تلقائياً عند تغيّر التبويب
-  useEffect(() => {
-    const cid = categoryIdForTool(tab);
-    if (cid) setOpenCategory(cid);
-  }, [tab]);
 
   // بناء تبويبات الصفحة الرئيسية الثلاثة وعناصر كل قائمة منسدلة تابعة لها،
   // فوق نفس visibleNavItems (المفلترة بالصلاحيات) وبلا أي تغيير لآلية عمل الأدوات
@@ -323,54 +311,47 @@ function AppShell() {
           )}
         </div>
 
-        {/* Nav — 3 تبويبات رئيسية، كل تبويب ينبثق تحته قائمة منسدلة بأدواته */}
-        <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-          {categoriesWithItems.map((cat) => {
+        {/* Nav — 3 مجموعات، كلها مفتوحة دائمًا بلا طي (طلب صريح من المستخدم:
+            "احتاجها مفتوحة دائما, دون طي") — عنوان المجموعة صار لافتة غير
+            قابلة للنقر، بخط رفيع فاصل بين كل أداة والتي تليها داخل المجموعة،
+            وفاصل أوضح (أعرض وأفتح لونًا) بين المجموعات نفسها. وضع الشريط
+            المضغوط (collapsed) يبقى كما هو بلا تغيير — أيقونات فقط. */}
+        <nav className="flex-1 py-3 px-2 overflow-y-auto">
+          {categoriesWithItems.map((cat, catIndex) => {
             const CatIcon = cat.icon;
-            const isOpen = openCategory === cat.id && !collapsed;
             const isCurrent = cat.items.some((it) => it.id === tab);
             return (
-              <div key={cat.id} className="space-y-1">
-                <button
-                  onClick={() => {
-                    if (collapsed) {
-                      setCollapsed(false);
-                      setOpenCategory(cat.id);
-                    } else {
-                      setOpenCategory((prev) => (prev === cat.id ? null : cat.id));
-                    }
-                  }}
-                  className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
-                  style={{
-                    padding: collapsed ? "10px 0" : "10px 14px",
-                    justifyContent: collapsed ? "center" : "flex-start",
-                    background: isCurrent ? "rgba(74,144,217,0.2)" : isOpen ? "rgba(255,255,255,0.05)" : "transparent",
-                    color: isCurrent ? "#93C5FD" : "#94A3B8",
-                  }}
-                  title={collapsed ? t(cat.label) : undefined}
-                >
-                  <CatIcon size={18} className={isCurrent ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: isCurrent ? "#60A5FA" : undefined }} />
-                  {!collapsed && (
-                    <>
-                      <p className={`flex-1 text-start text-sm font-semibold leading-tight ${isCurrent ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>
-                        {t(cat.label)}
-                      </p>
-                      <ChevronDown
-                        size={14}
-                        style={{
-                          flexShrink: 0,
-                          color: isCurrent ? "#60A5FA" : "#64748B",
-                          transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                          transition: "transform 0.2s",
-                        }}
-                      />
-                    </>
-                  )}
-                </button>
+              <div
+                key={cat.id}
+                style={catIndex > 0 ? {
+                  marginTop: 14,
+                  paddingTop: 14,
+                  borderTop: "1px solid rgba(255,255,255,0.14)",
+                } : undefined}
+              >
+                {collapsed ? (
+                  <div
+                    className="w-full flex items-center justify-center"
+                    style={{ padding: "10px 0", color: isCurrent ? "#60A5FA" : "#64748B" }}
+                    title={t(cat.label)}
+                  >
+                    <CatIcon size={18} style={{ flexShrink: 0 }} />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3" style={{ padding: "6px 14px 8px" }}>
+                    <CatIcon size={18} style={{ flexShrink: 0, color: isCurrent ? "#60A5FA" : "#64748B" }} />
+                    <p
+                      className="flex-1 text-start text-[11px] font-bold uppercase leading-tight"
+                      style={{ color: isCurrent ? "#93C5FD" : "#64748B", letterSpacing: "0.02em" }}
+                    >
+                      {t(cat.label)}
+                    </p>
+                  </div>
+                )}
 
-                {isOpen && (
-                  <div className="space-y-1 animate-fadeIn" style={{ [lang === "ar" ? "paddingRight" : "paddingLeft"]: 14 }}>
-                    {cat.items.map((item) => {
+                {!collapsed && cat.items.length > 0 && (
+                  <div style={{ [lang === "ar" ? "paddingRight" : "paddingLeft"]: 14 }}>
+                    {cat.items.map((item, itemIndex) => {
                       const Icon = item.icon;
                       const active = item.id === tab;
                       return (
@@ -383,10 +364,11 @@ function AppShell() {
                             justifyContent: "flex-start",
                             background: active ? "rgba(74,144,217,0.2)" : "transparent",
                             color: active ? "#93C5FD" : "#94A3B8",
+                            borderTop: itemIndex > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
                           }}
                         >
                           <Icon size={16} className={active ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: active ? "#60A5FA" : undefined }} />
-                          <div className="text-start animate-fadeIn">
+                          <div className="text-start">
                             <p className={`text-[13px] font-semibold leading-snug ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(item.label)}</p>
                             <p className="text-[10.5px] text-slate-500 leading-tight mt-0.5">{t(item.desc)}</p>
                           </div>
