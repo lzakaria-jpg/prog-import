@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X, Cloud, Send, Eye, EyeOff, StopCircle,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, normalizeAccountName, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, normalizeAccountName, isSystemAccountNameMatch, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { SafeInput } from "./lib/SafeInput";
@@ -791,8 +791,14 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     const reportedProjects = new Set();
     const reportedLocations = new Set();
     entry.rows.forEach((r, i) => {
-      const isDebtors = debtorsCodes.has(r.code);
-      const isCreditors = creditorsCodes.has(r.code);
+      // [إصلاح خطأ حقيقي شهده المستخدم] سطر رمزه غير موجود بشجرة العميل (حساب
+      // ناقص سيُنشأ لاحقًا) لم يكن يُعتبَر سطر مدينون/دائنون إطلاقًا، فلا يُرصَد
+      // اسم العميل/المورد المكتوب به — مثال حقيقي: ملف يستخدم 1102 للمدينون
+      // بينما شجرة العميل لا تحوي هذا الرمز. اسم الحساب بالملف هو الدليل
+      // المتاح حينها (نفس القاعدة المطبَّقة بالتعبية التلقائية بـexcelCore.js).
+      const codeKnown = !!chartMap[r.code];
+      const isDebtors = debtorsCodes.has(r.code) || (!codeKnown && isSystemAccountNameMatch(r.name, DEBTORS_ACCOUNT_NAME));
+      const isCreditors = creditorsCodes.has(r.code) || (!codeKnown && isSystemAccountNameMatch(r.name, CREDITORS_ACCOUNT_NAME));
       if (isDebtors || isCreditors) {
         if (!r.contact) {
           // [إضافة — طلب صريح من المستخدم] كل سطر مدينون/دائنون يحمل باسمه
@@ -804,12 +810,17 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
           // التجميع بالاسم المُطبَّع بـcomputeMissingJournalEntitiesPlan، فاسم
           // واحد متكرر بمئات الأسطر يصير عميلًا واحدًا بقائمة قيوده.
           const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
-          const accountName = chartMap[r.code]?.name || "";
+          const accountName = chartMap[r.code]?.name || r.name || "";
           const lineName = String(r.detail || r.comment || "").trim();
           // احتياط: بعض المخططات تُسقِط اسم الحساب نفسه بخانة التعليقات حين
           // يكون السطر بلا تفصيل ولا تعليق (راجع finalComment بـexcelCore.js) —
-          // إنشاء عميل باسم "المدينون" خطأ فادح، فيُستبعَد صراحةً هنا.
-          const usableName = lineName && normalizeAccountName(lineName) !== normalizeAccountName(accountName) ? lineName : "";
+          // إنشاء عميل باسم "المدينون" خطأ فادح، فيُستبعَد صراحةً هنا (يُقارَن
+          // باسم الشجرة واسم الملف معًا، فالرمز قد يكون مجهولاً بالشجرة أصلاً).
+          const lineNameNorm = normalizeAccountName(lineName);
+          const usableName = lineName
+            && lineNameNorm !== normalizeAccountName(accountName)
+            && lineNameNorm !== normalizeAccountName(r.name)
+            ? lineName : "";
           if (isApiSourced && usableName) {
             issues.push({
               id: `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`,

@@ -516,6 +516,61 @@ describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/م�
     expect(out[0].rows[0].contact).toBe("7");
   });
 
+  // [الخطأ الحقيقي، بلاغ حي من المستخدم] القواعد أعلاه تستخرج أكواد حسابات
+  // النظام من شجرة العميل — فسطر رمزه غير موجود بالشجرة إطلاقًا (حساب ناقص
+  // سيُنشأ لاحقًا) كان يُتجاهَل كليًا: لا نوع ضريبة يُملأ، ولا اسم عميل يُطابَق.
+  // مثال حقيقي من ملفه: الملف يستخدم 1102 للمدينون و210202 لضريبة القيمة
+  // المضافة المستحقة، وكلاهما غير موجود بشجرة العميل (يظهران بالأحمر).
+  describe("سطر رمزه مجهول بالشجرة: يُطابَق باسم الحساب كما ورد بالملف", () => {
+    const chartWithoutThem = [
+      { code: "1103", name: "المدينون", type: "" },
+      { code: "4101", name: "إيرادات المبيعات/ الخدمات", type: "" },
+    ];
+
+    it("ضريبة القيمة المضافة المستحقة برمز مجهول: قيمة > 0 → 15%، وصفر بالطرفين → صفرية", () => {
+      const entries = [entry([
+        { code: "210202", name: "ضريبة القيمة المضافة المستحقة", debit: 0, credit: 1254.17 },
+        { code: "210202", name: "ضريبة القيمة المضافة المستحقة", debit: 0, credit: 0 },
+      ])];
+      const out = applyAutoContactRules(entries, chartWithoutThem, {});
+      expect(out[0].rows[0].contact).toBe("1");
+      expect(out[0].rows[1].contact).toBe("2");
+    });
+
+    it("المدينون برمز مجهول: يُطابَق اسم العميل من التعليق ويُستبدَل برقمه المرجعي", () => {
+      const entries = [entry([{ code: "1102", name: "المدينون", debit: 9615.33, credit: 0, comment: "عملاء تاجير" }])];
+      const out = applyAutoContactRules(entries, chartWithoutThem, { customersRef: [{ name: "عملاء تاجير", ref: "77" }] });
+      expect(out[0].rows[0].contact).toBe("77");
+    });
+
+    it("الدائنون برمز مجهول: يُطابَق اسم المورد من ملف الموردين المرجعي", () => {
+      const entries = [entry([{ code: "2101", name: "الدائنون", debit: 0, credit: 500, comment: "مؤسسة النور" }])];
+      const out = applyAutoContactRules(entries, chartWithoutThem, { suppliersRef: [{ name: "مؤسسة النور", ref: "88" }] });
+      expect(out[0].rows[0].contact).toBe("88");
+    });
+
+    it("الشجرة هي المرجع متى عرفت الرمز: اسم الملف لا يتجاوزها", () => {
+      // 4101 موجود بالشجرة كحساب إيرادات — حتى لو زعم الملف أنه "المدينون"
+      // فالشجرة أصدق، ولا تُطبَّق عليه قاعدة المدينون إطلاقًا.
+      const entries = [entry([{ code: "4101", name: "المدينون", debit: 0, credit: 100, comment: "عملاء تاجير" }])];
+      const out = applyAutoContactRules(entries, chartWithoutThem, { customersRef: [{ name: "عملاء تاجير", ref: "77" }] });
+      expect(out[0].rows[0].contact).toBe("");
+    });
+
+    it("اسم حساب مشابه لا يطابق حرفيًا (…على المشتريات) لا يُعامَل كحساب ضريبة النظام", () => {
+      const entries = [entry([{ code: "115501", name: "ضريبة القيمة المضافة المستحقة على المشتريات", debit: 300, credit: 0 }])];
+      const out = applyAutoContactRules(entries, chartWithoutThem, {});
+      expect(out[0].rows[0].contact).toBe("");
+    });
+
+    it("شجرة بلا أي من حسابات النظام الثلاثة: المطابقة بالاسم تعمل رغم ذلك", () => {
+      const bareChart = [{ code: "4101", name: "إيرادات المبيعات/ الخدمات", type: "" }];
+      const entries = [entry([{ code: "210202", name: "ضريبة القيمة المضافة المستحقة", debit: 0, credit: 99 }])];
+      const out = applyAutoContactRules(entries, bareChart, {});
+      expect(out[0].rows[0].contact).toBe("1");
+    });
+  });
+
   it("حساب المدينون: يطابق اسم العميل من عمود 'contact' مع ملف العملاء المرجعي ويستبدله برقمه المرجعي", () => {
     const entries = [entry([{ code: "120101", debit: 1000, credit: null, contact: "مؤسسة الأخوات الثلاث" }])];
     const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }] });
