@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import {
   isTrue, detectColumns, buildProductsFromRows, parseCostNumber, buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
+  findHeaderRowIndex, rowsToProducts,
 } from "../parsing.js";
 
 describe("isTrue", () => {
@@ -45,6 +46,11 @@ describe("detectColumns", () => {
     expect(cols.sellable).toBe(1);
     expect(cols.revenue).toBe(2);
     expect(cols.expense).toBe(3);
+  });
+
+  it("[إصلاح 2026-09-19] يتعرّف على عمود بعنوان 'مخزون' حرفياً كعمود تخزين (خلل حقيقي: كل الصفوف كانت تُقرأ is_inventory=false بصمت لأن 'مخزون' ليست سلسلة فرعية من 'مخزن'/'تخزين')", () => {
+    const cols = detectColumns(["الاسم", "مخزون"]);
+    expect(cols.inventory).toBe(1);
   });
 
   it("[إصلاح 2026-09-04] يتعرّف على 'الإيرادات' (جمع) كعمود حساب إيراد", () => {
@@ -194,6 +200,17 @@ describe("buildProductsFromRows", () => {
     });
   });
 
+  it("[إصلاح 2026-09-19] عمود 'مخزون' حرفياً: نعم/لا تُقرأ صحيحة لكل صف (لا false افتراضية للجميع)", () => {
+    const rows = [
+      ["الاسم", "مخزون"],
+      ["منتج أ", "نعم"],
+      ["منتج ب", "لا"],
+    ];
+    const { data } = buildProductsFromRows(rows);
+    expect(data[0]).toMatchObject({ name: "منتج أ", is_inventory: true });
+    expect(data[1]).toMatchObject({ name: "منتج ب", is_inventory: false });
+  });
+
   it("يستخدم التخطيط الموضعي الاحتياطي (7 أعمدة قديمة) عند فشل اكتشاف name/sku/category معاً", () => {
     const rows = [
       // "اسم" وحده (بلا "الاسم" الحرفي أو "اسم المنتج") لا يفعّل مطابقة name، ولا كود/رمز
@@ -205,6 +222,31 @@ describe("buildProductsFromRows", () => {
     const { data } = buildProductsFromRows(rows);
     expect(data[0].sku).toBe("S1");
     expect(data[0].name).toBe("منتج ب");
+  });
+});
+
+describe("[إضافة 2026-09-19] findHeaderRowIndex + rowsToProducts — استُخرجتا من buildProductsFromRows لدعم شريط مطابقة الأعمدة اليدوي", () => {
+  it("findHeaderRowIndex يجد نفس صف الترويسة الذي كانت buildProductsFromRows تجده داخلياً", () => {
+    const rows = [
+      ["كود المنتج", "الاسم", "حالة البيع", "حالة التخزين", "الوحدة", "حساب الإيراد", "حساب المصروف"],
+      ["S1", "منتج أ", "نعم", "نعم", "قطعة", "", ""],
+    ];
+    expect(findHeaderRowIndex(rows)).toBe(0);
+  });
+
+  it("findHeaderRowIndex يُعيد -1 بلا صف ترويسة معروف", () => {
+    expect(findHeaderRowIndex([["x", "y"], ["1", "2"]])).toBe(-1);
+  });
+
+  it("rowsToProducts تبني نفس المنتجات مباشرة من خريطة أعمدة مُمرَّرة يدوياً (كما يفعل المستخدم بشريط المطابقة)", () => {
+    const rows = [
+      ["A", "B", "C"],
+      ["SKU1", "منتج أ", "نعم"],
+    ];
+    const cols = { sku: 0, name: 1, inventory: 2, sellable: -1, unit: -1, revenue: -1, expense: -1, category: -1, category_code: -1, cost: -1, name_en: -1, description: -1, sellingPrice: -1, barcode: -1, quantity: -1, location: -1 };
+    const data = rowsToProducts(rows, 0, cols);
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({ sku: "SKU1", name: "منتج أ", is_inventory: true });
   });
 });
 

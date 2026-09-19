@@ -16,9 +16,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "../language.jsx";
 import {
-  buildProductsFromRows, buildProductPayload, chooseTax, resolveAccountId,
+  findHeaderRowIndex, detectColumnsWithFallback, rowsToProducts, MAPPABLE_FIELDS,
+  buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
 } from "./engine/parsing.js";
+import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
 import { api, fetchAll } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
 import { readWorkbookRows } from "./io/excelReader.js";
@@ -73,29 +75,137 @@ export default function useProductUploadEngine() {
   }, [removeKeyTarget]);
 
   // ---- Excel file (أصل: سطر 293-354) ----
+  // [إعادة تصميم 2026-09-19، طلب صريح من المستخدم] كان يُحوَّل الملف مباشرة
+  // لمصفوفة منتجات نهائية (buildProductsFromRows) بلا أي فرصة للمستخدم لمراجعة/
+  // تصحيح خريطة الأعمدة المُكتشَفة تلقائياً — فأي عمود بعنوان غير متوقَّع (مثال
+  // حقيقي: "مخزون" لم يكن يُطابَق إطلاقاً، راجع تعليق detectColumns) كان يفشل
+  // بصمت بلا أي وسيلة للمستخدم لتصحيحه سوى تعديل الملف نفسه. الآن: الصفوف
+  // الخام (rawRows) وصف الترويسة (headerRowIndex) وخريطة الأعمدة القابلة
+  // للتعديل (colsMap) تُحفَظ بمعزل، وexcelData النهائية تُشتَق تفاعلياً منها
+  // (rowsToProducts) — فتعديل المستخدم لأي عمود بشريط "مطابقة الأعمدة" الجديد
+  // (ColumnMappingCard) يُعيد بناء excelData فوراً بلا إعادة رفع الملف.
   const [fileName, setFileName] = useState("");
-  const [excelData, setExcelData] = useState([]);
+  const [rawRows, setRawRows] = useState([]);
+  const [headerRowIndex, setHeaderRowIndex] = useState(-1);
+  const [colsMap, setColsMap] = useState(null);
+  // [إضافة 2026-09-19] تجاوزات حساب الإيراد/المصروف لكل صف على حدة (بالفهرس)
+  // — تُطبَّق فوق excelData المُشتقَّة من الملف، وتُستهلَك عبر نفس آلية
+  // resolveAccountId الحالية بلا أي تغيير بها (القيمة المخزَّنة هنا هي كود
+  // الحساب المختار من دليل حسابات العميل الحقيقي، فتُطابَق بالكود دائماً).
+  const [rowOverrides, setRowOverrides] = useState({});
   const [uploadAlert, setUploadAlert] = useState(null); // بديل alert() — نفس النص الحرفي
 
   const dismissAlert = useCallback(() => setUploadAlert(null), []);
 
+  const baseExcelData = useMemo(() => (
+    headerRowIndex >= 0 && colsMap ? rowsToProducts(rawRows, headerRowIndex, colsMap) : []
+  ), [rawRows, headerRowIndex, colsMap]);
+
+  const excelData = useMemo(() => (
+    Object.keys(rowOverrides).length
+      ? baseExcelData.map((p, i) => (rowOverrides[i] ? { ...p, ...rowOverrides[i] } : p))
+      : baseExcelData
+  ), [baseExcelData, rowOverrides]);
+
+  // ---- Chart of accounts fetched ahead of time (معاينة فقط) ----
+  // [إضافة 2026-09-19، طلب صريح من المستخدم] تُجلَب حسابات منشأة العميل قبل
+  // الرفع الفعلي، لتُستخدَم بقوائم اختيار حساب الإيراد/المصروف لكل منتج على
+  // حدة بشاشة المعاينة (مصفّاة حسب نوع الحساب — راجع engine/accountFilters.js)
+  // — بمعزل تام عن جلب الحسابات الخاص ببدء الرفع الفعلي (startUpload أدناه،
+  // يبقى كما هو حرفياً، يُعيد الجلب وقت الإرسال الفعلي لضمان أحدث بيانات).
+  const [previewAccounts, setPreviewAccounts] = useState([]);
+  const [previewAccountsLoading, setPreviewAccountsLoading] = useState(false);
+  const [previewAccountsError, setPreviewAccountsError] = useState(null);
+
+  const fetchPreviewAccounts = useCallback(async (keyOverride) => {
+    const key = (keyOverride ?? apiKey).trim();
+    if (!key) return;
+    setPreviewAccountsLoading(true);
+    setPreviewAccountsError(null);
+    try {
+      const accounts = await fetchAll("/accounts", key);
+      setPreviewAccounts(accounts);
+    } catch (e) {
+      setPreviewAccountsError(e.message);
+    } finally {
+      setPreviewAccountsLoading(false);
+    }
+  }, [apiKey]);
+
   const handleFile = useCallback(async (file) => {
     if (!file) return;
     setFileName(file.name);
+    setRowOverrides({});
     try {
       const rows = await readWorkbookRows(file);
-      const parsed = buildProductsFromRows(rows);
-      if (!parsed.headerFound) {
+      const headerIdx = findHeaderRowIndex(rows);
+      if (headerIdx === -1) {
         setUploadAlert(t({ ar: "تعذر العثور على صف العناوين في ملف Excel.", en: "Could not find a header row in the Excel file." }));
-        setExcelData([]);
+        setRawRows([]); setHeaderRowIndex(-1); setColsMap(null);
         return;
       }
-      setExcelData(parsed.data);
+      setRawRows(rows);
+      setHeaderRowIndex(headerIdx);
+      setColsMap(detectColumnsWithFallback(rows[headerIdx]));
       setUploadAlert(null);
+      // [إضافة 2026-09-19] جلب حسابات المعاينة تلقائياً لو مفتاح API مُدخَل
+      // فعلاً وقت رفع الملف — لو أُدخِل لاحقاً، زر "تحديث الحسابات" اليدوي
+      // بشريط الحسابات هو الوسيلة (لا جلب صامت متكرر عند كل ضغطة مفتاح).
+      if (apiKey.trim()) fetchPreviewAccounts();
     } catch (err) {
       setUploadAlert(t({ ar: "خطأ في قراءة ملف Excel: ", en: "Error reading Excel: " }) + err.message);
     }
-  }, [t]);
+  }, [t, apiKey, fetchPreviewAccounts]);
+
+  // [إضافة 2026-09-19] تعديل يدوي على خريطة الأعمدة من شريط المطابقة: تعيين
+  // عمود خام (colIndex) لحقل منطقي (fieldKey)، مع إلغاء أي تعيين سابق لنفس
+  // العمود الخام من أي حقل آخر (عمود واحد لا يمكن أن يمثّل حقلين معاً).
+  const assignColumn = useCallback((fieldKey, colIndex) => {
+    setColsMap((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      Object.keys(next).forEach((k) => { if (next[k] === colIndex) next[k] = -1; });
+      next[fieldKey] = colIndex;
+      return next;
+    });
+  }, []);
+
+  const ignoreColumn = useCallback((colIndex) => {
+    setColsMap((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      Object.keys(next).forEach((k) => { if (next[k] === colIndex) next[k] = -1; });
+      return next;
+    });
+  }, []);
+
+  // [إضافة 2026-09-19] تجاوز حساب الإيراد/المصروف لصف واحد (بالفهرس) — code
+  // فارغ يُلغي التجاوز (يرجع للقيمة المشتقَّة من الملف/الافتراضي). القيمة
+  // المخزَّنة هي كود الحساب (وليس اسمه) كي تُطابَق دائماً بـresolveAccountId
+  // (accountsByCode أولاً) بصرف النظر عمّا كتبه العميل بملفه الأصلي لهذا الصف.
+  const setRowAccountOverride = useCallback((rowIndex, field, code) => {
+    setRowOverrides((prev) => {
+      const cur = { ...(prev[rowIndex] || {}) };
+      if (code) cur[field] = code; else delete cur[field];
+      const next = { ...prev };
+      if (Object.keys(cur).length) next[rowIndex] = cur; else delete next[rowIndex];
+      return next;
+    });
+  }, []);
+
+  const mappingHeaders = headerRowIndex >= 0 ? (rawRows[headerRowIndex] || []) : [];
+  const mappingPreviewRows = headerRowIndex >= 0 ? rawRows.slice(headerRowIndex + 1, headerRowIndex + 7) : [];
+
+  const revenueAccountOptions = useMemo(() => previewAccounts.filter(isRevenueAccount), [previewAccounts]);
+  const expenseAccountOptions = useMemo(
+    () => filterAccountsWithFallback(previewAccounts, isExpenseOrNonCurrentAssetAccount, isExpenseAccount),
+    [previewAccounts]
+  );
+  const previewAccountsByCode = useMemo(() => {
+    const m = {};
+    previewAccounts.forEach((a) => { const c = String(a.code || "").trim(); if (c) m[c] = a; });
+    return m;
+  }, [previewAccounts]);
 
   // ---- Settings (أصل: revenueAcct/expenseAcct/taxToggle/dupToggle) ----
   const [revenueAcct, setRevenueAcct] = useState(DEFAULT_REVENUE_ACCT);
@@ -114,6 +224,19 @@ export default function useProductUploadEngine() {
   // لأي منتج بلا عمود "الموقع" بملفه.
   const [openingBalanceDate, setOpeningBalanceDate] = useState(() => todayIso());
   const [defaultLocation, setDefaultLocation] = useState(DEFAULT_LOCATION);
+
+  // [إضافة 2026-09-19] الحساب الافتراضي الفعلي (المطابَق فعلياً بدليل حسابات
+  // العميل الحقيقي، لو أُتيحت previewAccounts) — لعرضه بالمعاينة بدل نص ثابت
+  // "افتراضي 4101/5101"، بلا أي تغيير على منطق الرفع الفعلي نفسه (startUpload
+  // أسفله يحسب defaultRev/defaultExp من جلبه الخاص وقت الإرسال، كما كان تماماً).
+  const defaultRevenueAccount = useMemo(
+    () => previewAccountsByCode[(revenueAcct || "").trim() || DEFAULT_REVENUE_ACCT] || null,
+    [previewAccountsByCode, revenueAcct]
+  );
+  const defaultExpenseAccount = useMemo(
+    () => previewAccountsByCode[(expenseAcct || "").trim() || DEFAULT_EXPENSE_ACCT] || null,
+    [previewAccountsByCode, expenseAcct]
+  );
 
   // ---- Upload run state (أصل: سطر 242-250 و520-773) ----
   const [log, setLog] = useState([]);
@@ -489,7 +612,9 @@ export default function useProductUploadEngine() {
     apiKey, setApiKey, customerName, setCustomerName, keyVisible, toggleKeyVisibility,
     savedKeys, saveKey, loadKey, requestRemoveKey, removeKeyTarget, cancelRemoveKey, confirmRemoveKey,
     // file
-    fileName, excelData, handleFile,
+    fileName, excelData, baseExcelData, handleFile,
+    // [إضافة 2026-09-19] شريط مطابقة الأعمدة اليدوي
+    mappingHeaders, mappingPreviewRows, colsMap, assignColumn, ignoreColumn, mappableFields: MAPPABLE_FIELDS,
     // alerts
     uploadAlert, dismissAlert,
     // settings
@@ -497,6 +622,10 @@ export default function useProductUploadEngine() {
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
+    // [إضافة 2026-09-19] حسابات المعاينة + التجاوز لكل صف
+    previewAccounts, previewAccountsLoading, previewAccountsError, fetchPreviewAccounts,
+    revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
+    rowOverrides, setRowAccountOverride,
     // preview
     previewSummary,
     // upload run

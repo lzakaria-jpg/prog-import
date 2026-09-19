@@ -113,6 +113,17 @@
 .qpu-badge.blue{background:var(--qpu-brand-bg-strong);color:var(--qpu-brand);}
 .qpu-badge.yellow{background:var(--qpu-warn-bg);color:var(--qpu-warn);}
 
+/* [إضافة 2026-09-19] شريط مطابقة أعمدة الملف — خفيف: قائمة منسدلة أعلى كل
+   عمود خام، وعنوانه الأصلي أسفلها، فوق عيّنة من صفوف الملف. */
+.qpu-map-wrap{max-height:280px;}
+.qpu-map-wrap th{vertical-align:top;padding:6px 8px;}
+.qpu-map-select{width:100%;min-width:130px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--qpu-border);background:#fff;color:var(--qpu-text);font-family:inherit;}
+.qpu-map-select:focus{outline:none;border-color:var(--qpu-brand);}
+.qpu-map-orig{margin-top:4px;font-size:11px;font-weight:400;color:var(--qpu-muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;}
+th.qpu-map-assigned{background:var(--qpu-brand-bg);}
+th.qpu-map-assigned .qpu-map-orig{color:var(--qpu-brand);}
+.qpu-table-wrap td.c-assigned{background:var(--qpu-brand-bg);}
+
 /* Action bar */
 .qpu-action-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
 .qpu-action-label{font-size:17px;font-weight:800;color:var(--qpu-text);}
