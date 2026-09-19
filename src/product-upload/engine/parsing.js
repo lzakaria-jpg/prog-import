@@ -54,8 +54,13 @@ export function detectColumns(headerRow) {
     if (map.name_en === -1 && /(اسم.*([اأإآ]نجليزي|[اأإآ]نكليزي))|(([اأإآ]نجليزي|[اأإآ]نكليزي).*اسم)|english name|name.?\(?en\)?\b/i.test(hh)) map.name_en = i;
     // Sellable status (حالة البيع)
     if (map.sellable === -1 && /حالة البيع|sell/i.test(hh)) map.sellable = i;
-    // Inventory (مخزن / حالة التخزين)
-    if (map.inventory === -1 && /مخزن|حالة التخزين|تخزين|inventory|stock/i.test(hh)) map.inventory = i;
+    // Inventory (مخزن / مخزون / حالة التخزين)
+    // [إصلاح 2026-09-19] خلل حقيقي مبلَّغ من المستخدم: عمود بعنوان "مخزون" حرفياً
+    // (شائع جداً بملفات العملاء) لم يكن يُطابَق إطلاقاً — "مخزن"/"تخزين" ليستا
+    // سلسلتين فرعيتين من "مخزون" (الحروف مختلفة: و قبل ن). فتبقى inventory=-1
+    // لكل الملف، وis_inventory تسقط صامتة لقيمتها الافتراضية false لكل صف مهما
+    // كانت القيمة الفعلية بالعمود (نعم/لا) — راجع buildProductsFromRows أسفله.
+    if (map.inventory === -1 && /مخزون|مخزن|حالة التخزين|تخزين|inventory|stock/i.test(hh)) map.inventory = i;
     // Unit
     if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh)) map.unit = i;
     // Revenue account
@@ -107,34 +112,62 @@ export function detectColumns(headerRow) {
   return map;
 }
 
-/*
- يحوّل صفوف ورقة العمل (كما تُخرج بواسطة XLSX.utils.sheet_to_json بوسائط
- { header: 1, defval: null }) إلى مصفوفة منتجات.
+// [إضافة 2026-09-19] وصف الحقول المنطقية القابلة للمطابقة اليدوية بشريط
+// "مطابقة الأعمدة" الجديد بالواجهة — نفس مفاتيح detectColumns أعلاه حرفياً.
+// key يطابق مفتاح map بـdetectColumns، label/labelEn للعرض بقائمة الاختيار
+// المنسدلة، required فقط لعمود الاسم (الوحيد الإلزامي فعلياً — راجع rowsToProducts:
+// أي صف بلا name يُتخطى بصمت).
+export const MAPPABLE_FIELDS = [
+  ['name', 'الاسم', true, 'Name'],
+  ['sku', 'الرمز/الكود', false, 'SKU / code'],
+  ['name_en', 'الاسم (إنجليزي)', false, 'Name (English)'],
+  ['sellable', 'حالة البيع', false, 'Sellable status'],
+  ['inventory', 'حالة التخزين (مخزون)', false, 'Inventory status'],
+  ['unit', 'الوحدة', false, 'Unit'],
+  ['category', 'الفئة', false, 'Category'],
+  ['category_code', 'رقم الصنف', false, 'Category code'],
+  ['cost', 'التكلفة', false, 'Cost'],
+  ['sellingPrice', 'سعر البيع', false, 'Selling price'],
+  ['revenue', 'حساب الإيراد', false, 'Revenue account'],
+  ['expense', 'حساب المصروف', false, 'Expense account'],
+  ['barcode', 'الباركود', false, 'Barcode'],
+  ['quantity', 'الكمية المتوفرة', false, 'Quantity'],
+  ['location', 'الموقع', false, 'Location'],
+  ['description', 'الوصف', false, 'Description'],
+];
 
- ملاحظة الفصل عن الأصل: في الأصل عند عدم العثور على صف ترويسة يُستدعى
- alert(...) مباشرة من داخل نفس الدالة. هنا نُعيد { headerFound:false, data:[] }
- وتتولى طبقة الواجهة إظهار الرسالة (نفس النص الحرفي). كل الشروط والحسابات
- الداخلية الأخرى منقولة حرفياً.
-*/
-export function buildProductsFromRows(rows) {
-  // Find the header row (the first row that contains recognizable header keywords)
-  let headerIdx = -1;
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const joined = (rows[i] || []).map((c) => String(c || "")).join(" ");
-    if (/كود|اسم|صنف|وحدة|رمز|التكلفة|sku|product/i.test(joined)) { headerIdx = i; break; }
-  }
-  if (headerIdx === -1) return { headerFound: false, data: [] };
-
-  const cols = detectColumns(rows[headerIdx]);
-
-  // Fallback positional mapping if header-based detection failed for key columns
-  // This supports the legacy 7-column layout (original customer format):
-  // كود المنتج | الاسم | حالة البيع | حالة التخزين | الوحدة | حساب الإيراد | حساب المصروف
+// [إضافة 2026-09-19] الاكتشاف التلقائي الكامل لخريطة الأعمدة (detectColumns +
+// التخطيط الاحتياطي الموضعي) — استُخرج من buildProductsFromRows ليُستخدَم أيضاً
+// كخريطة ابتدائية لشريط "مطابقة الأعمدة" اليدوي (يعرضها كنقطة بداية قابلة
+// للتعديل، بدل إعادة اكتشاف صامتة قد تختلف عمّا يراه المستخدم فعلياً).
+export function detectColumnsWithFallback(headerRow) {
+  const cols = detectColumns(headerRow);
   if (cols.name === -1 && cols.sku === -1 && cols.category === -1) {
     cols.sku = 0; cols.name = 1; cols.sellable = 2; cols.inventory = 3;
     cols.unit = 4; cols.revenue = 5; cols.expense = 6;
   }
+  return cols;
+}
 
+// [إضافة 2026-09-19] يبحث عن صف الترويسة فقط — استُخرج من buildProductsFromRows
+// (كان مدمجاً بجسمها) ليستخدمه أيضاً شريط "مطابقة الأعمدة" الجديد بواجهة
+// المستخدم (يحتاج headerIdx بمعزل عن بناء المنتجات نفسها، لعرض صفوف الملف
+// الخام تحت شريط المطابقة قبل أي تعديل من المستخدم على cols).
+export function findHeaderRowIndex(rows) {
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const joined = (rows[i] || []).map((c) => String(c || "")).join(" ");
+    if (/كود|اسم|صنف|وحدة|رمز|التكلفة|sku|product/i.test(joined)) return i;
+  }
+  return -1;
+}
+
+// [إضافة 2026-09-19] يحوّل صفوف البيانات (بعد صف الترويسة) إلى مصفوفة منتجات،
+// بخريطة أعمدة (cols) مُمرَّرة صراحة — استُخرج من buildProductsFromRows (كان
+// الجزء الثاني من جسمها) كي يعيد استدعائها شريط "مطابقة الأعمدة" الجديد بعد أي
+// تعديل يدوي من المستخدم على cols (بلا إعادة اكتشاف تلقائي ولا تخطيط احتياطي
+// موضعي — المستخدم حدَّد الأعمدة صراحةً بهذي الحالة). المنطق الداخلي حرفي بلا
+// أي تغيير عمّا كان بجسم buildProductsFromRows الأصلي.
+export function rowsToProducts(rows, headerIdx, cols) {
   const data = [];
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const r = rows[i];
@@ -170,7 +203,25 @@ export function buildProductsFromRows(rows) {
     data.push(p);
   }
 
-  return { headerFound: true, data };
+  return data;
+}
+
+/*
+ يحوّل صفوف ورقة العمل (كما تُخرج بواسطة XLSX.utils.sheet_to_json بوسائط
+ { header: 1, defval: null }) إلى مصفوفة منتجات — الاكتشاف التلقائي الكامل
+ (صف الترويسة + خريطة الأعمدة + التخطيط الاحتياطي الموضعي)، ثم rowsToProducts.
+
+ ملاحظة الفصل عن الأصل: في الأصل عند عدم العثور على صف ترويسة يُستدعى
+ alert(...) مباشرة من داخل نفس الدالة. هنا نُعيد { headerFound:false, data:[] }
+ وتتولى طبقة الواجهة إظهار الرسالة (نفس النص الحرفي). كل الشروط والحسابات
+ الداخلية الأخرى منقولة حرفياً.
+*/
+export function buildProductsFromRows(rows) {
+  const headerIdx = findHeaderRowIndex(rows);
+  if (headerIdx === -1) return { headerFound: false, data: [] };
+
+  const cols = detectColumnsWithFallback(rows[headerIdx]);
+  return { headerFound: true, data: rowsToProducts(rows, headerIdx, cols) };
 }
 
 // Parse cost price (buying price) from the "التكلفة" column. Qoyod requires

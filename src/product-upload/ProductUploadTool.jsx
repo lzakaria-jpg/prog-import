@@ -4,6 +4,7 @@ import ToolIcon from "../lib/ToolIcon.jsx";
 import useProductUploadEngine from "./useProductUploadEngine.js";
 import ApiKeyCard from "./components/ApiKeyCard.jsx";
 import FileUploadCard from "./components/FileUploadCard.jsx";
+import ColumnMappingCard from "./components/ColumnMappingCard.jsx";
 import SettingsCard from "./components/SettingsCard.jsx";
 import PreviewCard from "./components/PreviewCard.jsx";
 import ActionBar from "./components/ActionBar.jsx";
@@ -59,6 +60,7 @@ const ProductUploadTool = forwardRef(function ProductUploadTool({ showHeader = t
       <div className="qpu-wrap">
         <ApiKeyCard eng={eng} />
         <FileUploadCard eng={eng} />
+        <ColumnMappingCard eng={eng} />
         <SettingsCard eng={eng} />
         <PreviewCard eng={eng} />
         <ActionBar eng={eng} />
