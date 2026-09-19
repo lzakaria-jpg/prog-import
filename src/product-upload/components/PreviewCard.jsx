@@ -1,17 +1,20 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { useLanguage } from "../../language.jsx";
-import { useTableVirtualization } from "../../lib/useTableVirtualization.js";
 import { parseSellingPriceNumber, parseQuantityNumber } from "../engine/parsing.js";
 
 const BASE_COL_COUNT = 9;
 const DEFAULT_REVENUE_CODE = "4101";
 const DEFAULT_EXPENSE_CODE = "5101";
+// [إضافة 2026-09-20، طلب صريح من المستخدم: "قسم لصفحات كل صفحة 20 منتج"]
+// عرض 4000+ منتج دفعة واحدة (حتى مع نافذة تمرير) كان يُنتج بطئاً شديداً
+// بالتفاعل — كل صف مرئي يحمل قائمتي اختيار حساب (616 حساباً بمثال حقيقي)،
+// وإعادة تركيب صفوف جديدة بكل تمرير (useTableVirtualization سابقاً) كانت
+// تُعيد تركيب عشرات عناصر <option> باستمرار. الصفحات (بدل التمرير اللانهائي)
+// تُثبِّت عدد الصفوف بالـDOM على 20 فقط، يتغيّر فقط عند تنقّل صريح.
+const PAGE_SIZE = 20;
 
 /**
  * بطاقة معاينة البيانات — منقولة من showPreview() الأصلية (سطر 370-406).
- * "Show all rows, no cap" بالأصل محفوظ حرفياً (كل الصفوف تُعرض)، فقط طريقة
- * العرض تستخدم نافذة تمرير (useTableVirtualization) بدل بناء 2000+ عنصر DOM
- * دفعة واحدة — نفس أسلوب الجداول الكبيرة الأخرى بالمشروع (لا تغيير بالمحتوى).
  *
  * [إضافة 2026-09-07] أعمدة اختيارية جديدة (اسم إنجليزي/وصف/سعر بيع/باركود/كمية/
  * موقع) تظهر فقط لو وُجدت قيمة واحدة على الأقل بالملف الحالي — ملف لا يستخدم
@@ -35,17 +38,41 @@ export default function PreviewCard({ eng }) {
   const { t } = useLanguage();
   const {
     excelData, baseExcelData, previewSummary,
-    previewAccounts, previewAccountsLoading, previewAccountsError, fetchPreviewAccounts,
+    previewAccounts, referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
     rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct,
   } = eng;
-  const v = useTableVirtualization(excelData.length);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // [إضافة 2026-09-20] الفهرس الأصلي (i) لازم يبقى مرفَقًا مع كل منتج حتى بعد
+  // الفلترة بالبحث — هو ما يُستخدَم بـrowOverrides/setRowAccountOverride (مفتاحه
+  // موقع المنتج بـexcelData الكاملة، لا موقعه بنتائج البحث أو الصفحة الحالية).
+  const indexed = useMemo(() => excelData.map((p, i) => ({ p, i })), [excelData]);
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return indexed;
+    return indexed.filter(({ p }) => (
+      (p.name || "").toLowerCase().includes(q) ||
+      (p.name_en || "").toLowerCase().includes(q) ||
+      (p.sku || "").toLowerCase().includes(q) ||
+      (p.category || "").toLowerCase().includes(q)
+    ));
+  }, [indexed, searchQuery]);
 
   if (!excelData.length) return null;
 
-  // [إضافة 2026-09-19] قوائم اختيار الحساب لكل صف تظهر فقط لو أُتيحت حسابات
-  // المعاينة فعلاً (مفتاح API مُدخَل + جُلبت بنجاح) — قبل ذلك يبقى العرض
-  // النصي الأصلي كما كان تماماً (بلا أي تغيير على الحالة الحالية بلا مفتاح).
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages - 1);
+  const pageStart = safePage * PAGE_SIZE;
+  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  const goToPage = (p) => setCurrentPage(Math.max(0, Math.min(totalPages - 1, p)));
+
+  // [إضافة 2026-09-19] قوائم اختيار الحساب لكل صف تظهر فقط لو أُتيحت بيانات
+  // المنشأة المرجعية فعلاً (مفتاح API مُدخَل + جُلبت بنجاح) — قبل ذلك يبقى
+  // العرض النصي الأصلي كما كان تماماً (بلا أي تغيير على الحالة الحالية بلا مفتاح).
   const accountsReady = previewAccounts.length > 0;
 
   const showNameEn = previewSummary.withNameEn > 0;
@@ -56,9 +83,6 @@ export default function PreviewCard({ eng }) {
   const showLocation = previewSummary.withLocation > 0;
   const colCount = BASE_COL_COUNT + [showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
 
-  const rowsToRender = v.shouldVirtualize ? excelData.slice(v.startIndex, v.endIndex) : excelData;
-  const offset = v.shouldVirtualize ? v.startIndex : 0;
-
   return (
     <div className="qpu-panel">
       <div className="qpu-panel-title">{t({ ar: "معاينة البيانات", en: "Data preview" })}</div>
@@ -67,28 +91,41 @@ export default function PreviewCard({ eng }) {
         {showQuantity && ` | ${previewSummary.withQuantity} ${t({ ar: "منتج فيه كمية افتتاحية", en: "product(s) with an opening quantity" })}`}
       </div>
 
-      {/* [إضافة 2026-09-19] جلب حسابات المعاينة يدوياً — لعرضها بقوائم اختيار حساب
-          الإيراد/المصروف أدناه (مصفّاة حسب نوع الحساب من دليل حسابات العميل
-          الحقيقي)، ولعرض الحساب الافتراضي الفعلي المطابَق بدل نص ثابت. */}
+      {/* [إضافة 2026-09-19، وسِّعت 2026-09-20] جلب بيانات المنشأة المرجعية يدوياً
+          (حسابات/ضرائب/وحدات/فئات معًا) — تُستخدَم بقوائم اختيار الحساب أدناه،
+          ولعرض الحساب الافتراضي الفعلي، **وتُعاد استخدامها حرفيًا عند بدء الرفع
+          الفعلي بلا إعادة جلب** (راجع تعليق startUpload بالهوك). */}
       <div className="qpu-toggle-row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
-        <button type="button" className="qpu-btn secondary" onClick={() => fetchPreviewAccounts()} disabled={previewAccountsLoading}>
-          🔄 {previewAccountsLoading
-            ? t({ ar: "جارٍ جلب الحسابات...", en: "Fetching accounts..." })
-            : t({ ar: "تحديث قائمة الحسابات", en: "Refresh accounts list" })}
+        <button type="button" className="qpu-btn secondary" onClick={() => fetchReferenceData()} disabled={referenceDataLoading}>
+          🔄 {referenceDataLoading
+            ? t({ ar: "جارٍ جلب بيانات المنشأة...", en: "Fetching company data..." })
+            : t({ ar: "تحديث بيانات المنشأة (حسابات/ضرائب/وحدات/فئات)", en: "Refresh company data (accounts/taxes/units/categories)" })}
         </button>
         {accountsReady && (
           <span className="qpu-hint">
-            {t({ ar: `${previewAccounts.length} حساب متاح للاختيار لكل منتج`, en: `${previewAccounts.length} account(s) available to pick per product` })}
+            {t({ ar: `جاهزة — ${previewAccounts.length} حساب متاح للاختيار لكل منتج، وستُستخدَم مباشرة عند بدء الرفع بلا إعادة جلب`, en: `Ready — ${previewAccounts.length} account(s) available per product, reused as-is at upload start (no re-fetch)` })}
           </span>
         )}
-        {!accountsReady && !previewAccountsLoading && (
+        {!accountsReady && !referenceDataLoading && (
           <span className="qpu-hint">
-            {t({ ar: "أدخل مفتاح API ثم اضغط هنا لإتاحة اختيار حساب مخصَّص لكل منتج", en: "Enter the API key then click here to enable a custom account choice per product" })}
+            {t({ ar: "أدخل مفتاح API ثم اضغط هنا لتجهيز بيانات المنشأة مسبقاً — يسرّع بدء الرفع الفعلي ويتيح اختيار حساب مخصَّص لكل منتج", en: "Enter the API key then click here to pre-fetch company data — speeds up the actual upload start and enables a custom account choice per product" })}
           </span>
         )}
-        {previewAccountsError && <span className="qpu-note-box err" style={{ padding: "4px 10px", fontSize: 12 }}>⛔ {previewAccountsError}</span>}
+        {referenceDataError && <span className="qpu-note-box err" style={{ padding: "4px 10px", fontSize: 12 }}>⛔ {referenceDataError}</span>}
       </div>
-      <div className="qpu-table-wrap" ref={v.scrollRef}>
+
+      {/* [إضافة 2026-09-20، طلب صريح من المستخدم] بحث بالاسم (عربي/إنجليزي) أو
+          الرمز أو الفئة — يُطبَّق قبل التقسيم لصفحات، ويعيد الصفحة الحالية لأولها. */}
+      <div className="qpu-form-group" style={{ maxWidth: 360, marginBottom: 10 }}>
+        <input
+          type="text"
+          placeholder={t({ ar: "🔍 بحث بالاسم أو الرمز أو الفئة...", en: "🔍 Search by name, SKU, or category..." })}
+          value={searchQuery}
+          onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(0); }}
+        />
+      </div>
+
+      <div className="qpu-table-wrap" style={{ maxHeight: "none", overflow: "visible" }}>
         <table>
           <thead>
             <tr>
@@ -105,15 +142,11 @@ export default function PreviewCard({ eng }) {
             </tr>
           </thead>
           <tbody>
-            {v.shouldVirtualize && v.topSpacerHeight > 0 && (
-              <tr><td colSpan={colCount} style={{ height: v.topSpacerHeight, padding: 0, border: "none" }} /></tr>
-            )}
-            {rowsToRender.map((p, idx) => {
-              const i = offset + idx;
+            {pageRows.map(({ p, i }) => {
               const sellingPriceNum = parseSellingPriceNumber(p.selling_price_raw);
               const qtyNum = parseQuantityNumber(p.quantity_raw);
               return (
-                <tr key={i} ref={idx === 0 ? v.measuredRowRef : undefined}>
+                <tr key={i}>
                   <td>{i + 1}</td>
                   <td>{p.sku || "-"}</td>
                   <td>{p.name}</td>
@@ -158,11 +191,28 @@ export default function PreviewCard({ eng }) {
                 </tr>
               );
             })}
-            {v.shouldVirtualize && v.bottomSpacerHeight > 0 && (
-              <tr><td colSpan={colCount} style={{ height: v.bottomSpacerHeight, padding: 0, border: "none" }} /></tr>
+            {pageRows.length === 0 && (
+              <tr><td colSpan={colCount} style={{ textAlign: "center", padding: 20 }} className="qpu-muted">{t({ ar: "لا توجد نتائج مطابقة للبحث", en: "No results match your search" })}</td></tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* [إضافة 2026-09-20، طلب صريح من المستخدم] تنقّل بين الصفحات (20 منتج/صفحة) */}
+      <div className="qpu-action-row" style={{ marginTop: 12 }}>
+        <span className="qpu-hint">
+          {t({
+            ar: `عرض ${filtered.length ? pageStart + 1 : 0}–${Math.min(pageStart + PAGE_SIZE, filtered.length)} من ${filtered.length}${searchQuery ? ` (من أصل ${excelData.length})` : ""}`,
+            en: `Showing ${filtered.length ? pageStart + 1 : 0}–${Math.min(pageStart + PAGE_SIZE, filtered.length)} of ${filtered.length}${searchQuery ? ` (out of ${excelData.length})` : ""}`,
+          })}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="qpu-btn ghost" onClick={() => goToPage(0)} disabled={safePage === 0}>{t({ ar: "الأولى", en: "First" })}</button>
+          <button type="button" className="qpu-btn ghost" onClick={() => goToPage(safePage - 1)} disabled={safePage === 0}>{t({ ar: "السابقة", en: "Prev" })}</button>
+          <span className="qpu-hint">{t({ ar: `صفحة ${safePage + 1} من ${totalPages}`, en: `Page ${safePage + 1} of ${totalPages}` })}</span>
+          <button type="button" className="qpu-btn ghost" onClick={() => goToPage(safePage + 1)} disabled={safePage >= totalPages - 1}>{t({ ar: "التالية", en: "Next" })}</button>
+          <button type="button" className="qpu-btn ghost" onClick={() => goToPage(totalPages - 1)} disabled={safePage >= totalPages - 1}>{t({ ar: "الأخيرة", en: "Last" })}</button>
+        </div>
       </div>
     </div>
   );

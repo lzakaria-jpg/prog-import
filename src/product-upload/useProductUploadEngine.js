@@ -107,28 +107,48 @@ export default function useProductUploadEngine() {
       : baseExcelData
   ), [baseExcelData, rowOverrides]);
 
-  // ---- Chart of accounts fetched ahead of time (معاينة فقط) ----
-  // [إضافة 2026-09-19، طلب صريح من المستخدم] تُجلَب حسابات منشأة العميل قبل
-  // الرفع الفعلي، لتُستخدَم بقوائم اختيار حساب الإيراد/المصروف لكل منتج على
-  // حدة بشاشة المعاينة (مصفّاة حسب نوع الحساب — راجع engine/accountFilters.js)
-  // — بمعزل تام عن جلب الحسابات الخاص ببدء الرفع الفعلي (startUpload أدناه،
-  // يبقى كما هو حرفياً، يُعيد الجلب وقت الإرسال الفعلي لضمان أحدث بيانات).
+  // ---- بيانات منشأة العميل المرجعية (حسابات/ضرائب/وحدات/فئات) — تُجلَب قبل الرفع ----
+  // [إضافة 2026-09-19، وسِّعت 2026-09-20 طلبًا صريحًا من المستخدم: "جلب البيانات
+  // قبل بدء الرفع لتحديد حساب الإيراد والمصروف والضرائب والوحدات"] كانت تُجلَب
+  // الحسابات فقط هنا (لقوائم اختيار حساب كل منتج بالمعاينة)، وstartUpload كان
+  // يُعيد جلب الأربعة (حسابات/ضرائب/وحدات/فئات) من الصفر دائمًا عند الضغط على
+  // "بدء الرفع" — تكرار شبكي كامل يؤخّر بداية الرفع الفعلي لعميل بآلاف
+  // المنتجات بلا أي داعٍ. الآن تُجلَب الأربعة معًا مسبقًا (Promise.all — متوازيًا
+  // لا متتاليًا، أسرع من الأصل حتى لو أُعيد الجلب لاحقًا)، وstartUpload يعيد
+  // استخدامها مباشرة طالما لم يتغيّر مفتاح API منذ آخر جلب (referenceDataForKeyRef)
+  // — فبداية الرفع الفعلي (إنشاء أول منتج) تصير فورية بلا أي انتظار جلب.
+  // تغيّر المفتاح بلا إعادة جلب يدوي يعني عودة تلقائية لجلب startUpload الخاص
+  // بها (المسار الاحتياطي بالأسفل) — بلا أي خطر استخدام بيانات منشأة عميل خطأ.
   const [previewAccounts, setPreviewAccounts] = useState([]);
-  const [previewAccountsLoading, setPreviewAccountsLoading] = useState(false);
-  const [previewAccountsError, setPreviewAccountsError] = useState(null);
+  const [previewTaxes, setPreviewTaxes] = useState([]);
+  const [previewUnits, setPreviewUnits] = useState([]);
+  const [previewCategories, setPreviewCategories] = useState([]);
+  const [referenceDataLoading, setReferenceDataLoading] = useState(false);
+  const [referenceDataError, setReferenceDataError] = useState(null);
+  const referenceDataForKeyRef = useRef(null);
 
-  const fetchPreviewAccounts = useCallback(async (keyOverride) => {
+  const fetchReferenceData = useCallback(async (keyOverride) => {
     const key = (keyOverride ?? apiKey).trim();
     if (!key) return;
-    setPreviewAccountsLoading(true);
-    setPreviewAccountsError(null);
+    setReferenceDataLoading(true);
+    setReferenceDataError(null);
     try {
-      const accounts = await fetchAll("/accounts", key);
+      const [accounts, taxes, units, categories] = await Promise.all([
+        fetchAll("/accounts", key),
+        fetchAll("/taxes", key),
+        fetchAll("/product_unit_types", key),
+        fetchAll("/categories", key),
+      ]);
       setPreviewAccounts(accounts);
+      setPreviewTaxes(taxes);
+      setPreviewUnits(units);
+      setPreviewCategories(categories);
+      referenceDataForKeyRef.current = key;
     } catch (e) {
-      setPreviewAccountsError(e.message);
+      setReferenceDataError(e.message);
+      referenceDataForKeyRef.current = null;
     } finally {
-      setPreviewAccountsLoading(false);
+      setReferenceDataLoading(false);
     }
   }, [apiKey]);
 
@@ -148,14 +168,14 @@ export default function useProductUploadEngine() {
       setHeaderRowIndex(headerIdx);
       setColsMap(detectColumnsWithFallback(rows[headerIdx]));
       setUploadAlert(null);
-      // [إضافة 2026-09-19] جلب حسابات المعاينة تلقائياً لو مفتاح API مُدخَل
-      // فعلاً وقت رفع الملف — لو أُدخِل لاحقاً، زر "تحديث الحسابات" اليدوي
-      // بشريط الحسابات هو الوسيلة (لا جلب صامت متكرر عند كل ضغطة مفتاح).
-      if (apiKey.trim()) fetchPreviewAccounts();
+      // [إضافة 2026-09-19] جلب بيانات المنشأة المرجعية تلقائياً لو مفتاح API
+      // مُدخَل فعلاً وقت رفع الملف — لو أُدخِل لاحقاً، زر التحديث اليدوي
+      // بشاشة المعاينة هو الوسيلة (لا جلب صامت متكرر عند كل ضغطة مفتاح).
+      if (apiKey.trim()) fetchReferenceData();
     } catch (err) {
       setUploadAlert(t({ ar: "خطأ في قراءة ملف Excel: ", en: "Error reading Excel: " }) + err.message);
     }
-  }, [t, apiKey, fetchPreviewAccounts]);
+  }, [t, apiKey, fetchReferenceData]);
 
   // [إضافة 2026-09-19] تعديل يدوي على خريطة الأعمدة من شريط المطابقة: تعيين
   // عمود خام (colIndex) لحقل منطقي (fieldKey)، مع إلغاء أي تعيين سابق لنفس
@@ -293,9 +313,28 @@ export default function useProductUploadEngine() {
     try {
       appendLog(t({ ar: "=== بدء الرفع ===", en: "=== Starting Upload ===" }), "header");
 
-      // 1. Fetch accounts
-      appendLog(t({ ar: "جارٍ جلب دليل الحسابات...", en: "Fetching chart of accounts..." }), "info");
-      const accounts = await fetchAll("/accounts", key);
+      // 1. Accounts/taxes/units/categories — [إعادة تصميم 2026-09-20، طلب صريح
+      // من المستخدم] استخدام البيانات المُجهَّزة مسبقًا (fetchReferenceData
+      // بمرحلة المعاينة) طالما لم يتغيّر مفتاح API منذ آخر جلب لها — فلا وقت
+      // انتظار إطلاقًا هنا قبل بدء إنشاء أول منتج. غير ذلك (لم تُجهَّز مسبقًا،
+      // أو تغيّر المفتاح)، تُجلَب الأربعة الآن متوازية (Promise.all) بدل
+      // متتالية كما كانت — أسرع حتى بالمسار الاحتياطي.
+      const usePrefetched = referenceDataForKeyRef.current === key && previewAccounts.length > 0;
+      appendLog(
+        usePrefetched
+          ? t({ ar: "استخدام بيانات المنشأة المُجهَّزة مسبقًا (دليل الحسابات/الضرائب/الوحدات/الفئات) — بلا إعادة جلب", en: "Using pre-fetched company data (accounts/taxes/units/categories) — no re-fetch" })
+          : t({ ar: "جارٍ جلب دليل الحسابات والضرائب والوحدات والفئات (متوازيًا)...", en: "Fetching chart of accounts, taxes, units and categories (in parallel)..." }),
+        "header"
+      );
+      const [accounts, taxes, units, categories] = usePrefetched
+        ? [previewAccounts, previewTaxes, previewUnits, previewCategories]
+        : await Promise.all([
+            fetchAll("/accounts", key),
+            fetchAll("/taxes", key),
+            fetchAll("/product_unit_types", key),
+            fetchAll("/categories", key),
+          ]);
+
       accounts.forEach((a) => {
         const nameAr = (a.name_ar || "").toLowerCase();
         const nameEn = (a.name_en || "").toLowerCase();
@@ -313,10 +352,8 @@ export default function useProductUploadEngine() {
       if (defaultExp) appendLog(t({ ar: `  حساب المصروف ${expCode}: ${defaultExp.name_ar} (المعرّف: ${defaultExp.id})`, en: `  Expense account ${expCode}: ${defaultExp.name_ar} (ID: ${defaultExp.id})` }), "success");
       else appendLog(t({ ar: `  تحذير: الحساب ${expCode} غير موجود!`, en: `  WARNING: Account ${expCode} not found!` }), "error");
 
-      // 2. Fetch taxes (required for product creation), prefer rate 15%
-      appendLog(t({ ar: "\nجارٍ جلب الضرائب...", en: "\nFetching taxes..." }), "header");
+      // 2. Taxes — prefer rate 15%
       try {
-        const taxes = await fetchAll("/taxes", key);
         const chosen = chooseTax(taxes);
         if (chosen) selectedTaxId = chosen.id;
         const chosenRate = chosen
@@ -331,18 +368,15 @@ export default function useProductUploadEngine() {
         );
         if (!chosen) appendLog(t({ ar: "  تحذير: لا توجد ضرائب - لن يمكن إنشاء المنتجات بدون ضريبة!", en: "  WARNING: No taxes found - products will NOT be creatable without a tax!" }), "error");
       } catch (e) {
-        appendLog(t({ ar: `  فشل جلب الضرائب: ${e.message}`, en: `  Failed to fetch taxes: ${e.message}` }), "error");
+        appendLog(t({ ar: `  فشل معالجة الضرائب: ${e.message}`, en: `  Failed to process taxes: ${e.message}` }), "error");
       }
 
-      // 2. Fetch units
-      appendLog(t({ ar: "جارٍ جلب وحدات المنتجات...", en: "Fetching product units..." }), "info");
-      const units = await fetchAll("/product_unit_types", key);
+      // 3. Units
       units.forEach((u) => { unitsCache[(u.unit_name || "").toLowerCase()] = u; });
       appendLog(t({ ar: `  تم العثور على ${units.length} وحدة: ${units.map((u) => u.unit_name).join("، ")}`, en: `  Found ${units.length} units: ${units.map((u) => u.unit_name).join(", ")}` }), "info");
 
-      // 2b. Fetch categories and ensure the needed ones exist
+      // 4. Categories — ensure the ones this file needs exist
       appendLog(t({ ar: "\nجارٍ معالجة فئات المنتجات...", en: "\nProcessing product categories..." }), "header");
-      const categories = await fetchAll("/categories", key);
       categories.forEach((c) => {
         const k = (c.name || "").trim().toLowerCase();
         if (k) categoriesCache[k] = c;
@@ -373,7 +407,13 @@ export default function useProductUploadEngine() {
           } catch (e) {
             appendLog(t({ ar: `  فشل إنشاء الفئة '${meta.name}': ${e.message}`, en: `  Failed to create category '${meta.name}': ${e.message}` }), "error");
           }
-          await new Promise((r) => setTimeout(r, 300));
+          // [إزالة 2026-09-20، طلب صريح من المستخدم: رفع أسرع لملفات كبيرة]
+          // كان هنا انتظار 300ms إضافي بعد كل فئة، بمعزل تام عن المُحدِّد
+          // الحقيقي الوحيد لحد Qoyod (300 طلب/60 ثانية) — المُطبَّق مركزيًا
+          // وبدقة عبر api()/waitForRateLimitSlot (network.js)، ويشمل هذا النداء
+          // نفسه. الانتظار الإضافي هنا كان تكراراً صرفاً لا يزيد الأمان، فقط
+          // يُبطئ إنشاء الفئات (عادة قليلة العدد فأثره هنا محدود، لكن إزالته
+          // متسقة مع نفس الإصلاح بحلقة إنشاء المنتجات الرئيسية أدناه).
         }
       }
       appendLog(t({ ar: `  الفئات الجاهزة: ${Object.keys(categoriesCache).length}`, en: `  Categories ready: ${Object.keys(categoriesCache).length}` }), "info");
@@ -530,8 +570,16 @@ export default function useProductUploadEngine() {
         updateStats();
         setProg(i + 1);
 
-        // Rate limit
-        await new Promise((r) => setTimeout(r, 300));
+        // [إزالة 2026-09-20، طلب صريح من المستخدم: "احتاج رفع سريع جدًا ودقيق
+        // 100%" على ملف 4200 منتج] كان هنا انتظار 300ms إضافي بعد كل منتج،
+        // بمعزل تام عن حد Qoyod الحقيقي (300 طلب/60 ثانية) المُطبَّق مركزيًا
+        // وبدقة عبر api()/waitForRateLimitSlot (network.js) على كل نداء API
+        // بالمشروع بلا استثناء — يشمل هذا النداء (POST/PUT /products) نفسه.
+        // الانتظار الإضافي هنا كان من الكود الأصلي (قبل وجود ذلك المُحدِّد
+        // المركزي)، ولا يزيد أي أمان حقيقي، فقط يُضاعِف تقريبًا زمن رفع ملف
+        // كبير (4200 منتج × 300ms إضافية = 21 دقيقة ميتة بلا أي فائدة). إزالته
+        // لا تُخاطر بتجاوز الحد الرسمي إطلاقًا — المُحدِّد المركزي يبقى الضامن
+        // الوحيد والكافي لذلك بصرف النظر عن سرعة هذه الحلقة.
       }
 
       // [إضافة 2026-09-07] ملف الأرصدة الافتتاحية — فقط للمنتجات التي أُنشئت
@@ -588,7 +636,10 @@ export default function useProductUploadEngine() {
     }
 
     setUploading(false);
-  }, [apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation, appendLog, t]);
+  }, [
+    apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
+    previewAccounts, previewTaxes, previewUnits, previewCategories, appendLog, t,
+  ]);
 
   const previewSummary = useMemo(() => {
     const catSet = new Set(excelData.map((p) => p.category).filter(Boolean));
@@ -622,8 +673,9 @@ export default function useProductUploadEngine() {
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
-    // [إضافة 2026-09-19] حسابات المعاينة + التجاوز لكل صف
-    previewAccounts, previewAccountsLoading, previewAccountsError, fetchPreviewAccounts,
+    // [إضافة 2026-09-19] بيانات المنشأة المرجعية (حسابات/ضرائب/وحدات/فئات) + التجاوز لكل صف
+    previewAccounts, previewTaxes, previewUnits, previewCategories,
+    referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
     rowOverrides, setRowAccountOverride,
     // preview
