@@ -21,18 +21,18 @@ describe("matchAccountType — بلا قيد (السلوك الأصلي، لأد
 describe("buildCodeCategoryHints / lookupCodeCategoryHint — تعلّم فئات الحساب من شجرة العميل الفعلية لا افتراض ثابت", () => {
   it("يحفظ فئة مستوى2 دقيقة لحساب اسمه اسم الفئة الرسمي حرفيًا", () => {
     const hints = buildCodeCategoryHints([{ code: "11", name: "الأصول المتداولة" }, { code: "42", name: "الإيرادات الأخرى" }]);
-    expect(hints["11"]).toEqual({ level2Category: "الأصول المتداولة", level1Root: "الأصول" });
-    expect(hints["42"]).toEqual({ level2Category: "الإيرادات الأخرى", level1Root: "الإيرادات" });
+    expect(hints.explicit["11"]).toEqual({ level2Category: "الأصول المتداولة", level1Root: "الأصول" });
+    expect(hints.explicit["42"]).toEqual({ level2Category: "الإيرادات الأخرى", level1Root: "الإيرادات" });
   });
 
   it("يحفظ جذر مستوى1 فقط (لا فئة مستوى2 مقفَلة خطأً) لحساب اسمه مرادف جذر لا اسم فئة رسمي — مثال حقيقي: 'حقوق الملكية'", () => {
     const hints = buildCodeCategoryHints([{ code: "3", name: "حقوق الملكية" }]);
-    expect(hints["3"]).toEqual({ level1Root: "حقوق الملاك" });
+    expect(hints.explicit["3"]).toEqual({ level1Root: "حقوق الملاك" });
   });
 
   it("يحفظ فئة دقيقة لحساب اسمه يحوي مؤهِّل 'متداولة' فعليًا (لا مجرد جذر) — مثال حقيقي: '21 = التزامات متداولة'", () => {
     const hints = buildCodeCategoryHints([{ code: "21", name: "التزامات متداولة" }]);
-    expect(hints["21"]).toEqual({ level2Category: "الالتزامات المتداولة", level1Root: "الالتزامات" });
+    expect(hints.explicit["21"]).toEqual({ level2Category: "الالتزامات المتداولة", level1Root: "الالتزامات" });
   });
 
   it("lookupCodeCategoryHint يجد أطول رمز أب موجود فعليًا بالفهرس (اقتطاع من اليمين)", () => {
@@ -112,6 +112,47 @@ describe("classifyMissingAccount — أمثلة حقيقية من المستخد
   it("بلا أي لافتة بشجرة العميل ولا اسم مطابق: احتياط أخير بالترقيم القياسي (1 أصول، 4 إيرادات) — لا يترك الحساب بلا تصنيف إطلاقًا", () => {
     expect(classifyMissingAccount("شيء غامض", "199001", {})).toEqual({ type: "أصول متداولة أخرى", level2Category: "الأصول المتداولة", confidence: "guess" });
     expect(classifyMissingAccount("شيء غامض", "499001", {})).toEqual({ type: "إيرادات أخرى", level2Category: "الإيرادات الأخرى", confidence: "guess" });
+  });
+
+  // --- الجولة الثالثة: "الاداة لم تعتمد على رمز الحساب اولا في تحديد نوع الحساب" ---
+
+  // شجرة عميل واقعية بأسماء عملية بحتة: لا حساب واحد فيها اسمه اسم فئة أو جذر
+  // معروف — الحالة الشائعة فعليًا، وهي بالضبط التي أخفقت ببلاغ المستخدم.
+  const practicalChart = [
+    { code: "1101", name: "الصندوق" },
+    { code: "1102", name: "بنك الراجحي" },
+    { code: "1201", name: "سيارات" },
+    { code: "5101", name: "رواتب وأجور" },
+    { code: "5102", name: "إيجار المكتب" },
+    { code: "5103", name: "كهرباء ومياه" },
+  ];
+
+  it("شجرة بلا أي لافتة صريحة: الجذر يُستنتَج بالتصويت من أسماء حسابات العميل نفسها", () => {
+    const hints = buildCodeCategoryHints(practicalChart);
+    expect(hints.derived["5"]).toEqual({ level1Root: "المصاريف" });
+    expect(hints.derived["1"]).toEqual({ level1Root: "الاصول" });
+  });
+
+  it("حساب 5301 'حاسب آلي وطابعات' يُصنَّف مصاريف لا أصولًا غير متداولة (بلاغ المستخدم الحرفي)", () => {
+    const hints = buildCodeCategoryHints(practicalChart);
+    for (const name of ["حاسب آلي وطابعات", "أثاث مكتبي", "سيارات"]) {
+      const r = classifyMissingAccount(name, "5301", hints);
+      expect(r.level2Category).toBe("تكاليف تشغيلية");
+      expect(r.type).toBe("تكاليف تشغيلية أخرى");
+    }
+  });
+
+  it("نفس الاسم برمز أصول يبقى أصولًا — الرمز هو الحاكم لا الاسم", () => {
+    const hints = buildCodeCategoryHints(practicalChart);
+    expect(classifyMissingAccount("أجهزة حاسب", "1205", hints)).toMatchObject({
+      type: "عقارات وآلات ومعدات", level2Category: "الأصول غير المتداولة",
+    });
+  });
+
+  it("داخل جذر المصاريف المستنتَج، الاسم لا يزال يحسم الفئة الصحيحة (لا تُقفَل كلها بفئة واحدة)", () => {
+    const hints = buildCodeCategoryHints(practicalChart);
+    expect(classifyMissingAccount("تكلفة بضاعة مباعة", "5401", hints)).toMatchObject({ level2Category: "التكلفة المباشرة" });
+    expect(classifyMissingAccount("مصروف زكاة", "5501", hints)).toMatchObject({ level2Category: "تكاليف غير تشغيلية" });
   });
 
   it("بلا رمز إطلاقًا وبلا تطابق اسم: لا شيء (لا يوجد حتى رقم جذر لتخمينه)", () => {
