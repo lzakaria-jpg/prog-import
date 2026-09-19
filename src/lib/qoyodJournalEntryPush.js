@@ -70,7 +70,7 @@ function fmtAmount(n) {
  * خطأ)؛ بفهرس محمَّل، قيمة غير فارغة يتعذّر ربطها = خطأ حاجب صريح لذلك البند
  * (لا إرسال بند بمشروع خاطئ بصمت أو تجاهل المشروع بصمت).
  */
-function resolveProjectId(value, projectsIndex) {
+export function resolveProjectId(value, projectsIndex) {
   if (!projectsIndex || !projectsIndex.loaded) return { ok: true, id: undefined };
   const typed = String(value || '').trim();
   if (!typed) return { ok: true, id: undefined };
@@ -78,9 +78,14 @@ function resolveProjectId(value, projectsIndex) {
   if (!matched) {
     const candidates = (projectsIndex.byName ? projectsIndex.byName.get(typed.toLowerCase()) : undefined) || [];
     if (candidates.length === 1) matched = candidates[0];
-    else if (candidates.length > 1) return { ok: false, error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم.` };
+    // [إضافة 2026-09-21] reason:'ambiguous' — يميّز "الاسم موجود لكن مكرر"
+    // عن "غير موجود إطلاقاً" (reason الافتراضي 'not_found' بالأسفل)، ليستخدمه
+    // رصد الكيانات الناقصة الجديد (journalMissingEntities.js) فلا يعرض مشروعًا
+    // موجودًا فعلاً (لكن مكرر الاسم) كـ"ناقص قابل للإنشاء" — ذلك كان سيُفاقم
+    // الالتباس بدل حله. حقل إضافي بحت، لا يُغيَّر أي سلوك بمسار الإرسال الفعلي هنا.
+    else if (candidates.length > 1) return { ok: false, reason: 'ambiguous', error: `اسم المشروع "${typed}" مطابق لأكثر من مشروع بمنشأة العميل — استخدم رقم المشروع بدل الاسم.` };
   }
-  if (!matched) return { ok: false, error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
+  if (!matched) return { ok: false, reason: 'not_found', error: `تعذّر مطابقة المشروع "${typed}" بأي مشروع حقيقي بمنشأة العميل.` };
   return { ok: true, id: matched.id };
 }
 
@@ -90,7 +95,7 @@ function resolveProjectId(value, projectsIndex) {
  * "الموقع" لا "المشروع". locationsIndex بنفس شكل projectsIndex بالضبط
  * (buildLocationsIndexFromApi بـqoyodJournalRefFetch.js).
  */
-function resolveLocationId(value, locationsIndex) {
+export function resolveLocationId(value, locationsIndex) {
   if (!locationsIndex || !locationsIndex.loaded) return { ok: true, id: undefined };
   const typed = String(value || '').trim();
   if (!typed) return { ok: true, id: undefined };
@@ -98,9 +103,9 @@ function resolveLocationId(value, locationsIndex) {
   if (!matched) {
     const candidates = (locationsIndex.byName ? locationsIndex.byName.get(typed.toLowerCase()) : undefined) || [];
     if (candidates.length === 1) matched = candidates[0];
-    else if (candidates.length > 1) return { ok: false, error: `اسم الموقع "${typed}" مطابق لأكثر من موقع بمنشأة العميل — استخدم رقم الموقع بدل الاسم.` };
+    else if (candidates.length > 1) return { ok: false, reason: 'ambiguous', error: `اسم الموقع "${typed}" مطابق لأكثر من موقع بمنشأة العميل — استخدم رقم الموقع بدل الاسم.` };
   }
-  if (!matched) return { ok: false, error: `تعذّر مطابقة الموقع "${typed}" بأي موقع حقيقي بمنشأة العميل.` };
+  if (!matched) return { ok: false, reason: 'not_found', error: `تعذّر مطابقة الموقع "${typed}" بأي موقع حقيقي بمنشأة العميل.` };
   return { ok: true, id: matched.id };
 }
 
