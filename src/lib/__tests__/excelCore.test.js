@@ -571,6 +571,73 @@ describe("applyAutoContactRules — تعبية 'جهة اتصال/ضريبة/م�
     });
   });
 
+  // [طلب صريح من المستخدم] المدينون/الدائنون مقفلان نظاميًا بقيود
+  // (accounts_receivable/accounts_payable: locked, canModify=false) ولا يُقبل
+  // حساب ضريبة ثانٍ — فتُلتزَم رموز الشجرة المجلوبة دومًا ويُستبدَل بها رمز
+  // السطر بملف القيود: "نستبدل أرقام حسابات القيود التي فيها مدينون ودائنون
+  // وضريبة بنفس الأرقام التي بالشجرة عشان يرفع صح".
+  describe("توحيد رموز حسابات النظام على رموز الشجرة", () => {
+    const chart = [
+      { code: "11", name: "الأصول المتداولة", type: "" },
+      { code: "1102", name: "المدينون", type: "" },
+      { code: "2103", name: "الدائنون", type: "" },
+      { code: "210201", name: "ضريبة القيمة المضافة المستحقة", type: "" },
+      { code: "4101", name: "إيرادات المبيعات", type: "" },
+    ];
+
+    it("حساب فرعي لكل عميل تحت المدينون (11020201 والشجرة فيها 1102) يُستبدَل بـ1102 مع مطابقة العميل", () => {
+      const entries = [entry([{ code: "11020201", name: "المدينون", debit: 9615.33, credit: 0, comment: "عملاء تاجير" }])];
+      const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "عملاء تاجير", ref: "77" }] });
+      expect(out[0].rows[0].code).toBe("1102");
+      expect(out[0].rows[0]._originalCode).toBe("11020201");
+      expect(out[0].rows[0].contact).toBe("77");
+    });
+
+    it("حساب فرعي تحت الدائنون باسم المورّد (لا باسم 'الدائنون') يُستبدَل برمز الشجرة أيضًا", () => {
+      const entries = [entry([{ code: "210301", name: "مورد قطع غيار", debit: 0, credit: 500, detail: "مؤسسة النور" }])];
+      const out = applyAutoContactRules(entries, chart, { suppliersRef: [{ name: "مؤسسة النور", ref: "88" }] });
+      expect(out[0].rows[0].code).toBe("2103");
+      expect(out[0].rows[0].contact).toBe("88");
+    });
+
+    it("رمز ضريبة مجهول باسم حساب الضريبة يُستبدَل برمز الشجرة، ونوعها يُحدَّد بالقيمة", () => {
+      const entries = [entry([
+        { code: "210202", name: "ضريبة القيمة المضافة المستحقة", debit: 0, credit: 1254.17 },
+        { code: "210202", name: "ضريبة القيمة المضافة المستحقة", debit: 0, credit: 0 },
+      ])];
+      const out = applyAutoContactRules(entries, chart, {});
+      expect(out[0].rows.map((r) => r.code)).toEqual(["210201", "210201"]);
+      expect(out[0].rows[0].contact).toBe("1");
+      expect(out[0].rows[1].contact).toBe("2");
+    });
+
+    it("الرمز يُصحَّح حتى لو تعذّرت مطابقة العميل (اسمه يحتاج إنشاءً أولاً)", () => {
+      const entries = [entry([{ code: "11020299", name: "المدينون", debit: 100, credit: 0, comment: "عميل جديد تمامًا" }])];
+      const out = applyAutoContactRules(entries, chart, { customersRef: [] });
+      expect(out[0].rows[0].code).toBe("1102");
+      expect(out[0].rows[0].contact).toBe("");
+    });
+
+    it("رمز مجهول أقرب أب معروف له ليس حساب نظام لا يُلمَس إطلاقًا", () => {
+      const entries = [entry([{ code: "1109", name: "سلف موظفين", debit: 100, credit: 0 }])];
+      const out = applyAutoContactRules(entries, chart, {});
+      expect(out[0].rows[0].code).toBe("1109");
+      expect(out[0].rows[0]._originalCode).toBeUndefined();
+    });
+
+    it("سطر عدّله المستخدم يدويًا (_userEdited) لا يُستبدَل رمزه إطلاقًا", () => {
+      const entries = [entry([{ code: "11020201", name: "المدينون", debit: 100, credit: 0, _userEdited: true }])];
+      const out = applyAutoContactRules(entries, chart, {});
+      expect(out[0].rows[0].code).toBe("11020201");
+    });
+
+    it("رمز الشجرة نفسه لا يُعاد كتابته (لا تغيير مرجع entries بلا داعٍ)", () => {
+      const entries = [entry([{ code: "4101", name: "إيرادات المبيعات", debit: 0, credit: 50 }])];
+      const out = applyAutoContactRules(entries, chart, {});
+      expect(out).toBe(entries);
+    });
+  });
+
   it("حساب المدينون: يطابق اسم العميل من عمود 'contact' مع ملف العملاء المرجعي ويستبدله برقمه المرجعي", () => {
     const entries = [entry([{ code: "120101", debit: 1000, credit: null, contact: "مؤسسة الأخوات الثلاث" }])];
     const out = applyAutoContactRules(entries, chart, { customersRef: [{ name: "مؤسسة الأخوات الثلاث", ref: "1005" }] });

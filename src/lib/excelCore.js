@@ -790,6 +790,35 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const debtorsNameNorm = normalizeAccountName(DEBTORS_ACCOUNT_NAME);
   const creditorsNameNorm = normalizeAccountName(CREDITORS_ACCOUNT_NAME);
 
+  // [إضافة — طلب صريح من المستخدم] حسابات المدينون/الدائنون/ضريبة القيمة
+  // المضافة المستحقة تُلتزَم دومًا كما هي بشجرة العميل المجلوبة، مهما كان رمزها
+  // بملف القيود: "نستبدل أرقام حسابات القيود التي فيها مدينون ودائنون وضريبة
+  // بنفس الأرقام التي بالشجرة عشان يرفع صح". السبب الفعلي بقيود: المدينون
+  // والدائنون حسابان مقفلان نظاميًا (accounts_receivable/accounts_payable —
+  // locked:true, canModify:false بالمرجع الرسمي) لا يمكن إنشاء بديل لهما ولا
+  // تعديلهما، وحساب ضريبة ثانٍ غير مقبول عمليًا. فبدل رفض القيد أو إنشاء حساب
+  // مكرر، يُحوَّل السطر لرمز الشجرة الصحيح وتبقى هوية العميل/المورد محفوظة
+  // بخانة "جهة اتصال" (وهذا نموذج قيود نفسه: الترحيل على حساب المدينون مع
+  // contact_id، لا على حساب فرعي لكل عميل).
+  const canonicalVat = vatCodes.size === 1 ? [...vatCodes][0] : "";
+  const canonicalDebtors = debtorsCodes.size === 1 ? [...debtorsCodes][0] : "";
+  const canonicalCreditors = creditorsCodes.size === 1 ? [...creditorsCodes][0] : "";
+
+  // أقرب حساب أب موجود فعلاً بالشجرة لرمز مجهول (اقتطاع من اليمين — نفس الأسلوب
+  // المعتمَد بالمشروع). يُستخدَم للحالة التي وصفها المستخدم حرفيًا: الشجرة فيها
+  // المدينون 1102 والقيد يستخدم 11020201 (حساب فرعي لكل عميل بترقيم العميل
+  // نفسه) — أقرب أب معروف له هو 1102 بالضبط، فهو سطر مدينون بلا لبس. اشتراط
+  // "أقرب أب معروف" لا مجرد بادئة يمنع التقاط رموز أخرى بالخطأ (رمز مجهول
+  // أقرب أب له حساب آخر بالشجرة لا يُلمَس إطلاقًا).
+  function nearestKnownAncestor(code) {
+    let current = String(code || "").trim();
+    while (current.length > 1) {
+      current = current.slice(0, -1);
+      if (knownCodes.has(current)) return current;
+    }
+    return "";
+  }
+
   // [أداء] الفهرسان يُبنيان مرة واحدة فقط هنا (لا لكل سطر) — انظر تعليق
   // buildRefIndex/resolveRefFast أعلاه لتفاصيل الإصلاح والقياس الفعلي.
   const customersIndex = buildRefIndex(customersRef);
@@ -803,18 +832,35 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
 
       // اسم السطر بالملف لا يُعتمَد إلا حين يكون رمزه مجهولاً بشجرة العميل —
       // الشجرة هي المرجع دومًا متى عرفت الرمز (لو سمّته شيئًا آخر فهي الأصدق).
-      const rowNameNorm = knownCodes.has(row.code) ? "" : normalizeAccountName(row.name);
+      const codeUnknown = !knownCodes.has(row.code);
+      const rowNameNorm = codeUnknown ? normalizeAccountName(row.name) : "";
+      // رمز مجهول أقرب أب معروف له هو أحد حسابات النظام ⇒ السطر يخصّ ذلك
+      // الحساب نفسه (حساب فرعي بترقيم العميل تحته).
+      const ancestor = codeUnknown ? nearestKnownAncestor(row.code) : "";
 
-      if (vatCodes.has(row.code) || (rowNameNorm && rowNameNorm === vatNameNorm)) {
+      const isVat = vatCodes.has(row.code)
+        || (!!rowNameNorm && rowNameNorm === vatNameNorm)
+        || (!!ancestor && ancestor === canonicalVat);
+      const isDebtors = debtorsCodes.has(row.code)
+        || (!!rowNameNorm && rowNameNorm === debtorsNameNorm)
+        || (!!ancestor && ancestor === canonicalDebtors);
+      const isCreditors = creditorsCodes.has(row.code)
+        || (!!rowNameNorm && rowNameNorm === creditorsNameNorm)
+        || (!!ancestor && ancestor === canonicalCreditors);
+
+      // استبدال الرمز برمز الشجرة الرسمي (متى عُرف) قبل أي شيء آخر.
+      const canonicalCode = isVat ? canonicalVat : isDebtors ? canonicalDebtors : isCreditors ? canonicalCreditors : "";
+      const codeFixed = canonicalCode && canonicalCode !== row.code;
+
+      if (isVat) {
         const hasAmount = (Number(row.debit) || 0) > 0 || (Number(row.credit) || 0) > 0;
         const nextContact = hasAmount ? vat15Code : vatZeroCode;
-        if (row.contact === nextContact && row._autoRef) return row;
+        if (!codeFixed && row.contact === nextContact && row._autoRef) return row;
         entryChanged = true;
-        return { ...row, contact: nextContact, _autoRef: true };
+        const next = { ...row, contact: nextContact, _autoRef: true };
+        if (codeFixed) { next._originalCode = row._originalCode ?? row.code; next.code = canonicalCode; }
+        return next;
       }
-
-      const isDebtors = debtorsCodes.has(row.code) || (!!rowNameNorm && rowNameNorm === debtorsNameNorm);
-      const isCreditors = creditorsCodes.has(row.code) || (!!rowNameNorm && rowNameNorm === creditorsNameNorm);
       if (isDebtors || isCreditors) {
         // نتذكّر اسم العميل/المورد الأصلي (_refCandidate) حتى بعد استبدال
         // contact برقمه المرجعي، لأن المطابقة اللاحقة (لو تغيّر الملف المرجعي)
@@ -825,10 +871,18 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         // انظر تعليق Schema C أعلاه لمثال حقيقي مؤكَّد وأرقام التحسن.
         const candidateName = row._autoRef ? (row._refCandidate ?? row.contact) : (row.detail || row.contact || row.comment || "");
         const match = resolveRefFast(candidateName, isDebtors ? customersIndex : suppliersIndex);
-        if (!match) return row;
-        if (row.contact === match.ref && row._autoRef) return row;
+        // تصحيح الرمز يتم حتى لو تعذّرت مطابقة العميل/المورد (اسمه قد يحتاج
+        // إنشاءً أولاً) — الرمز الصحيح مطلوب بحد ذاته للرفع.
+        if (!match) {
+          if (!codeFixed) return row;
+          entryChanged = true;
+          return { ...row, code: canonicalCode, _originalCode: row._originalCode ?? row.code };
+        }
+        if (!codeFixed && row.contact === match.ref && row._autoRef) return row;
         entryChanged = true;
-        return { ...row, contact: match.ref, _autoRef: true, _refCandidate: candidateName };
+        const next = { ...row, contact: match.ref, _autoRef: true, _refCandidate: candidateName };
+        if (codeFixed) { next._originalCode = row._originalCode ?? row.code; next.code = canonicalCode; }
+        return next;
       }
 
       // [إصلاح] سطر عُبِّي تلقائياً سابقاً (_autoRef) بإحدى القواعد أعلاه، ثم لم
