@@ -87,7 +87,20 @@ export default function Step3Review({ eng }) {
           </div>
         )}
 
+        {/* [إضافة 2026-09-21، طلب صريح من المستخدم] إصلاح جماعي للهاتف/الرقم
+            الضريبي، واعتماد جماعي لكل تكرار بالاسم كمورد جديد — بدل المرور
+            صفاً صفاً على ملفات كبيرة. */}
         <div className="qvi-toolbar">
+          {s.fixable > 0 && (
+            <button type="button" className="qvi-btn ghost" onClick={() => eng.autoFixAll()}>
+              {t({ ar: `🔧 تطبيق كل التصحيحات التلقائية (${s.fixable})`, en: `🔧 Apply all auto-fixes (${s.fixable})` })}
+            </button>
+          )}
+          {s.pendingDecision > 0 && (
+            <button type="button" className="qvi-btn ghost" onClick={() => eng.approveAllAsNew()}>
+              {t({ ar: `✅ اعتماد الكل كمورد جديد (${s.pendingDecision})`, en: `✅ Approve all as new (${s.pendingDecision})` })}
+            </button>
+          )}
           <div className="sp" />
           <button className="qvi-btn ghost" onClick={() => eng.revalidate()}>{t({ ar: 'إعادة الفحص', en: 'Re-check' })}</button>
           <button className="qvi-btn" onClick={() => eng.setStep(4)}>{t({ ar: 'المتابعة للتصدير/الإرسال', en: 'Continue to export/send' })}</button>

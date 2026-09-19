@@ -21,10 +21,14 @@ export default function Step1Connect({ eng }) {
         </label>
 
         <div className="qci-api-row">
+          {/* [إصلاح 2026-09-21، طلب صريح من المستخدم بمناسبة نفس الحقل بأداة
+              الموردين] هذا الحقل يخصّ اسم منشأة/حساب قيود الذي يتبعه المفتاح
+              (لحفظ عدة مفاتيح API بأسماء مختلفة)، لا جهة الاتصال (عميل)
+              المستورَدة نفسها — أُعيدت تسميته لمصطلح محايد لتجنّب الالتباس هنا أيضاً. */}
           <div className="qci-api-field" style={{ flex: '1 1 200px' }}>
-            <span>{t({ ar: 'اسم العميل (للحفظ)', en: 'Customer name (to save)' })}</span>
+            <span>{t({ ar: 'اسم المنشأة (للحفظ)', en: 'Company name (to save)' })}</span>
             <SafeInput type="text" value={eng.customerName} onChange={(e) => eng.setCustomerName(e.target.value)}
-              placeholder={t({ ar: 'اسم العميل', en: 'Customer name' })} />
+              placeholder={t({ ar: 'اسم المنشأة', en: 'Company name' })} />
           </div>
           <button className="qci-btn ghost" onClick={eng.saveApiKeyForCustomer} disabled={!eng.customerName.trim() || !eng.apiKey.trim()}>
             {t({ ar: 'حفظ المفتاح', en: 'Save key' })}

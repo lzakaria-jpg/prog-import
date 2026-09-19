@@ -8,7 +8,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../language.jsx';
 import { readWorkbook, sheetToAoa, guessHeaderRow, buildHeaders, buildRows } from './lib/clientFile.js';
 import { autoMap } from './lib/mapping.js';
-import { validateAll, validateRowWithDuplicates, rowErr, rowWarn, rowReadyForApi } from './lib/validation.js';
+import {
+  validateAll, validateRowWithDuplicates, rowErr, rowWarn, rowReadyForApi,
+  isValidPhone, isValidTaxNumber, autoFixPhone, autoFixTaxNumber,
+} from './lib/validation.js';
 import { buildContactIndex } from './lib/duplicateMatch.js';
 import { suggestRefs } from './lib/refSuggest.js';
 import { fetchExistingContacts } from './lib/api.js';
@@ -179,6 +182,47 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     setTick((x) => x + 1);
   }, []);
 
+  /**
+   * [إضافة 2026-09-21، طلب صريح من المستخدم] "تطبيق كل التصحيحات التلقائية" —
+   * يمرّ على كل الصفوف ويصحّح الهاتف الأساسي/الثانوي والرقم الضريبي غير
+   * الصالحين آلياً (autoFixPhone/autoFixTaxNumber بـlib/validation.js)، ثم
+   * يُعيد فحص الكل مرة واحدة (نفس revalidate الحالية). صف يبقى الرقم فيه غير
+   * صالح حتى بعد المحاولة (مثال: طول غير صحيح لا يمكن تخمين تصحيحه) يستمر
+   * ظاهراً كخطأ مانع بوضوح — لا إخفاء صامت لخطأ لم يُصلَح فعلياً.
+   */
+  const autoFixAll = useCallback(() => {
+    revalidate((next) => {
+      next.forEach((row) => {
+        if (row.phone && !isValidPhone(row.phone)) row.phone = autoFixPhone(row.phone);
+        if (row.phone2 && !isValidPhone(row.phone2)) row.phone2 = autoFixPhone(row.phone2);
+        if (row.taxNumber && !isValidTaxNumber(row.taxNumber)) row.taxNumber = autoFixTaxNumber(row.taxNumber);
+      });
+    });
+  }, [revalidate]);
+
+  /**
+   * [إضافة 2026-09-21، طلب صريح من المستخدم] "اعتماد الكل كجديد" — يضبط
+   * action='create' لكل صف عليه تطابق/تشابه اسم مع جهة اتصال موجودة فعلاً،
+   * بصرف النظر عن أي قرار سابق لذلك الصف (تجاوز صريح شامل، لا فقط للصفوف
+   * المعلَّقة) — طلب المستخدم "اعتماد كامل الموردين كموردين جدد" حرفياً.
+   */
+  const approveAllAsNew = useCallback(() => {
+    revalidate((next) => {
+      next.forEach((row) => {
+        if (row.dupExact || (row.dupFuzzy && row.dupFuzzy.length)) {
+          row.action = 'create';
+          row.updateTargetId = null;
+        }
+      });
+    });
+  }, [revalidate]);
+
+  /** [إضافة 2026-09-21، طلب صريح من المستخدم] حذف صف بالكامل من قائمة الاستيراد — لا يُنشأ هذا المورد إطلاقاً */
+  const deleteRow = useCallback((row) => {
+    setRows((prev) => prev.filter((r) => r !== row));
+    setTick((x) => x + 1);
+  }, []);
+
   /* ---------- الخطوة ٤: التصدير/الإرسال ---------- */
   const goodRows = useMemo(() => rows.filter((r) => !rowErr(r)), [rows, tick]);
   const badRows = useMemo(() => rows.filter(rowErr), [rows, tick]);
@@ -186,13 +230,21 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
   const pendingDecisionRows = useMemo(() => rows.filter((r) => !rowErr(r) && (r.action === null || r.action === undefined)), [rows, tick]);
   const canSendViaApi = connected;
 
+  // [إضافة 2026-09-21] عدّاد الصفوف التي فيها هاتف/رقم ضريبي غير صالح — لعرضه
+  // أمام زر "تطبيق كل التصحيحات التلقائية" (autoFixAll)، بصرف النظر عن كون
+  // التصحيح سيُصلحها بالكامل أو يبقيها مرفوضة بخطأ أوضح (طول غير صحيح مثلاً).
+  const fixableCount = useMemo(() => rows.filter((r) => (
+    (r.phone && !isValidPhone(r.phone)) || (r.phone2 && !isValidPhone(r.phone2)) || (r.taxNumber && !isValidTaxNumber(r.taxNumber))
+  )).length, [rows, tick]);
+
   const stats = useMemo(() => ({
     total: rows.length,
     bad: badRows.length,
     warn: rows.filter(rowWarn).length,
     ok: rows.filter((r) => !rowErr(r) && !rowWarn(r)).length,
     pendingDecision: pendingDecisionRows.length,
-  }), [rows, tick, badRows, pendingDecisionRows]);
+    fixable: fixableCount,
+  }), [rows, tick, badRows, pendingDecisionRows, fixableCount]);
 
   const doExport = useCallback(async (kind) => {
     const list = kind === 'valid' ? goodRows : rows;
@@ -256,7 +308,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     setStep, setCustomerName,
     connect, saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,
     loadClientFile, changeSheet, changeHeaderRow, assign, ignoreColumn, runMatch,
-    revalidate, updateRow, setRowAction,
+    revalidate, updateRow, setRowAction, autoFixAll, approveAllAsNew, deleteRow,
     doExport, pushViaApi, stopApiSend, downloadApiSendResults,
     helpers: { rowErr, rowWarn },
   };
