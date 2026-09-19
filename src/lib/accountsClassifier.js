@@ -1,4 +1,8 @@
-import { TYPE_TO_LEVEL2, LEVEL2_TO_LEVEL1, LEVEL3_MAP } from "../MergeTool.jsx";
+import {
+  TYPE_TO_LEVEL2, LEVEL2_TO_LEVEL1, LEVEL3_MAP,
+  matchExactLevel2Category, matchLevel1RootByKeyword, level3TypesForRoot, inferLevel3TypeFromText,
+  DEFAULT_LEVEL2_BY_ROOT, DEFAULT_TYPE_BY_LEVEL2, LEVEL1_ROOT_TYPES,
+} from "../MergeTool.jsx";
 
 // Every one of Qoyod's fixed Level-3 types has one natural parent among the 12 Level-2 types.
 //
@@ -208,37 +212,62 @@ export function level2ForType(level3Type) {
 // 11/12 بالضبط كالمعتاد، لكن آخر يستخدم الجذر 2 (لا 4) لإيراداته — فلا يجوز
 // افتراض ترقيم قياسي ثابت (1=أصول، 2=التزامات...) دومًا؛ التعلّم يكون من شجرة
 // حسابات هذا العميل نفسه أولًا، لا من افتراض عام.
+//
+// [تحديث لاحق، طلب صريح آخر من المستخدم: "لسا مش شغال 100%"] الجولة الأولى
+// استخدمت مطابقة اسمية محلية بسيطة (SYNONYMS أعلاه) بدل محرك التصنيف الحقيقي
+// المستخدَم فعليًا بأداة استيراد شجرة الحسابات (MergeTool.jsx: KEYWORD_SYNONYMS
+// الأشمل بكثير + matchLevel1RootByKeyword + inferLevel3TypeFromText)، فأخفقت
+// بأمثلة حقيقية منه (حساب "حقوق الملكية" — تهجئة لا يطابقها SYNONYMS المحلي
+// إطلاقًا رغم أنها مغطاة فعلاً بالمحرك الحقيقي كمرادف جذر معروف). الآن تُستخدَم
+// دوال المحرك الحقيقي حصرًا لأي مطابقة نصية بهذا القسم — matchAccountType/
+// SYNONYMS المحليان أعلاه يبقيان بلا أي تغيير (لا يزال يستخدمهما AccountsTool.jsx
+// وحده، ولا علاقة لهما بهذا القسم بعد الآن).
 // ============================================================================
-
-const LEVEL2_CATEGORY_NAMES = Object.keys(LEVEL2_TO_LEVEL1);
-const LEVEL1_ROOT_NAMES = Array.from(new Set(Object.values(LEVEL2_TO_LEVEL1)));
-
-// مطابقة اسمية حرفية (بعد التطبيع فقط — لا احتواء جزئي، تفاديًا لمطابقة زائفة
-// من حساب فرعي عادي يحوي اسم الفئة كجزء من اسمه، مثل "مرتجعات المبيعات" مقابل
-// فئة "المبيعات" — الدقة هنا أهم من التساهل، فحسابات "لافتة" الفئة (تُنشئها
-// قيود أو العميل عادة باسم الفئة حرفيًا) نادرًا ما يختلف اسمها عن اسم الفئة).
-function matchesCategoryLabel(accountName, candidates) {
-  const n = normalize(accountName);
-  if (!n) return null;
-  return candidates.find((c) => normalize(c) === n) || null;
-}
 
 /**
  * يبني فهرس {رمز الحساب الفعلي: {level2Category?, level1Root}} من شجرة حسابات
- * العميل الحقيقية (chartAccounts: يكفي منها code + name) — أي حساب اسمه
- * الحرفي يطابق (بعد التطبيع) إحدى فئات المستوى2 الاثنتي عشرة أو جذور المستوى1
- * الخمسة الرسمية بقيود يُعتمَد "لافتة" موثوقة لرمزه بالذات ولكل رمز يبدأ به —
- * لا تخمين، فقط مطابقة اسمية مباشرة بشجرة العميل نفسها.
+ * العميل الحقيقية (chartAccounts: يكفي منها code + name). لكل حساب:
+ *  - مطابقة دقيقة فقط (matchExactLevel2Category — اسم الفئة الرسمي حرفيًا أو
+ *    أحد مرادفاته الصريحة، لا تشابه تقريبي) → لافتة فئة (مستوى2) موثوقة.
+ *  - وإلا، مطابقة كلمة مفتاحية لجذر مستوى1 فقط (matchLevel1RootByKeyword —
+ *    يغطي "حقوق الملكية" كمرادف معروف لجذر "حقوق الملاك" مثلاً) → لافتة جذر
+ *    فقط بلا فئة محددة (عمداً: تخمين الفئة الافتراضية من الجذر وحده هنا قد
+ *    يقفل خطأً نطاق فئة كامل لحسابات فرعية تحتاج فئة مختلفة من نفس الجذر —
+ *    راجع تعليق matchExactLevel2Category بـMergeTool.jsx لمثال حقيقي مؤكَّد).
  */
+// [إصلاح خطأ حقيقي شهده المستخدم] matchExactLevel2Category تطابق الاسم الرسمي
+// حرفيًا فقط، بما فيه أداة التعريف "ال" بأول كل كلمة ("الالتزامات المتداولة")
+// — بينما حساب "لافتة" فعلي بشجرة عميل قد يُكتَب بلا "ال" على كلمة أو أكثر
+// ("التزامات متداولة") وهو نفس الاسم محاسبيًا بلا أي لبس. المقارنة هنا كلمة
+// بكلمة، تسمح بإضافة/حذف "ال" مرة واحدة بالضبط لكل كلمة — لا تجريدها العمياء
+// (كانت تكسر كلمات جذرها يبدأ فعليًا بحرفي "ال" بلا علاقة بأداة التعريف، مثل
+// "التزام" نفسها: تجريد "ال" منها يُنتِج "تزام" غير الكلمة الأصلية إطلاقًا،
+// فتفشل المطابقة مع "الالتزامات" التي يُفتَرض أن تجريد "ال" منها ينتج "التزامات"
+// بالضبط). الإضافة/الحذف مرة واحدة فقط تتفادى هذا الخلط تمامًا.
+function alVariantsMatch(a, b) {
+  return a === b || a === "ال" + b || b === "ال" + a;
+}
+const LEVEL2_CATEGORY_WORDS = Object.keys(LEVEL2_TO_LEVEL1).map((c) => ({ name: c, words: normalize(c).split(/\s+/).filter(Boolean) }));
+function matchLevel2CategoryLenient(name) {
+  const exact = matchExactLevel2Category(name);
+  if (exact) return exact;
+  const words = normalize(name).split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  const hit = LEVEL2_CATEGORY_WORDS.find(
+    (c) => c.words.length === words.length && c.words.every((cw, i) => alVariantsMatch(cw, words[i]))
+  );
+  return hit ? hit.name : "";
+}
+
 export function buildCodeCategoryHints(chartAccounts) {
   const hints = {};
   (chartAccounts || []).forEach((a) => {
     const code = String(a?.code || "").trim();
     const name = a?.name || "";
     if (!code || !name) return;
-    const level2Hit = matchesCategoryLabel(name, LEVEL2_CATEGORY_NAMES);
+    const level2Hit = matchLevel2CategoryLenient(name);
     if (level2Hit) { hints[code] = { level2Category: level2Hit, level1Root: LEVEL2_TO_LEVEL1[level2Hit] }; return; }
-    const level1Hit = matchesCategoryLabel(name, LEVEL1_ROOT_NAMES);
+    const level1Hit = matchLevel1RootByKeyword(name);
     if (level1Hit && !hints[code]) hints[code] = { level1Root: level1Hit };
   });
   return hints;
@@ -258,7 +287,30 @@ export function lookupCodeCategoryHint(code, hints) {
   return null;
 }
 
-// مؤشرات اسم منشأة/جهة (لا شخص) — استبعاد بسيط قبل تخمين "اسم شخص" أدناه.
+// level1Root قد يصل بأي من التهجئتين المستخدَمتين فعليًا بـMergeTool.jsx
+// ("الأصول" بهمزة من LEVEL2_TO_LEVEL1، أو "الاصول" بلا همزة من
+// matchLevel1RootByKeyword/DEFAULT_LEVEL2_BY_ROOT) — طبّع قبل أي مقارنة أو
+// استعلام بجداول الجذر الافتراضية تفاديًا لعدم تطابق بسبب الهمزة فقط.
+const DEFAULT_LEVEL2_BY_ROOT_NORM = Object.fromEntries(
+  Object.entries(DEFAULT_LEVEL2_BY_ROOT).map(([root, cat]) => [normalize(root), cat])
+);
+function defaultLevel2ForRoot(root) {
+  return DEFAULT_LEVEL2_BY_ROOT_NORM[normalize(root)] || "";
+}
+function isRoot(root, standardName) {
+  return normalize(root) === normalize(standardName);
+}
+// الترقيم القياسي المعتاد بقيود (1 أصول، 2 التزامات، 3 حقوق ملاك، 4 إيرادات،
+// 5 مصاريف) — يُستخدَم فقط كملاذ أخير حين لا تملك شجرة حسابات العميل نفسها أي
+// لافتة (فئة أو جذر) لهذا الرمز إطلاقًا؛ لافتات العميل الفعلية (hints) تتقدَّم
+// عليه دومًا (راجع مثال المستخدم: عميل يستخدم الجذر 2 لإيراداته لا 4).
+const STANDARD_ROOT_BY_DIGIT = {
+  "1": LEVEL1_ROOT_TYPES[0], "2": LEVEL1_ROOT_TYPES[1], "3": LEVEL1_ROOT_TYPES[2],
+  "4": LEVEL1_ROOT_TYPES[3], "5": LEVEL1_ROOT_TYPES[4],
+};
+
+// مؤشرات اسم منشأة/جهة (لا شخص) — استبعاد قبل تخمين "اسم شخص" أدناه (الأصول
+// المتداولة فقط: طرف منشأة هناك أمر غير معتاد كفاية لتفادي التخمين).
 const ENTITY_NAME_MARKERS = [
   "شركة", "شركه", "مؤسسة", "مؤسسه", "مصنع", "مجموعة", "مجموعه", "مكتب", "معرض",
   "مصرف", "بنك", "عيادة", "عياده", "مستشفى", "مدرسة", "مدرسه", "جمعية", "جمعيه",
@@ -277,39 +329,79 @@ function looksLikePersonName(name) {
   const words = n.split(/\s+/).filter(Boolean);
   return words.length >= 2 && words.length <= 5;
 }
+// [إضافة، طلب صريح من المستخدم] حسابات برموز تندرج تحت "الالتزامات المتداولة"
+// واسمها اسم فرد أو شركة أو "أطراف ذات علاقة" أو ما شابه → دائنون (المورّد أو
+// الطرف المستحق له المبلغ). بخلاف عهد نقدية أعلاه، هنا اسم منشأة يُحتسَب طرفًا
+// بنفس درجة اسم الفرد (كلاهما مورِّد محتمل) — لا استبعاد لمؤشرات المنشأة.
+function looksLikePartyName(name) {
+  const n = String(name || "").trim();
+  if (!n || /\d/.test(n)) return false;
+  const words = n.split(/\s+/).filter(Boolean);
+  return words.length >= 1 && words.length <= 6;
+}
 
 /**
  * تصنيف حساب ناقص اعتمادًا على اسمه *ورمزه* معًا — رمز الحساب (بعد مطابقته
  * بشجرة حسابات العميل المجلوبة فعليًا عبر hints من buildCodeCategoryHints)
- * يحسم فئة الحساب (مستوى2) حين يتعارض مع مطابقة الاسم العامة، أو حين لا
- * يوجد للاسم أي تطابق أصلاً — تمامًا كطلب المستخدم الصريح. تُرجع
- * {type, level2Category, confidence}: "name" = الاسم وحده كافٍ ومتوافق مع
- * الرمز (أو لا رمز موثوق أصلاً)، "code" = الرمز حسم الفئة (والنوع الدقيق ضمنها
- * إن أمكن، وإلا يبقى فارغًا للاختيار اليدوي ضمن قائمة مختصَرة)، "none" = لا شيء.
+ * يحسم فئة الحساب (مستوى2) حين يتعارض مع مطابقة الاسم العامة، أو حين لا يوجد
+ * للاسم أي تطابق أصلاً — تمامًا كطلب المستخدم الصريح. تستخدم نفس محرك المطابقة
+ * الحقيقي المعتمَد بأداة استيراد شجرة الحسابات (inferLevel3TypeFromText بكامل
+ * قاموسه — لا نسخة محلية أضعف). لا تترك الفئة/النوع فارغين أبدًا ما دام هناك أي
+ * دليل (رمز أو اسم) — طلب صريح من المستخدم: "يطبق ويضيف كل حساب في مكانه
+ * الصحيح" — عبر احتياطيات المحرك نفسها (DEFAULT_LEVEL2_BY_ROOT/DEFAULT_TYPE_BY_LEVEL2)
+ * حين تفشل كل المطابقات الأدق. تُرجع {type, level2Category, confidence}:
+ * "name" = الاسم وحده كافٍ ومتوافق مع الرمز (أو لا رمز موثوق أصلاً)، "code" =
+ * الرمز حسم الفئة (بمطابقة أدق أو باحتياط الفئة الافتراضي)، "guess" = لا رمز
+ * ولا اسم أفادا، الترقيم القياسي المعتاد فقط، "none" = لا شيء إطلاقاً (لا رمز
+ * صالح حتى لتخمين الجذر القياسي).
  */
 export function classifyMissingAccount(name, code, hints) {
   const codeHint = code ? lookupCodeCategoryHint(code, hints || {}) : null;
-  const nameMatch = matchAccountType(name);
+  const nameMatch = inferLevel3TypeFromText(name, "");
 
-  if (nameMatch.type) {
-    const nameLevel2 = level2ForType(nameMatch.type);
-    if (!codeHint?.level2Category || codeHint.level2Category === nameLevel2) {
-      return { type: nameMatch.type, level2Category: nameLevel2, confidence: "name" };
-    }
-    // تعارض بين الاسم والرمز — الرمز يفوز (طلب المستخدم الصريح): إعادة محاولة
-    // مطابقة الاسم بكلمات مفتاحية ضمن أنواع فئة الرمز فقط.
-    const scoped = matchAccountType(name, LEVEL3_MAP[codeHint.level2Category] || []);
-    return { type: scoped.type, level2Category: codeHint.level2Category, confidence: "code" };
+  if (nameMatch) {
+    const nameLevel2 = TYPE_TO_LEVEL2[nameMatch] || "";
+    const nameRoot = LEVEL2_TO_LEVEL1[nameLevel2] || "";
+    const conflict = codeHint?.level2Category
+      ? codeHint.level2Category !== nameLevel2
+      : (codeHint?.level1Root ? !isRoot(nameRoot, codeHint.level1Root) : false);
+    if (!conflict) return { type: nameMatch, level2Category: nameLevel2, confidence: "name" };
+    // تعارض بين الاسم والرمز — الرمز يفوز (طلب المستخدم الصريح)، يُتابَع تحت.
   }
 
   if (codeHint?.level2Category) {
-    const scoped = matchAccountType(name, LEVEL3_MAP[codeHint.level2Category] || []);
-    if (scoped.type) return { type: scoped.type, level2Category: codeHint.level2Category, confidence: "code" };
+    const scoped = inferLevel3TypeFromText(name, codeHint.level2Category);
+    if (scoped) return { type: scoped, level2Category: codeHint.level2Category, confidence: "code" };
     if (codeHint.level2Category === "الأصول المتداولة" && looksLikePersonName(name)) {
       return { type: "عهد نقدية", level2Category: "الأصول المتداولة", confidence: "code" };
     }
-    return { type: "", level2Category: codeHint.level2Category, confidence: "code" };
+    if (codeHint.level2Category === "الالتزامات المتداولة" && looksLikePartyName(name)) {
+      return { type: "الدائنون", level2Category: "الالتزامات المتداولة", confidence: "code" };
+    }
+    return { type: DEFAULT_TYPE_BY_LEVEL2[codeHint.level2Category] || "", level2Category: codeHint.level2Category, confidence: "code" };
   }
 
+  if (codeHint?.level1Root) {
+    const candidates = level3TypesForRoot(codeHint.level1Root) || [];
+    const scoped = inferLevel3TypeFromText(name, "", candidates);
+    if (scoped) return { type: scoped, level2Category: TYPE_TO_LEVEL2[scoped] || "", confidence: "code" };
+    if (isRoot(codeHint.level1Root, "الاصول") && looksLikePersonName(name)) {
+      return { type: "عهد نقدية", level2Category: "الأصول المتداولة", confidence: "code" };
+    }
+    if (isRoot(codeHint.level1Root, "الالتزامات") && looksLikePartyName(name)) {
+      return { type: "الدائنون", level2Category: "الالتزامات المتداولة", confidence: "code" };
+    }
+    const fallbackCategory = defaultLevel2ForRoot(codeHint.level1Root);
+    return { type: fallbackCategory ? (DEFAULT_TYPE_BY_LEVEL2[fallbackCategory] || "") : "", level2Category: fallbackCategory, confidence: "code" };
+  }
+
+  // لا لافتة إطلاقًا بشجرة العميل لأي جزء من رمز هذا الحساب، ولا اسم مطابق —
+  // الملاذ الأخير: الترقيم القياسي المعتاد بقيود لجذر رمزه الأول فقط.
+  const digit = code ? String(code).trim()[0] : "";
+  const standardRoot = STANDARD_ROOT_BY_DIGIT[digit];
+  if (standardRoot) {
+    const cat = defaultLevel2ForRoot(standardRoot);
+    return { type: cat ? (DEFAULT_TYPE_BY_LEVEL2[cat] || "") : "", level2Category: cat, confidence: "guess" };
+  }
   return { type: "", level2Category: "", confidence: "none" };
 }
