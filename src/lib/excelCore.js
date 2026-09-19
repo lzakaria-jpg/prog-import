@@ -750,6 +750,20 @@ export const VAT_PAYABLE_ACCOUNT_NAME = "ضريبة القيمة المضافة 
 export const DEBTORS_ACCOUNT_NAME = "المدينون";
 export const CREDITORS_ACCOUNT_NAME = "الدائنون";
 
+// [إصلاح خطأ حقيقي شهده المستخدم] القاعدتان أعلاه تستخرجان أكواد حسابات النظام
+// من *شجرة العميل* (findSystemAccountCodes)، فسطر رمزه غير موجود بالشجرة أصلاً
+// (حساب ناقص سيُنشأ لاحقًا — مثال حقيقي: ملف يستخدم 1102 للمدينون و210202
+// لضريبة القيمة المضافة المستحقة بينما شجرة العميل لا تحوي الرمزين) لا ينطبق
+// عليه أي منهما إطلاقًا: لا يُملأ نوع الضريبة، ولا يُرصَد العميل/المورد بسطره.
+// حينها يكون اسم الحساب كما ورد بالملف نفسه (row.name) هو الدليل الوحيد المتاح.
+// المطابقة هنا اسمية حرفية فقط (بعد التطبيع) بلا أي تشابه تقريبي — تفاديًا
+// لالتباس موثَّق فعلاً: "ضريبة القيمة المضافة المستحقة على المبيعات" مقابل
+// "…على المشتريات" يتشابهان بدرجة عالية مع الاسم الهدف رغم اختلافهما جوهريًا.
+export function isSystemAccountNameMatch(rowName, targetName) {
+  const n = normalizeAccountName(rowName);
+  return !!n && n === normalizeAccountName(targetName);
+}
+
 export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   if (!entries || !chartAccounts) return entries;
   const vat15Code = String(options.vat15Code ?? "1").trim() || "1";
@@ -767,7 +781,14 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const vatCodes = new Set(manualVat ? [manualVat] : findSystemAccountCodes(chartAccounts, VAT_PAYABLE_ACCOUNT_NAME));
   const debtorsCodes = new Set(manualDebtors ? [manualDebtors] : findSystemAccountCodes(chartAccounts, DEBTORS_ACCOUNT_NAME));
   const creditorsCodes = new Set(manualCreditors ? [manualCreditors] : findSystemAccountCodes(chartAccounts, CREDITORS_ACCOUNT_NAME));
-  if (!vatCodes.size && !debtorsCodes.size && !creditorsCodes.size) return entries;
+  // [إصلاح] لا خروج مبكر هنا بعد الآن حتى لو خلت الشجرة من حسابات النظام
+  // الثلاثة: السطور التي رمزها غير موجود بالشجرة تُطابَق باسمها بالملف
+  // (isSystemAccountNameMatch أعلاه). بلا أي مطابقة ستمر الحلقة بلا تغيير
+  // وتُعاد entries نفسها كما كان تمامًا.
+  const knownCodes = new Set((chartAccounts || []).map((a) => a.code));
+  const vatNameNorm = normalizeAccountName(VAT_PAYABLE_ACCOUNT_NAME);
+  const debtorsNameNorm = normalizeAccountName(DEBTORS_ACCOUNT_NAME);
+  const creditorsNameNorm = normalizeAccountName(CREDITORS_ACCOUNT_NAME);
 
   // [أداء] الفهرسان يُبنيان مرة واحدة فقط هنا (لا لكل سطر) — انظر تعليق
   // buildRefIndex/resolveRefFast أعلاه لتفاصيل الإصلاح والقياس الفعلي.
@@ -780,7 +801,11 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
     const nextRows = entry.rows.map((row) => {
       if (row._userEdited) return row;
 
-      if (vatCodes.has(row.code)) {
+      // اسم السطر بالملف لا يُعتمَد إلا حين يكون رمزه مجهولاً بشجرة العميل —
+      // الشجرة هي المرجع دومًا متى عرفت الرمز (لو سمّته شيئًا آخر فهي الأصدق).
+      const rowNameNorm = knownCodes.has(row.code) ? "" : normalizeAccountName(row.name);
+
+      if (vatCodes.has(row.code) || (rowNameNorm && rowNameNorm === vatNameNorm)) {
         const hasAmount = (Number(row.debit) || 0) > 0 || (Number(row.credit) || 0) > 0;
         const nextContact = hasAmount ? vat15Code : vatZeroCode;
         if (row.contact === nextContact && row._autoRef) return row;
@@ -788,8 +813,8 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         return { ...row, contact: nextContact, _autoRef: true };
       }
 
-      const isDebtors = debtorsCodes.has(row.code);
-      const isCreditors = creditorsCodes.has(row.code);
+      const isDebtors = debtorsCodes.has(row.code) || (!!rowNameNorm && rowNameNorm === debtorsNameNorm);
+      const isCreditors = creditorsCodes.has(row.code) || (!!rowNameNorm && rowNameNorm === creditorsNameNorm);
       if (isDebtors || isCreditors) {
         // نتذكّر اسم العميل/المورد الأصلي (_refCandidate) حتى بعد استبدال
         // contact برقمه المرجعي، لأن المطابقة اللاحقة (لو تغيّر الملف المرجعي)
