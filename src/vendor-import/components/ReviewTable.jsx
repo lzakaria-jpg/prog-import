@@ -8,7 +8,7 @@ const COLS = [
   { ar: 'اسم المنشأة', en: 'Organization' }, { ar: 'الهاتف الأساسي', en: 'Primary phone' },
   { ar: 'البريد الأساسي', en: 'Primary email' }, { ar: 'الحالة', en: 'Status' },
   { ar: 'الرقم الضريبي', en: 'Tax number' }, { ar: 'التكرار/الإجراء', en: 'Duplicate / action' },
-  { ar: 'الملاحظات', en: 'Notes' }
+  { ar: 'الملاحظات', en: 'Notes' }, { ar: '', en: '' }
 ];
 
 /** قيمة select قرار التكرار: 'create' | 'skip' | 'update:<id>' */
@@ -94,6 +94,15 @@ export default function ReviewTable({ eng, visibleKeys }) {
                       ))
                       : <span className="badge b-ok">{t({ ar: 'جاهز', en: 'Ready' })}</span>}
                   </div>
+                </td>
+                <td>
+                  {/* [إضافة 2026-09-21، طلب صريح من المستخدم: "يضغط على حذف ويتم
+                      الحذف مباشرة"] حذف فوري بلا تأكيد — الصف يُحذَف بالكامل من
+                      قائمة الاستيراد، لا يُنشأ هذا المورد إطلاقاً. */}
+                  <button type="button" className="qvi-btn danger" style={{ padding: '4px 10px', fontSize: 12.5 }} title={t({ ar: 'حذف هذا الصف نهائياً', en: 'Delete this row permanently' })}
+                    onClick={() => eng.deleteRow(row)}>
+                    🗑 {t({ ar: 'حذف', en: 'Delete' })}
+                  </button>
                 </td>
               </tr>
             );

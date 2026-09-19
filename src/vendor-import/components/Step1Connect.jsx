@@ -21,10 +21,15 @@ export default function Step1Connect({ eng }) {
         </label>
 
         <div className="qvi-api-row">
+          {/* [إصلاح 2026-09-21، طلب صريح من المستخدم] كان هذا الحقل يعرض "اسم
+              العميل" هنا بأداة الموردين تحديداً — يخصّ اسم منشأة/حساب قيود الذي
+              يتبعه المفتاح (لحفظ عدة مفاتيح API بأسماء مختلفة)، لا علاقة له
+              بجهات الاتصال (عملاء/موردين) المستورَدة، فأُعيدت تسميته لمصطلح
+              محايد لا يتصادم مع "مورد" هنا. */}
           <div className="qvi-api-field" style={{ flex: '1 1 200px' }}>
-            <span>{t({ ar: 'اسم العميل (للحفظ)', en: 'Customer name (to save)' })}</span>
+            <span>{t({ ar: 'اسم المنشأة (للحفظ)', en: 'Company name (to save)' })}</span>
             <SafeInput type="text" value={eng.customerName} onChange={(e) => eng.setCustomerName(e.target.value)}
-              placeholder={t({ ar: 'اسم العميل', en: 'Customer name' })} />
+              placeholder={t({ ar: 'اسم المنشأة', en: 'Company name' })} />
           </div>
           <button className="qvi-btn ghost" onClick={eng.saveApiKeyForCustomer} disabled={!eng.customerName.trim() || !eng.apiKey.trim()}>
             {t({ ar: 'حفظ المفتاح', en: 'Save key' })}
