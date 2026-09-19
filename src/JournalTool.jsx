@@ -387,6 +387,13 @@ const EntryCard = memo(function EntryCard({ entry, issues, isOpen, onToggle, cha
                     <td className="py-1.5 pe-2" style={{ width: 130 }}>
                       <AccountPicker accounts={chartAccountsList} value={r.code} hasError={!!rowIssue} parentCodes={parentCodes}
                         onChange={(v) => onUpdateRow(entry.seq, r._rowIndex, "code", v)} />
+                      {/* حسابات المدينون/الدائنون/الضريبة تُوحَّد على رمز الشجرة المجلوبة
+                          (مقفلة نظاميًا بقيود) — نُظهر الرمز الأصلي بالملف بدل تغييره بصمت. */}
+                      {r._originalCode && (
+                        <p className="mt-0.5 text-[10px] leading-tight" style={{ color: "#64748B" }} dir="ltr">
+                          {t({ ar: `بالملف: ${r._originalCode}`, en: `in file: ${r._originalCode}` })}
+                        </p>
+                      )}
                     </td>
                     {/* [إصلاح خطأ حقيقي شهده المستخدم] حين لا يطابق الرمز أي حساب بالشجرة كانت
                         هذه الخانة تعرض "—" فقط، رغم أن اسم الحساب غالبًا موجود صراحةً بالملف
