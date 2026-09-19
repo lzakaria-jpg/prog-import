@@ -12,17 +12,19 @@ import { useLanguage } from "./language";
 import ToolIcon from "./lib/ToolIcon.jsx";
 import { useAuth } from "./auth";
 import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
+import { COLORS } from "./lib/journalColors.js";
 // [إضافة] وضع API — جلب شجرة الحسابات/العملاء/الموردين/المشاريع من منشأة
 // العميل مباشرة، وإرسال القيود الجاهزة إليها — راجع تعليقات رأس الملفين.
 import { fetchJournalReferencesFromApi } from "./lib/qoyodJournalRefFetch";
-import { pushJournalEntriesToQoyod } from "./lib/qoyodJournalEntryPush";
+import { pushJournalEntriesToQoyod, resolveProjectId, resolveLocationId } from "./lib/qoyodJournalEntryPush";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage";
 import { buildSendResultsReportBlob } from "./lib/journalSendResultsReport";
-
-const COLORS = {
-  paper: "#F1F5F9", ink: "#0F172A", teal: "#12B886", tealLight: "#15803D",
-  gold: "#FBBF24", amber: "#FBBF24", red: "#DC2626", green: "#15803D", line: "#E2E8F0",
-};
+// [إضافة 2026-09-21، طلب صريح من المستخدم: "نفس نمط فواتير المبيعات بالضبط"]
+// رصد الكيانات الناقصة (حساب/عميل/مورد/مشروع/موقع) قبل الإرسال عبر API —
+// راجع تعليقات رأس journalMissingEntities.js/qoyodJournalEntityCreate.js.
+import { computeMissingJournalEntitiesPlan, isMissingJournalEntitiesPlanEmpty } from "./lib/journalMissingEntities";
+import { pushMissingJournalEntitiesToQoyod } from "./lib/qoyodJournalEntityCreate";
+import JournalMissingEntitiesPanel from "./JournalMissingEntitiesPanel.jsx";
 
 const PAGE_SIZE = 50;
 
@@ -606,6 +608,13 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   const [customersRefList, setCustomersRefList] = useState(null);
   const [customersRefFileName, setCustomersRefFileName] = useState("");
   const [customersRefBusy, setCustomersRefBusy] = useState(false);
+  // [إضافة 2026-09-21] هل customersRefList/suppliersRefList مصدرهما جلب API
+  // الحقيقي (انعكاس كامل وموثوق لعملاء/موردي منشأة العميل) أم ملف مرجعي مرفوع
+  // يدويًا (ترقيم داخلي خاص بالعميل نفسه، قد لا يطابق معرّفات قيود الحقيقية
+  // إطلاقًا)؟ لازم لتفادي رصد "عميل/مورد ناقص" زائف حين لا تُعرف قائمة كاملة
+  // وموثوقة من الأساس — راجع missing_customer_ref/missing_vendor_ref أدناه.
+  const [customersRefIsApi, setCustomersRefIsApi] = useState(false);
+  const [suppliersRefIsApi, setSuppliersRefIsApi] = useState(false);
   const [suppliersRefList, setSuppliersRefList] = useState(null);
   const [suppliersRefFileName, setSuppliersRefFileName] = useState("");
   const [suppliersRefBusy, setSuppliersRefBusy] = useState(false);
@@ -672,6 +681,14 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   const [showApiSendModal, setShowApiSendModal] = useState(false);
   const apiStoppedRef = useRef({ current: false });
 
+  // [إضافة 2026-09-21] لوحة مراجعة الكيانات الناقصة قبل الإرسال — راجع تعليق
+  // sendableEntries/handleSendClick أسفل الملف.
+  const [showMissingEntitiesPanel, setShowMissingEntitiesPanel] = useState(false);
+  const [missingEntitiesBusy, setMissingEntitiesBusy] = useState(false);
+  const [missingEntitiesProgress, setMissingEntitiesProgress] = useState({ current: 0, total: 0 });
+  const [missingEntitiesResult, setMissingEntitiesResult] = useState(null);
+  const missingEntitiesStoppedRef = useRef({ current: false });
+
   // [إضافة 2026-09-14] راجع تعليق forwardRef أعلى الملف — تبليغ الغلاف (لو
   // موجود) باسم العميل وحالة الانشغال، وإتاحة إيقاف قسري عند إغلاق التبويب.
   useEffect(() => { onNameChange && onNameChange(customerName); }, [customerName, onNameChange]);
@@ -715,6 +732,13 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   const debtorsCodes = useMemo(() => new Set(manualDebtorsCode ? [manualDebtorsCode] : autoDebtorsCodes), [manualDebtorsCode, autoDebtorsCodes]);
   const creditorsCodes = useMemo(() => new Set(manualCreditorsCode ? [manualCreditorsCode] : autoCreditorsCodes), [manualCreditorsCode, autoCreditorsCodes]);
 
+  // [إضافة 2026-09-21] فهرس أرقام مرجعية العملاء/الموردين الحقيقيين (ref) —
+  // يُستخدَم لرصد "عميل/مورد ناقص" (contact مُعبَّأ برقم لا يطابق أي عميل/مورد
+  // حقيقي)، فقط حين تكون القائمة مصدرها API فعليًا (customersRefIsApi/
+  // suppliersRefIsApi) — راجع تعليقهما أعلاه لسبب هذا الشرط.
+  const customersRefSet = useMemo(() => new Set((customersRefList || []).map((c) => String(c.ref))), [customersRefList]);
+  const suppliersRefSet = useMemo(() => new Set((suppliersRefList || []).map((c) => String(c.ref))), [suppliersRefList]);
+
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(
     () => (chartAccounts || []).filter((account) => !parentInfo.parentCodes.has(account.code)),
@@ -733,6 +757,9 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
           suggestionCacheRef.current.set(cacheKey, suggestions);
         }
         iss.suggestions = suggestions;
+        // [إضافة 2026-09-21] اسم الحساب كما ورد بالملف — تحتاجه لوحة مراجعة
+        // الكيانات الناقصة لاقتراح اسم افتراضي عند إنشاء الحساب فعليًا عبر API.
+        iss.accountNameFromFile = row?.name || "";
       } else if (iss.type === "parent_account") {
         const cacheKey = `parent:${iss.code}`;
         let suggestions = suggestionCacheRef.current.get(cacheKey);
@@ -751,22 +778,94 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     // للعميل/المورد بعمود "جهة اتصال/ضريبة/موظف" — لا اسمه. التعبية التلقائية
     // (applyAutoContactRules) تحاول ملء هذا الرقم من الملف المرجعي الاختياري
     // قبل هذا الفحص؛ ما تبقى فارغًا هنا يحتاج تدخل المستخدم يدويًا فعليًا.
+    // [إضافة 2026-09-21] رصد مشروع/موقع مذكور بالقيد (مستوى القيد أو مستوى
+    // السطر) لا يطابق أي مشروع/موقع حقيقي بمنشأة العميل — نفس منطق المطابقة
+    // الحقيقي بالضبط (resolveProjectId/resolveLocationId المُصدَّرتين من
+    // qoyodJournalEntryPush.js) بدل أي استنتاج مستقل قد ينحرف عنه. دوَّن مرة
+    // واحدة فقط لكل قيمة مختلفة بنفس القيد (لا صفاً بصفٍّ لو تكرّرت نفس القيمة).
+    const reportedProjects = new Set();
+    const reportedLocations = new Set();
     entry.rows.forEach((r, i) => {
       const isDebtors = debtorsCodes.has(r.code);
       const isCreditors = creditorsCodes.has(r.code);
-      if ((isDebtors || isCreditors) && !r.contact) {
-        issues.push({
-          id: `${entry.seq}-row${r._rowIndex}-contactref`,
-          type: "missing_contact_ref",
-          severity: "error",
-          rowIndex: r._rowIndex,
-          code: r.code,
-          message: `السطر ${i + 1}: الحساب "${chartMap[r.code]?.name || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
-        });
+      if (isDebtors || isCreditors) {
+        if (!r.contact) {
+          issues.push({
+            id: `${entry.seq}-row${r._rowIndex}-contactref`,
+            type: "missing_contact_ref",
+            severity: "error",
+            rowIndex: r._rowIndex,
+            code: r.code,
+            message: `السطر ${i + 1}: الحساب "${chartMap[r.code]?.name || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
+          });
+        } else {
+          // [إضافة 2026-09-21] contact مُعبَّأ فعلاً لكنه لا يطابق أي عميل/مورد
+          // حقيقي بمنشأة العميل — يُفحَص فقط حين تكون القائمة المرجعية مجلوبة
+          // فعليًا عبر API (customersRefIsApi/suppliersRefIsApi)، لا ملفاً
+          // مرفوعاً يدوياً (ترقيمه الداخلي قد لا يطابق معرّفات قيود الحقيقية
+          // إطلاقاً — راجع تعليق الحالتين أعلى الملف).
+          const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
+          const refSet = isDebtors ? customersRefSet : suppliersRefSet;
+          if (isApiSourced && !refSet.has(String(r.contact).trim())) {
+            const typedName = r.detail || r.contact || r.comment || "";
+            issues.push({
+              id: `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`,
+              type: isDebtors ? "missing_customer_ref" : "missing_vendor_ref",
+              severity: "error",
+              rowIndex: r._rowIndex,
+              code: r.code,
+              typedName,
+              message: `السطر ${i + 1}: ${isDebtors ? "العميل" : "المورد"} "${typedName || r.contact}" غير موجود فعلياً بمنشأة العميل (بحسب آخر جلب من قيود) — يمكن إنشاؤه تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`,
+            });
+          }
+        }
+      }
+
+      const projectValue = r.project || entry.project || "";
+      if (projectsRef.loaded && String(projectValue).trim()) {
+        const projResult = resolveProjectId(projectValue, projectsRef);
+        const typedName = String(projectValue).trim();
+        if (!projResult.ok && !reportedProjects.has(typedName)) {
+          reportedProjects.add(typedName);
+          // [إضافة 2026-09-21] "ambiguous" (اسم موجود لكن مكرر) يبقى خطأ حاجب
+          // عادي بلا عرضه كـ"ناقص قابل للإنشاء" — إنشاء مشروع جديد بنفس الاسم
+          // كان سيُفاقم الالتباس بدل حله. "not_found" فقط هو ما تعرضه لوحة
+          // الكيانات الناقصة (وهو أصلاً رصد فقط — Qoyod لا يوفّر POST /projects).
+          issues.push({
+            id: `${entry.seq}-row${r._rowIndex}-missingproject`,
+            type: projResult.reason === "not_found" ? "missing_project" : "project_ambiguous",
+            severity: "error",
+            rowIndex: r._rowIndex,
+            typedName,
+            message: `السطر ${i + 1}: ${projResult.error}`,
+          });
+        }
+      }
+
+      const locationValue = r.location || entry.location || "";
+      if (locationsRef.loaded && String(locationValue).trim()) {
+        const locResult = resolveLocationId(locationValue, locationsRef);
+        const typedName = String(locationValue).trim();
+        if (!locResult.ok && !reportedLocations.has(typedName)) {
+          reportedLocations.add(typedName);
+          issues.push({
+            id: `${entry.seq}-row${r._rowIndex}-missinglocation`,
+            type: locResult.reason === "not_found" ? "missing_location" : "location_ambiguous",
+            severity: "error",
+            rowIndex: r._rowIndex,
+            typedName,
+            message: locResult.reason === "not_found"
+              ? `السطر ${i + 1}: الموقع "${typedName}" غير موجود فعلياً بمنشأة العميل — يمكن إنشاؤه (مع حساب مخزون مخصَّص له) تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`
+              : `السطر ${i + 1}: ${locResult.error}`,
+          });
+        }
       }
     });
     return issues;
-  }, [chartAccounts, chartMap, parentInfo, postingAccounts, debtorsCodes, creditorsCodes]);
+  }, [
+    chartAccounts, chartMap, parentInfo, postingAccounts, debtorsCodes, creditorsCodes,
+    customersRefIsApi, suppliersRefIsApi, customersRefSet, suppliersRefSet, projectsRef, locationsRef,
+  ]);
 
   // [ميزة جديدة] تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف": تُعاد كل مرة يتغيّر
   // فيها ملف شجرة الحسابات أو أحد الملفين المرجعيين الاختياريين أو رمزا الضريبة.
@@ -953,8 +1052,10 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setChartFileName(t({ ar: "جُلبت عبر API", en: "Fetched via API" }));
       setCustomersRefList(result.customersRefList.length ? result.customersRefList : null);
       setCustomersRefFileName(result.customersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
+      setCustomersRefIsApi(true);
       setSuppliersRefList(result.suppliersRefList.length ? result.suppliersRefList : null);
       setSuppliersRefFileName(result.suppliersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
+      setSuppliersRefIsApi(true);
       setProjectsRef(result.projectsRef);
       setLocationsRef(result.locationsRef);
       setApiFetchSummary(result.counts);
@@ -988,6 +1089,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const list = parseNameRefFile(rows);
       if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم العميل والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
       setCustomersRefList(list);
+      setCustomersRefIsApi(false);
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف العملاء المرجعي: " + err.message, lang));
       setCustomersRefList(null);
@@ -1001,6 +1103,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const list = parseNameRefFile(rows);
       if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم المورد والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
       setSuppliersRefList(list);
+      setSuppliersRefIsApi(false);
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف الموردين المرجعي: " + err.message, lang));
       setSuppliersRefList(null);
@@ -1194,6 +1297,85 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     [entries, issuesBySeq]
   );
 
+  // [إضافة 2026-09-21، طلب صريح من المستخدم: "نفس نمط فواتير المبيعات بالضبط:
+  // رصد تلقائي → لوحة مراجعة → إنشاء فعلي عبر API → تقرير نجاح/فشل شامل"]
+  // خطة الكيانات الناقصة تُحسَب من كل القيود (لا فقط sendableEntries) — قيد له
+  // خطأ آخر غير هذه الأنواع الخمسة يبقى يحتاج تصحيحًا يدويًا بصرف النظر، لكن
+  // إنشاء الكيان الناقص نفسه مفيد فورًا بمجرد رصده. sendableEntries نفسها تبقى
+  // بلا أي تغيير (صفر أخطاء تمامًا، كما كانت) — هذه مرحلة تحضيرية قبلها فقط.
+  const missingEntitiesPlan = useMemo(
+    () => computeMissingJournalEntitiesPlan(entries || [], issuesBySeq),
+    [entries, issuesBySeq]
+  );
+  const missingEntitiesPlanEmpty = isMissingJournalEntitiesPlanEmpty(missingEntitiesPlan);
+  const canAttemptSend = sendableEntries.length > 0 || !missingEntitiesPlanEmpty;
+
+  // [إضافة 2026-09-21] زر "إرسال عبر API": لو ما فيه أي كيان ناقص قابل
+  // للمراجعة، يرسل مباشرة كالسابق تمامًا. غير ذلك، تُعرَض لوحة المراجعة أولاً
+  // — الإرسال الفعلي (handleSendViaApi) يبقى غير مُعدَّل إطلاقًا، يُستدعى فقط
+  // بعد إغلاق اللوحة (بنجاح أو بتجاوز المستخدم لها صراحةً).
+  const handleSendClick = () => {
+    if (!missingEntitiesPlanEmpty) { setMissingEntitiesResult(null); setShowMissingEntitiesPanel(true); return; }
+    handleSendViaApi();
+  };
+
+  const handleConfirmMissingEntities = async (selections) => {
+    missingEntitiesStoppedRef.current.current = false;
+    setMissingEntitiesBusy(true);
+    const total = selections.accounts.length + selections.customers.length + selections.vendors.length + selections.locations.length;
+    setMissingEntitiesProgress({ current: 0, total });
+    const res = await pushMissingJournalEntitiesToQoyod(selections, apiKey, {
+      onProgress: (current, totalCount) => setMissingEntitiesProgress({ current, total: totalCount }),
+      stoppedRef: missingEntitiesStoppedRef.current,
+    });
+    setMissingEntitiesBusy(false);
+    setMissingEntitiesResult(res.ok ? res : { ...res, fatalError: res.error });
+    if (!res.ok) return;
+
+    // [إضافة 2026-09-21] دمج المُنشَأ فعليًا داخل حالة الأداة — بنفس أشكال
+    // البيانات التي تملؤها fetchJournalReferencesFromApi تمامًا، فكل منطق
+    // المطابقة/التدقيق القائم (chartMap/buildStructuralIssues/applyAutoContactRules)
+    // يعمل عليها بلا أي تعديل. إضافة لـcustomersRefList/suppliersRefList تُحرِّك
+    // تلقائيًا تعبية contact الحقيقية (useEffect الموجود أصلاً، مفتاحه customersRefList/
+    // suppliersRefList) — لا حاجة لأي تدخّل يدوي إضافي هنا لذلك.
+    const { created } = res;
+    if (created.accounts.size) {
+      const newAccounts = Array.from(created.accounts.values()).map((a) => ({
+        code: a.code, name: a.name, type: "", description: "", parentCode: "", canPay: "", id: a.id,
+      }));
+      setChartAccounts((prev) => [...(prev || []), ...newAccounts]);
+    }
+    if (created.locations.size) {
+      const newAccounts = Array.from(created.locations.values())
+        .filter((l) => l.accountId)
+        .map((l) => ({ code: l.accountCode, name: l.accountName, type: "", description: "", parentCode: "", canPay: "", id: l.accountId }));
+      if (newAccounts.length) setChartAccounts((prev) => [...(prev || []), ...newAccounts]);
+    }
+    if (created.customers.size) {
+      const newRefs = Array.from(created.customers.values()).map((c) => ({ name: c.name, ref: String(c.id) }));
+      setCustomersRefList((prev) => [...(prev || []), ...newRefs]);
+    }
+    if (created.vendors.size) {
+      const newRefs = Array.from(created.vendors.values()).map((v) => ({ name: v.name, ref: String(v.id) }));
+      setSuppliersRefList((prev) => [...(prev || []), ...newRefs]);
+    }
+    if (created.locations.size) {
+      setLocationsRef((prev) => {
+        const byId = new Map(prev.byId);
+        const byName = new Map(prev.byName);
+        Array.from(created.locations.values()).forEach((l) => {
+          const rec = { id: l.id, name: l.name };
+          byId.set(String(l.id), rec);
+          const nk = l.name.toLowerCase();
+          if (!byName.has(nk)) byName.set(nk, []);
+          byName.get(nk).push(rec);
+        });
+        return { loaded: true, byId, byName };
+      });
+    }
+    setAuditVersion((version) => version + 1);
+  };
+
   const handleSendViaApi = async () => {
     if (!sendableEntries.length) return;
     apiStoppedRef.current.current = false;
@@ -1232,8 +1414,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     suggestionCacheRef.current.clear();
     // [ميزة جديدة] "بدء من جديد" يعني عميلاً مختلفاً محتملاً — لا تُبقِ ملفي
     // العملاء/الموردين المرجعيين أو رمزي الضريبة المخصَّصين من العميل السابق.
-    setCustomersRefList(null); setCustomersRefFileName("");
-    setSuppliersRefList(null); setSuppliersRefFileName("");
+    setCustomersRefList(null); setCustomersRefFileName(""); setCustomersRefIsApi(false);
+    setSuppliersRefList(null); setSuppliersRefFileName(""); setSuppliersRefIsApi(false);
     setVat15Code("1"); setVatZeroCode("2");
     setManualVatCode(""); setManualDebtorsCode(""); setManualCreditorsCode("");
     setShowRefSettings(false);
@@ -1562,14 +1744,19 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
                   <Copy size={16} /> {t({ ar: "نسخ البيانات", en: "Copy data" })}
                 </button>
                 {/* [إضافة] إرسال القيود السليمة مباشرة عبر API — يحتاج مفتاح API
-                    (لوحة الجلب أعلاه) وقيدًا سليمًا واحدًا على الأقل. */}
-                <button onClick={handleSendViaApi} disabled={apiSending || !apiKey.trim() || !sendableEntries.length}
+                    (لوحة الجلب أعلاه) وقيدًا سليمًا واحدًا على الأقل.
+                    [إضافة 2026-09-21] لو فيه كيانات ناقصة قابلة للمراجعة
+                    (حساب/عميل/مورد/موقع)، الزر يفتح لوحة المراجعة أولاً بدل
+                    الإرسال المباشر — راجع handleSendClick أعلاه. */}
+                <button onClick={handleSendClick} disabled={apiSending || !apiKey.trim() || !canAttemptSend}
                   title={!apiKey.trim() ? t({ ar: "أدخل مفتاح API من اللوحة أعلاه أولاً", en: "Enter an API key from the panel above first" }) : ""}
                   className="flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "#0284C7" }}>
                   {apiSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                   {apiSending
                     ? t({ ar: `جارٍ الإرسال (${apiSendProgress.current}/${apiSendProgress.total})...`, en: `Sending (${apiSendProgress.current}/${apiSendProgress.total})...` })
-                    : t({ ar: `إرسال ${sendableEntries.length} قيد سليم عبر API`, en: `Send ${sendableEntries.length} valid entries via API` })}
+                    : !missingEntitiesPlanEmpty
+                      ? t({ ar: "مراجعة الكيانات الناقصة قبل الإرسال", en: "Review missing entities before sending" })
+                      : t({ ar: `إرسال ${sendableEntries.length} قيد سليم عبر API`, en: `Send ${sendableEntries.length} valid entries via API` })}
                 </button>
               </div>
               {copyStatus === "copied" && <span className="flex items-center gap-1 text-xs" style={{ color: COLORS.green }}><CheckCircle2 size={14} /> {t({ ar: "تم النسخ", en: "Copied" })}</span>}
@@ -1593,6 +1780,25 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
         onClose={() => setShowApiSendModal(false)}
         onDownloadReport={handleDownloadSendResults}
         onStop={() => { apiStoppedRef.current.current = true; }}
+      />
+    )}
+    {showMissingEntitiesPanel && (
+      <JournalMissingEntitiesPanel
+        plan={missingEntitiesPlan}
+        busy={missingEntitiesBusy}
+        progress={missingEntitiesProgress}
+        result={missingEntitiesResult}
+        onConfirm={handleConfirmMissingEntities}
+        onClose={() => {
+          // [ملاحظة 2026-09-21] إغلاق فقط، بلا إرسال تلقائي متابع — إعادة فحص
+          // القيود (بعد إنشاء الكيانات) تعمل بدفعات غير متزامنة (auditVersion)،
+          // فلا ضمان اكتمالها فور إغلاق اللوحة على ملف كبير. المستخدم يرى
+          // عدّاد "قيود بها مشاكل" ينخفض تلقائيًا عند اكتمال إعادة الفحص، ثم
+          // يضغط "إرسال عبر API" مرة أخرى بنفسه — أضمن من إرسال تلقائي قد
+          // يعمل على بيانات لم تُعَد فحصها كاملةً بعد.
+          setShowMissingEntitiesPanel(false);
+          setMissingEntitiesResult(null);
+        }}
       />
     )}
     {/* [إضافة 2026-09-14] راجع نفس الإصلاح بـMergeTool.jsx — أيقونة عائمة تُتيح
