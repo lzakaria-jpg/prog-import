@@ -4,7 +4,7 @@ import {
   Download, ChevronDown, ChevronUp, Info, RefreshCcw, Copy,
   ChevronLeft, ChevronRight, Search, X, Cloud, Send, Eye, EyeOff, StopCircle,
 } from "lucide-react";
-import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
+import { readWorkbookRows, readAnyEntriesFileRows, parseChartFile, parseEntriesFile, buildParentInfo, parseAmount, validateEntryStructure, getPostingSuggestions, getPostingDescendants, normalizeDateGuess, guessEntriesColumnMapping, parseEntriesFileWithMapping, parseNameRefFile, applyAutoContactRules, findSystemAccountCodes, normalizeAccountName, VAT_PAYABLE_ACCOUNT_NAME, DEBTORS_ACCOUNT_NAME, CREDITORS_ACCOUNT_NAME, _parseDebug } from "./lib/excelCore";
 import { buildImportFile, downloadBlob, buildPasteText } from "./lib/excelExport";
 import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { SafeInput } from "./lib/SafeInput";
@@ -795,14 +795,41 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const isCreditors = creditorsCodes.has(r.code);
       if (isDebtors || isCreditors) {
         if (!r.contact) {
-          issues.push({
-            id: `${entry.seq}-row${r._rowIndex}-contactref`,
-            type: "missing_contact_ref",
-            severity: "error",
-            rowIndex: r._rowIndex,
-            code: r.code,
-            message: `السطر ${i + 1}: الحساب "${chartMap[r.code]?.name || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
-          });
+          // [إضافة — طلب صريح من المستخدم] كل سطر مدينون/دائنون يحمل باسمه
+          // (عمود التفصيل غالبًا، أو التعليقات) اسمَ العميل/المورد الحقيقي.
+          // حين تكون القائمة المرجعية مجلوبة فعليًا عبر API ولم تُملأ خانة
+          // "جهة اتصال" تلقائيًا (applyAutoContactRules تملؤها فور تطابق الاسم
+          // مع عميل/مورد موجود)، فهذا يعني أن هذا الاسم غير موجود فعلاً بمنشأة
+          // العميل — فيُعرَض ككيان ناقص قابل للإنشاء بدل مجرد خطأ يدوي.
+          // التجميع بالاسم المُطبَّع بـcomputeMissingJournalEntitiesPlan، فاسم
+          // واحد متكرر بمئات الأسطر يصير عميلًا واحدًا بقائمة قيوده.
+          const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
+          const accountName = chartMap[r.code]?.name || "";
+          const lineName = String(r.detail || r.comment || "").trim();
+          // احتياط: بعض المخططات تُسقِط اسم الحساب نفسه بخانة التعليقات حين
+          // يكون السطر بلا تفصيل ولا تعليق (راجع finalComment بـexcelCore.js) —
+          // إنشاء عميل باسم "المدينون" خطأ فادح، فيُستبعَد صراحةً هنا.
+          const usableName = lineName && normalizeAccountName(lineName) !== normalizeAccountName(accountName) ? lineName : "";
+          if (isApiSourced && usableName) {
+            issues.push({
+              id: `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`,
+              type: isDebtors ? "missing_customer_ref" : "missing_vendor_ref",
+              severity: "error",
+              rowIndex: r._rowIndex,
+              code: r.code,
+              typedName: usableName,
+              message: `السطر ${i + 1}: ${isDebtors ? "العميل" : "المورد"} "${usableName}" غير موجود فعلياً بمنشأة العميل (بحسب آخر جلب من قيود) — يمكن إنشاؤه تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`,
+            });
+          } else {
+            issues.push({
+              id: `${entry.seq}-row${r._rowIndex}-contactref`,
+              type: "missing_contact_ref",
+              severity: "error",
+              rowIndex: r._rowIndex,
+              code: r.code,
+              message: `السطر ${i + 1}: الحساب "${accountName || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
+            });
+          }
         } else {
           // [إضافة 2026-09-21] contact مُعبَّأ فعلاً لكنه لا يطابق أي عميل/مورد
           // حقيقي بمنشأة العميل — يُفحَص فقط حين تكون القائمة المرجعية مجلوبة

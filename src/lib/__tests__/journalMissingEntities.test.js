@@ -66,6 +66,44 @@ describe('computeMissingJournalEntitiesPlan', () => {
   it('خطة فارغة تمامًا بلا أي قيود/أخطاء', () => {
     expect(isMissingJournalEntitiesPlanEmpty(computeMissingJournalEntitiesPlan([], {}))).toBe(true);
   });
+
+  // [إضافة — طلب صريح من المستخدم] أسماء العملاء/الموردين المكتوبة بأسطر
+  // المدينون/الدائنون تصل الآن كـmissing_customer_ref/missing_vendor_ref حتى
+  // حين تكون خانة "جهة اتصال" فارغة (راجع buildStructuralIssues بـJournalTool.jsx).
+  // المطلوب صراحةً: "عميل نقدي ممكن تلاقيه مكرر في 200 صف, عادي هو عميل واحد".
+  it('اسم واحد متكرر بمئات الأسطر/القيود يصير عميلًا واحدًا بقائمة قيوده كاملة', () => {
+    const manyEntries = Array.from({ length: 200 }, (_, i) => ({ seq: i + 1 }));
+    const issuesBySeq = {};
+    manyEntries.forEach((e) => { issuesBySeq[e.seq] = [{ type: 'missing_customer_ref', typedName: 'عميل نقدي' }]; });
+    const plan = computeMissingJournalEntitiesPlan(manyEntries, issuesBySeq);
+    expect(plan.customers).toHaveLength(1);
+    expect(plan.customers[0].typedName).toBe('عميل نقدي');
+    expect(plan.customers[0].seqs).toHaveLength(200);
+  });
+
+  it('نفس الاسم على جانبي مدينون ودائنون يُنشأ عميلًا ومورّدًا منفصلين (لا خلط بين القائمتين)', () => {
+    const issuesBySeq = {
+      1: [{ type: 'missing_customer_ref', typedName: 'محمد فريد حسن' }],
+      2: [{ type: 'missing_vendor_ref', typedName: 'محمد فريد حسن' }],
+    };
+    const plan = computeMissingJournalEntitiesPlan(entries, issuesBySeq);
+    expect(plan.customers).toHaveLength(1);
+    expect(plan.vendors).toHaveLength(1);
+    expect(plan.customers[0].seqs).toEqual([1]);
+    expect(plan.vendors[0].seqs).toEqual([2]);
+  });
+
+  it('نفس الاسم متكرر داخل القيد الواحد (أكثر من سطر) لا يُكرِّر رقم القيد بقائمة قيوده', () => {
+    const issuesBySeq = {
+      1: [
+        { type: 'missing_customer_ref', typedName: 'عميل نقدي' },
+        { type: 'missing_customer_ref', typedName: 'عميل نقدي' },
+      ],
+    };
+    const plan = computeMissingJournalEntitiesPlan(entries, issuesBySeq);
+    expect(plan.customers).toHaveLength(1);
+    expect(plan.customers[0].seqs).toEqual([1]);
+  });
 });
 
 describe('MISSING_ENTITY_ISSUE_TYPES', () => {
