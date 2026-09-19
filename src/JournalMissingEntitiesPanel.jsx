@@ -19,14 +19,29 @@ import { Loader2, X, AlertTriangle } from "lucide-react";
 import { useLanguage } from "./language";
 import { COLORS } from "./lib/journalColors.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP } from "./MergeTool.jsx";
+import { matchAccountType, level2ForType } from "./lib/accountsClassifier.js";
 
 const LEVEL2_CATEGORIES = Object.keys(LEVEL2_TO_LEVEL1);
 const LEVEL1_ROOTS = Array.from(new Set(Object.values(LEVEL2_TO_LEVEL1)));
 
+// [إضافة] طلب المستخدم الصريح: نفس آلية التصنيف التلقائي المعتمَدة فعليًا بأداة
+// استيراد شجرة الحسابات (AccountsTool.jsx → matchAccountType/level2ForType،
+// accountsClassifier.js) — مطابقة كلمات مفتاحية باسم الحساب لتحديد نوعه من
+// أنواع قيود الـ59، ثم فئته (مستوى2) تبعًا له. الحساب يبقى قابلاً للتعديل يدويًا
+// دومًا (checked/level2Category/type كلها حقول قابلة للتغيير بالنموذج أدناه) —
+// هذا فقط اقتراح ابتدائي بدل تركها فارغة لكل حساب دومًا.
 function buildInitialAccountsState(accounts) {
   const out = {};
   (accounts || []).forEach((a) => {
-    out[a.code] = { checked: true, nameAr: a.nameFromFile || a.code, nameEn: "", level2Category: "", type: "" };
+    const nameAr = a.nameFromFile || a.code;
+    const { type } = matchAccountType(nameAr);
+    const level2Category = type ? level2ForType(type) : "";
+    // [إصلاح خطأ حقيقي شهده المستخدم] الاسم الإنجليزي حقل مطلوب فعليًا بـQoyod
+    // (buildQoyodAccountPayload يرفض إنشاء الحساب لو فارغًا) — تركه فارغًا افتراضيًا
+    // كان يعني رفض كل حساب لم يكتب المستخدم اسمه الإنجليزي يدويًا بنفسه. الآن
+    // يتكرر الاسم العربي كقيمة افتراضية للإنجليزي (قابلة للتعديل بالطبع)، تمامًا
+    // كما طلب المستخدم: "وان لم يجد الانجليزي فكرره كما هو بالعربي".
+    out[a.code] = { checked: true, nameAr, nameEn: nameAr, level2Category, type: level2Category ? type : "" };
   });
   return out;
 }
@@ -45,6 +60,14 @@ function buildInitialLocationsState(locations) {
 
 const inputCls = "w-full rounded-md border px-2 py-1.5 text-xs";
 const inputStyle = { borderColor: COLORS.line };
+// [إصلاح خطأ حقيقي شهده المستخدم] عناصر <select> بكامل التطبيق داكنة الخلفية
+// عمداً (راجع "select { color-scheme: dark; }" بـindex.css) — كل قائمة منسدلة
+// أخرى بالتطبيق تُحدِّد ألوانها الخاصة صراحةً (خلفية داكنة + نص فاتح متباين)
+// بدل الاعتماد على تنسيق المتصفح الافتراضي لهذا الوضع. القائمتان هنا (الفئة/
+// النوع) كانتا تستخدمان inputStyle نفسه (حدّ فقط، بلا خلفية/لون) فتظهران داكنتين
+// بنص غير واضح — نفس تنسيق باقي قوائم التطبيق المنسدلة (مثال: JournalTool.jsx
+// قائمة exportSort) يُطبَّق هنا الآن لنفس السبب.
+const selectStyle = { borderColor: "#233152", background: "#0E1830", color: "#E6EDF6" };
 
 function Section({ title, count, children }) {
   if (!count) return null;
@@ -142,7 +165,7 @@ export default function JournalMissingEntitiesPanel({ plan, busy, progress, resu
                             onChange={(e) => patchAccount(a.code, { nameAr: e.target.value })} />
                           <input className={inputCls} style={inputStyle} value={s.nameEn} placeholder={t({ ar: "الاسم (إنجليزي)", en: "Name (English)" })}
                             onChange={(e) => patchAccount(a.code, { nameEn: e.target.value })} />
-                          <select className={inputCls} style={inputStyle} value={s.level2Category}
+                          <select className={inputCls} style={selectStyle} value={s.level2Category}
                             onChange={(e) => patchAccount(a.code, { level2Category: e.target.value, type: "" })}>
                             <option value="">{t({ ar: "— الفئة * —", en: "— Category * —" })}</option>
                             {LEVEL1_ROOTS.map((root) => (
@@ -151,7 +174,7 @@ export default function JournalMissingEntitiesPanel({ plan, busy, progress, resu
                               </optgroup>
                             ))}
                           </select>
-                          <select className={inputCls} style={inputStyle} value={s.type} disabled={!s.level2Category}
+                          <select className={inputCls} style={selectStyle} value={s.type} disabled={!s.level2Category}
                             onChange={(e) => patchAccount(a.code, { type: e.target.value })}>
                             <option value="">{t({ ar: "— النوع * —", en: "— Type * —" })}</option>
                             {typeOptions.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
