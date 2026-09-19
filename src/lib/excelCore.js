@@ -111,20 +111,26 @@ function cellText(v) {
 // addresses present in the sheet avoids this silent data loss.
 export function fixWorksheetRange(ws) {
   // ورقة "dense" (خيار XLSX.read({dense:true}) — أسرع بمرتين تقريباً على ملفات كبيرة
-  // جداً، مستخدَم في readWorkbookRows أدناه فقط) تُمثِّل كل صف كمصفوفة ws[r] مباشرة
+  // جداً، مستخدَم في readWorkbookRows أدناه فقط) تُمثِّل كل صف كمصفوفة ws["!data"][r]
   // بدل مفتاح "A1" مستقل لكل خلية — decode_cell("0") غير صالح إطلاقاً هنا، فنحسب
   // الحدود من فهارس الصفوف/الأعمدة الفعلية مباشرة بدل فك أي عنوان. الاستدعاءات
   // الأخرى لهذه الدالة (AccountsTool.jsx) لا تستخدم dense إطلاقاً فتبقى بالمسار
   // المتفرّق الأصلي بلا أي تغيير في السلوك.
-  if (Array.isArray(ws[0])) {
+  // [إصلاح خطأ حقيقي شهده المستخدم] نسخة xlsx المثبَّتة فعليًا هنا (vendor/xlsx-0.20.3)
+  // تخزّن صفوف الورقة "dense" في ws["!data"][r] — وليس ws[r] مباشرةً كما افترض هذا
+  // الفرع أصلًا. Array.isArray(ws[0]) يكون false دومًا مع هذه النسخة، فيسقط التنفيذ
+  // للفرع "المتفرّق" أدناه الذي لا يجد فيه أي مفتاح "A1"-style حقيقي (فقط !data/!ref/
+  // ...) فلا يُصحَّح !ref إطلاقًا. النتيجة الحقيقية المؤكَّدة: ملف "دفتر القيود" الأصلي
+  // من قيود يُصدَّر بـ<dimension ref="A1:A122"> خاطئ (يغطي العمود A فقط) رغم أن كل
+  // صفوف البيانات فعليًا تمتد حتى العمود E (الحساب|التفصيل|مدين|دائن|التعليقات) —
+  // فتُقرَأ كل الصفوف مبتورة لعمود واحد فقط، فيصل المدين/الدائن null دومًا لكل قيد
+  // بهذا الملف (لا علاقة بمعالجة المشروع/الموقع، الخلل موجود في هذه الدالة تحديدًا).
+  if (Array.isArray(ws["!data"])) {
     let maxRow = -1;
     let maxCol = -1;
     let hasAny = false;
-    Object.keys(ws).forEach((k) => {
-      if (!/^\d+$/.test(k)) return;
-      const rowArr = ws[k];
+    ws["!data"].forEach((rowArr, r) => {
       if (!Array.isArray(rowArr)) return;
-      const r = Number(k);
       if (r > maxRow) maxRow = r;
       rowArr.forEach((cell, c) => {
         if (cell !== undefined && cell !== null) {
