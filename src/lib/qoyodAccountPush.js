@@ -56,10 +56,17 @@ export function isDuplicateApiError(message) {
  * @param {(entry:{code,nameAr,nameEn,status:'success'|'skip'|'error',reason?,id?}) => void} [opts.onEntry] يُستدعى بعد كل صف (نجاح/تخطٍّ/فشل)
  * @param {(current:number, total:number) => void} [opts.onProgress]
  * @param {{current:boolean}} [opts.stoppedRef] لدعم إيقاف يدوي من المستخدم أثناء الإرسال
+ * @param {boolean} [opts.continueOnError] يُكمِل باقي الصفوف بعد أي فشل بدل التوقف الكامل.
+ *   الافتراضي false — قاعدة "أي فشل يوقف كل شيء" أعلاه قرار صريح للمستخدم
+ *   بأداة مطابقة شجرة الحسابات تحديدًا (حيث يراجع كل خطأ يدويًا قبل أي إرسال
+ *   إضافي)، فتبقى كما هي هناك بلا أي تغيير. [إضافة — طلب صريح لاحق منه بأداة
+ *   استيراد القيود: "المفترض الحساب الي ما ارسل يرسل غيره مباشر"]: هناك
+ *   الحسابات الناقصة مستقلة تمامًا عن بعضها (كل واحد يخص سطر قيد مختلف)،
+ *   وتوقّف الدفعة كلها بسبب حساب واحد مرفوض يعطّل بقية القيود بلا داعٍ.
  * @returns {Promise<{total:number, sent:number, skipped:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
-  const { onEntry, onProgress, stoppedRef } = opts;
+  const { onEntry, onProgress, stoppedRef, continueOnError = false } = opts;
   const entries = [];
   const emit = (entry) => { entries.push(entry); if (onEntry) onEntry(entry); };
 
@@ -105,8 +112,9 @@ export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
       }
       failed++;
       emit({ code: row.code, nameAr: row.nameAr, nameEn: row.nameEn, status: "error", reason: built.error });
-      stoppedEarly = true;
-      break; // توقف كامل عند أول فشل — قرار المستخدم الصريح
+      if (!continueOnError) { stoppedEarly = true; break; } // توقف كامل عند أول فشل — قرار المستخدم الصريح (إلا بوضع continueOnError)
+      if (i < rows.length - 1) await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
+      continue;
     }
 
     try {
@@ -118,8 +126,7 @@ export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
       } else {
         failed++;
         emit({ code: row.code, nameAr: row.nameAr, nameEn: row.nameEn, status: "error", reason: "رد غير متوقع من Qoyod (بلا معرّف حساب)" });
-        stoppedEarly = true;
-        break;
+        if (!continueOnError) { stoppedEarly = true; break; }
       }
     } catch (e) {
       const msg = e.message || String(e);
@@ -133,8 +140,7 @@ export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
       }
       failed++;
       emit({ code: row.code, nameAr: row.nameAr, nameEn: row.nameEn, status: "error", reason: msg });
-      stoppedEarly = true;
-      break; // توقف كامل عند أول فشل حقيقي (غير تكرار) — قرار المستخدم الصريح
+      if (!continueOnError) { stoppedEarly = true; break; } // توقف كامل عند أول فشل حقيقي (غير تكرار) — قرار المستخدم الصريح (إلا بوضع continueOnError)
     }
 
     if (i < rows.length - 1) await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));

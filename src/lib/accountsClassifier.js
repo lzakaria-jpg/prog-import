@@ -259,29 +259,97 @@ function matchLevel2CategoryLenient(name) {
   return hit ? hit.name : "";
 }
 
+// [إصلاح خطأ حقيقي شهده المستخدم] الاكتفاء باللافتات الصريحة (حساب اسمه اسم
+// فئة/جذر معروف) لا يكفي إطلاقًا: شجرة عميل حقيقية كثيرًا ما لا تحوي أي حساب
+// بهذا الاسم (أسماؤها عملية: "رواتب وأجور"، "إيجار المكتب"، "كهرباء ومياه"...)،
+// فلا يُرصَد أي جذر لرموز 5xxx مثلاً، فيفوز تطابق الاسم وحده ويُصنَّف حساب
+// "حاسب آلي وطابعات" برمز 5301 "أصول غير متداولة" (بلاغ المستخدم الحرفي).
+// الحل: نصنِّف *كل* حساب موجود فعلاً بشجرة العميل من اسمه، ونُصوِّت بجذره لكل
+// بادئة من بادئات رمزه — فتتعلّم الأداة ترقيم هذا العميل بالذات كما يقرأه
+// المحاسب: "كل ما تحت 5 مصاريف" حتى لو لم يُسمِّ أحدٌ الحساب 5 "المصاريف".
+// عمدًا لا تُشتَق فئة مستوى2 من التصويت (الجذر فقط): تحت جذر المصاريف مثلاً
+// تتعايش التكلفة المباشرة والتشغيلية وغير التشغيلية، فقفل الفئة بالأغلبية
+// يمنع "تكلفة بضاعة" من الوصول لفئتها الصحيحة — اسم الحساب وحده يحسم الفئة
+// داخل الجذر.
+const DERIVED_ROOT_MIN_SHARE = 0.6;
+
+function addRootVote(votes, prefix, root) {
+  let bucket = votes[prefix];
+  if (!bucket) { bucket = votes[prefix] = { total: 0, byRoot: {} }; }
+  bucket.total++;
+  const k = normalize(root);
+  bucket.byRoot[k] = (bucket.byRoot[k] || 0) + 1;
+}
+
+function dominantRoot(bucket) {
+  if (!bucket || !bucket.total) return "";
+  let best = "", bestCount = 0;
+  Object.entries(bucket.byRoot).forEach(([root, count]) => {
+    if (count > bestCount) { bestCount = count; best = root; }
+  });
+  return bestCount / bucket.total >= DERIVED_ROOT_MIN_SHARE ? best : "";
+}
+
+/**
+ * يبني فهرس لافتات رموز شجرة حسابات العميل الفعلية (chartAccounts: يكفي منها
+ * code + name)، بطبقتين:
+ *  1) لافتات صريحة (explicit): حساب اسمه اسم فئة مستوى2 رسمي (مطابقة دقيقة
+ *     فقط) → لافتة فئة؛ أو اسمه مرادف جذر معروف ("حقوق الملكية"، "المصروفات")
+ *     → لافتة جذر. الأعلى ثقة دومًا.
+ *  2) لافتات مستنتَجة (derived): جذر كل حساب موجود يُستنتَج من اسمه عبر المحرك،
+ *     ثم يُصوَّت به لكل بادئة من بادئات رمزه؛ البادئة التي يهيمن على أصواتها
+ *     جذر واحد (≥60%) تصير لافتة جذر لها. الجذر فقط — راجع التعليق أعلاه.
+ */
 export function buildCodeCategoryHints(chartAccounts) {
-  const hints = {};
+  const explicit = {};
+  const votes = {};
+
   (chartAccounts || []).forEach((a) => {
     const code = String(a?.code || "").trim();
     const name = a?.name || "";
     if (!code || !name) return;
+
+    let root = "";
     const level2Hit = matchLevel2CategoryLenient(name);
-    if (level2Hit) { hints[code] = { level2Category: level2Hit, level1Root: LEVEL2_TO_LEVEL1[level2Hit] }; return; }
-    const level1Hit = matchLevel1RootByKeyword(name);
-    if (level1Hit && !hints[code]) hints[code] = { level1Root: level1Hit };
+    if (level2Hit) {
+      explicit[code] = { level2Category: level2Hit, level1Root: LEVEL2_TO_LEVEL1[level2Hit] };
+      root = LEVEL2_TO_LEVEL1[level2Hit];
+    } else {
+      const level1Hit = matchLevel1RootByKeyword(name);
+      if (level1Hit) {
+        if (!explicit[code]) explicit[code] = { level1Root: level1Hit };
+        root = level1Hit;
+      } else {
+        const type = inferLevel3TypeFromText(name, "");
+        root = type ? (LEVEL2_TO_LEVEL1[TYPE_TO_LEVEL2[type] || ""] || "") : "";
+      }
+    }
+    if (!root) return;
+    for (let len = 1; len <= code.length; len++) addRootVote(votes, code.slice(0, len), root);
   });
-  return hints;
+
+  const derived = {};
+  Object.entries(votes).forEach(([prefix, bucket]) => {
+    const root = dominantRoot(bucket);
+    if (root) derived[prefix] = { level1Root: root };
+  });
+
+  return { explicit, derived };
 }
 
 /**
- * أطول رمز موجود فعليًا بالفهرس (hints) يمثّل بادئة لـcode — نفس أسلوب
- * الاقتطاع من اليمين المعتمَد أصلاً بالمشروع لاستنتاج حساب الأب
- * (guessParentByCodeTruncation بـqoyodAccountSync.js/qoyodJournalRefFetch.js).
+ * أطول بادئة من رمز الحساب لها لافتة بالفهرس — بالاقتطاع من اليمين (نفس أسلوب
+ * استنتاج حساب الأب المعتمَد أصلاً بالمشروع: guessParentByCodeTruncation).
+ * الأطول أولًا لأنها الأدق (دليلها يخص نطاقًا أضيق)، واللافتة الصريحة تتقدَّم
+ * على المستنتَجة عند نفس البادئة.
  */
 export function lookupCodeCategoryHint(code, hints) {
+  const explicit = hints?.explicit || {};
+  const derived = hints?.derived || {};
   let current = String(code || "").trim();
   while (current.length > 0) {
-    if (hints[current]) return hints[current];
+    if (explicit[current]) return explicit[current];
+    if (derived[current]) return derived[current];
     current = current.slice(0, -1);
   }
   return null;
@@ -357,18 +425,12 @@ function looksLikePartyName(name) {
  */
 export function classifyMissingAccount(name, code, hints) {
   const codeHint = code ? lookupCodeCategoryHint(code, hints || {}) : null;
-  const nameMatch = inferLevel3TypeFromText(name, "");
 
-  if (nameMatch) {
-    const nameLevel2 = TYPE_TO_LEVEL2[nameMatch] || "";
-    const nameRoot = LEVEL2_TO_LEVEL1[nameLevel2] || "";
-    const conflict = codeHint?.level2Category
-      ? codeHint.level2Category !== nameLevel2
-      : (codeHint?.level1Root ? !isRoot(nameRoot, codeHint.level1Root) : false);
-    if (!conflict) return { type: nameMatch, level2Category: nameLevel2, confidence: "name" };
-    // تعارض بين الاسم والرمز — الرمز يفوز (طلب المستخدم الصريح)، يُتابَع تحت.
-  }
-
+  // [إصلاح خطأ حقيقي شهده المستخدم: "الاداة لم تعتمد على رمز الحساب اولا في
+  // تحديد نوع الحساب"] الرمز يُطبَّق أولًا دومًا، والاسم يُطابَق *داخل* نطاقه
+  // فقط — لا العكس. سابقًا كانت مطابقة الاسم الحرة تسبق الرمز وتفوز ما لم
+  // يُرصَد تعارض صريح، فحساب "حاسب آلي وطابعات" برمز 5301 (مصاريف بشجرة
+  // العميل) كان يُصنَّف "أصول غير متداولة" لمجرد أن اسمه يطابق نوع أصول.
   if (codeHint?.level2Category) {
     const scoped = inferLevel3TypeFromText(name, codeHint.level2Category);
     if (scoped) return { type: scoped, level2Category: codeHint.level2Category, confidence: "code" };
@@ -395,8 +457,12 @@ export function classifyMissingAccount(name, code, hints) {
     return { type: fallbackCategory ? (DEFAULT_TYPE_BY_LEVEL2[fallbackCategory] || "") : "", level2Category: fallbackCategory, confidence: "code" };
   }
 
-  // لا لافتة إطلاقًا بشجرة العميل لأي جزء من رمز هذا الحساب، ولا اسم مطابق —
-  // الملاذ الأخير: الترقيم القياسي المعتاد بقيود لجذر رمزه الأول فقط.
+  // لا لافتة إطلاقًا بشجرة العميل لأي بادئة من رمز هذا الحساب — عندها فقط
+  // يُعتمَد الاسم وحده (نفس سلوك أداة استيراد شجرة الحسابات لسطر بلا سياق).
+  const nameMatch = inferLevel3TypeFromText(name, "");
+  if (nameMatch) return { type: nameMatch, level2Category: TYPE_TO_LEVEL2[nameMatch] || "", confidence: "name" };
+
+  // ولا اسم مطابق — الملاذ الأخير: الترقيم القياسي المعتاد بقيود لجذر رمزه الأول.
   const digit = code ? String(code).trim()[0] : "";
   const standardRoot = STANDARD_ROOT_BY_DIGIT[digit];
   if (standardRoot) {

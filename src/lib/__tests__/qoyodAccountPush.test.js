@@ -173,6 +173,57 @@ describe("pushAccountsToQoyod", () => {
   });
 });
 
+// [إضافة — طلب صريح من المستخدم بأداة استيراد القيود: "المفترض الحساب الي ما
+// ارسل يرسل غيره مباشر"] الحسابات الناقصة بتلك الأداة مستقلة عن بعضها تمامًا،
+// فرفض واحد منها لا يبرّر تعطيل الباقي. أداة مطابقة شجرة الحسابات تبقى على
+// قاعدتها الأصلية (توقف عند أول فشل) — الخيار اختياري وافتراضه false.
+describe("pushAccountsToQoyod — continueOnError", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("الافتراضي (بلا الخيار): يتوقف عند أول فشل حقيقي كما كان تمامًا", async () => {
+    fetchAll.mockResolvedValue([]);
+    api.mockImplementation(async (m, p, body) => {
+      if (body.account.code === "4102") throw new Error('API 422: {"messages":{"account_kind":["Invalid branch"]}}');
+      return { account: { id: 1, ...body.account } };
+    });
+    const rows = [row("4101", "A", "أ"), row("4102", "B", "ب"), row("4103", "C", "ج")];
+    const result = await pushAccountsToQoyod(rows, "fake-key");
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.stoppedEarly).toBe(true);
+    expect(api).toHaveBeenCalledTimes(2); // الثالث لم يُرسَل إطلاقًا
+  });
+
+  it("مع continueOnError: يُبلِّغ عن الفاشل ويُكمل بقية الحسابات", async () => {
+    fetchAll.mockResolvedValue([]);
+    api.mockImplementation(async (m, p, body) => {
+      if (body.account.code === "4102") throw new Error('API 422: {"messages":{"account_kind":["Invalid branch"]}}');
+      return { account: { id: 1, ...body.account } };
+    });
+    const rows = [row("4101", "A", "أ"), row("4102", "B", "ب"), row("4103", "C", "ج")];
+    const result = await pushAccountsToQoyod(rows, "fake-key", { continueOnError: true });
+    expect(result.sent).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.stoppedEarly).toBe(false);
+    expect(api).toHaveBeenCalledTimes(3);
+    expect(result.entries.map((e) => e.status)).toEqual(["success", "error", "success"]);
+  });
+
+  it("مع continueOnError: فشل بناء الحمولة (نوع غير معروف) لا يوقف الباقي أيضًا", async () => {
+    fetchAll.mockResolvedValue([]);
+    api.mockImplementation(async (m, p, body) => ({ account: { id: 1, ...body.account } }));
+    const rows = [
+      row("4101", "A", "أ"),
+      row("4102", "B", "ب", { level2Category: "فئة غير موجودة إطلاقًا", type: "نوع مجهول" }),
+      row("4103", "C", "ج"),
+    ];
+    const result = await pushAccountsToQoyod(rows, "fake-key", { continueOnError: true });
+    expect(result.sent).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.stoppedEarly).toBe(false);
+  });
+});
+
 describe("isDuplicateApiError — اكتشاف رفض Qoyod بسبب تكرار فعلي (دفاع ثانٍ بعد الفحص المسبق)", () => {
   it("يكتشف شكل 422 الحقيقي المؤكد ميدانيًا لتكرار الرمز", () => {
     expect(isDuplicateApiError('API 422: {"error":"Invalid resource","messages":{"code":["code is already taken by id 52"]}}')).toBe(true);

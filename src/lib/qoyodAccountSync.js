@@ -195,6 +195,31 @@ const QOYOD_PARENT_KIND_BY_BRANCH = {
   non_operational_expense: "expense",
 };
 
+// [إضافة — إصلاح خطأ حقيقي شهده المستخدم] قيمة حقل "type" القديمة (من الـ16)
+// المقابلة لكل فرع رسمي (branch_kind). سببها: الحمولة تُرسِل الحقلين معًا —
+// "type" القديم (مشتق من فئة مستوى2 الداخلية للأداة) و"branch_kind" الرسمي
+// (مشتق من مرجع قيود عبر account_kind). في 6 أنواع من أصل 59 يختلف تصنيف
+// الأداة الداخلي عن تصنيف قيود الرسمي (مثال مؤكَّد من بلاغ حي: "مخصص مكافأة
+// نهاية الخدمة" — الأداة تضعه بالالتزامات غير المتداولة فيُرسَل
+// type="NoncurrentLiability"، بينما end_of_service_benefits فرعه الرسمي
+// current_liability) — فتصل الحمولة متناقضة مع نفسها ويردّها قيود بـ
+// 422 {"account_kind":["Invalid branch"]} فتفشل. الفرع الرسمي هو الحكم هنا
+// (هو مصدر account_kind نفسه)، فيُشتَق منه "type" عند أي تعارض.
+export const QOYOD_TYPE_BY_BRANCH_KIND = {
+  current_assets: "CurrentAsset",
+  fixed_assets: "FixedAsset",
+  current_liability: "CurrentLiability",
+  non_current_liability: "NoncurrentLiability",
+  issued_capital: "Equity",
+  other_equity: "Equity",
+  retained_earnings: "Equity",
+  sales: "Sale",
+  non_operative_revenue: "OtherIncome",
+  direct_cost: "DirectCost",
+  operational_cost: "Expense",
+  non_operational_expense: "Expense",
+};
+
 // branch_kind من فئة المستوى2 — مطابقة 1:1 مباشرة (راجع تعليق "دليل ثقة عالٍ" أعلاه).
 export const QOYOD_BRANCH_KIND_BY_LEVEL2 = {
   "الأصول المتداولة": "current_assets",
@@ -404,13 +429,25 @@ export function buildQoyodAccountPayload(row) {
   if (!nameEn) return { ok: false, error: "الاسم الإنجليزي فارغ (مطلوب من Qoyod)" };
   if (!nameAr) return { ok: false, error: "الاسم العربي فارغ (مطلوب من Qoyod)" };
 
-  const qoyodType = mapRowToQoyodType(row);
+  const mappedType = mapRowToQoyodType(row);
   // [إضافة 2026-09-14] الحقول الثلاثة الرسمية الجديدة (account_kind/parent_kind/
   // branch_kind) — راجع تعليق "مواصفة Qoyod API الرسمية" أعلاه لمصدر الثقة بها.
   const qoyodKind = mapRowToQoyodAccountKind(row);
-  if (!qoyodType || !qoyodKind) {
+  if (!mappedType || !qoyodKind) {
     return { ok: false, error: `تعذّر تحديد نوع الحساب المطابق بقيود لـ"${row?.type || row?.level2Category || "—"}"` };
   }
+
+  // [إصلاح خطأ حقيقي شهده المستخدم — 422 {"account_kind":["Invalid branch"]}]
+  // توحيد "type" القديم مع الفرع الرسمي حين يتعارضان (راجع تعليق
+  // QOYOD_TYPE_BY_BRANCH_KIND أعلاه). الفرع الرسمي هو المرجع لأنه مصدر
+  // account_kind المُرسَل نفسه، فلا يجوز أن يخالفه "type" بنفس الحمولة.
+  const level = Number(row?.level);
+  const internalLevel2 = level === 2 ? (row?.type || "") : (row?.level2Category || "");
+  const internalBranch = QOYOD_BRANCH_KIND_BY_LEVEL2[internalLevel2];
+  const branchType = QOYOD_TYPE_BY_BRANCH_KIND[qoyodKind.branchKind];
+  const qoyodType = (internalBranch && internalBranch !== qoyodKind.branchKind && branchType)
+    ? branchType
+    : mappedType;
 
   // [إضافة 2026-09-15] استبعاد الأنواع المقفلة نظاميًا (systemLockedAccounts
   // بالمرجع الرسمي) من الإرسال عبر API — قرار المستخدم الصريح: "أستبعده من

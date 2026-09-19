@@ -166,6 +166,11 @@ export async function pushMissingJournalEntitiesToQoyod(selections, apiKey, opts
     let accountEntryIndex = 0;
     const res = await pushAccountsToQoyod(rows, key, {
       stoppedRef,
+      // [طلب صريح من المستخدم] "المفترض الحساب الي ما ارسل يرسل غيره مباشر" —
+      // الحسابات الناقصة هنا مستقلة تمامًا (كل واحد يخص سطر قيد مختلف)، فرفض
+      // حساب واحد لا يبرّر تعطيل بقيتها. أداة مطابقة شجرة الحسابات تبقى على
+      // قاعدتها الأصلية (توقف عند أول فشل) بلا أي تغيير — راجع تعليق الخيار.
+      continueOnError: true,
       // [ملاحظة] pushAccountsToQoyod تستدعي onEntry مرة واحدة بالضبط لكل صف
       // بـrows، بنفس ترتيبه — accountEntryIndex هنا يطابق دومًا موقع الصف
       // المصدر المقابل بمصفوفة accounts الأصلية (لا بديل أنظف بلا تعديل تلك

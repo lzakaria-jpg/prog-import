@@ -391,3 +391,45 @@ describe("qoyodAccountsToFile1Records — تحويل رد GET /accounts الفع
     expect(byCode["110101"].level).toBe(4);
   });
 });
+
+// [إصلاح خطأ حقيقي شهده المستخدم] رفض حي من قيود:
+//   API 422: {"error":"Invalid resource","messages":{"account_kind":["Invalid branch"]}}
+// سببه أن الحمولة كانت تناقض نفسها: "type" القديم يُشتَق من فئة مستوى2 الداخلية
+// للأداة، بينما branch_kind/account_kind يُشتَقان من مرجع قيود الرسمي — وهما
+// يختلفان فعليًا في 6 أنواع من أصل 59. الفرع الرسمي هو الحكم (هو مصدر
+// account_kind نفسه)، فيُشتَق منه "type" عند أي تعارض.
+describe("buildQoyodAccountPayload — حقل type القديم لا يناقض branch_kind الرسمي أبدًا", () => {
+  const TYPE_BY_BRANCH = {
+    current_assets: "CurrentAsset", fixed_assets: "FixedAsset",
+    current_liability: "CurrentLiability", non_current_liability: "NoncurrentLiability",
+    issued_capital: "Equity", other_equity: "Equity", retained_earnings: "Equity",
+    sales: "Sale", non_operative_revenue: "OtherIncome",
+    direct_cost: "DirectCost", operational_cost: "Expense", non_operational_expense: "Expense",
+  };
+  // القيم الأخص المعتمدة عمدًا داخل نفس الفرع (لا تناقضه) — تبقى كما هي.
+  const ALLOWED_SPECIFIC = { Inventory: "current_assets", Cash: "current_assets", Bank: "current_assets" };
+
+  it("الحالة الحقيقية التي فشلت: مخصص مكافأة نهاية الخدمة", () => {
+    const res = buildQoyodAccountPayload({
+      code: "2401", nameAr: "مخصص مكافأت نهاية الخدمة", nameEn: "EOS",
+      level: 3, level2Category: "الالتزامات غير المتداولة", type: "مخصص مكافأة نهاية الخدمة",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.payload.account.account_kind).toBe("end_of_service_benefits");
+    expect(res.payload.account.branch_kind).toBe("current_liability");
+    // سابقًا كانت "NoncurrentLiability" فتتناقض مع الفرع أعلاه ويرفضها قيود
+    expect(res.payload.account.type).toBe("CurrentLiability");
+  });
+
+  it("لكل الأنواع الـ59: type يطابق فرعه الرسمي (أو قيمة أخص ضمن نفس الفرع)", () => {
+    for (const [cat, types] of Object.entries(LEVEL3_MAP)) {
+      for (const ty of types) {
+        const res = buildQoyodAccountPayload({ code: "9999", nameAr: "أ", nameEn: "A", level: 3, level2Category: cat, type: ty });
+        if (!res.ok) { expect(res.locked).toBe(true); continue; }
+        const { type, branch_kind: branch } = res.payload.account;
+        if (ALLOWED_SPECIFIC[type]) expect(ALLOWED_SPECIFIC[type]).toBe(branch);
+        else expect(type).toBe(TYPE_BY_BRANCH[branch]);
+      }
+    }
+  });
+});
