@@ -1790,6 +1790,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     {showMissingEntitiesPanel && (
       <JournalMissingEntitiesPanel
         plan={missingEntitiesPlan}
+        chartAccounts={chartAccounts}
         busy={missingEntitiesBusy}
         progress={missingEntitiesProgress}
         result={missingEntitiesResult}

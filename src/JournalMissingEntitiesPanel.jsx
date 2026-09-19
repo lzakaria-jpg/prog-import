@@ -19,29 +19,30 @@ import { Loader2, X, AlertTriangle } from "lucide-react";
 import { useLanguage } from "./language";
 import { COLORS } from "./lib/journalColors.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP } from "./MergeTool.jsx";
-import { matchAccountType, level2ForType } from "./lib/accountsClassifier.js";
+import { classifyMissingAccount, buildCodeCategoryHints } from "./lib/accountsClassifier.js";
 
 const LEVEL2_CATEGORIES = Object.keys(LEVEL2_TO_LEVEL1);
 const LEVEL1_ROOTS = Array.from(new Set(Object.values(LEVEL2_TO_LEVEL1)));
 
 // [إضافة] طلب المستخدم الصريح: نفس آلية التصنيف التلقائي المعتمَدة فعليًا بأداة
-// استيراد شجرة الحسابات (AccountsTool.jsx → matchAccountType/level2ForType،
-// accountsClassifier.js) — مطابقة كلمات مفتاحية باسم الحساب لتحديد نوعه من
-// أنواع قيود الـ59، ثم فئته (مستوى2) تبعًا له. الحساب يبقى قابلاً للتعديل يدويًا
-// دومًا (checked/level2Category/type كلها حقول قابلة للتغيير بالنموذج أدناه) —
-// هذا فقط اقتراح ابتدائي بدل تركها فارغة لكل حساب دومًا.
-function buildInitialAccountsState(accounts) {
+// استيراد شجرة الحسابات (AccountsTool.jsx → accountsClassifier.js)، مع تحسين
+// إضافي طلبه صراحةً بجولة لاحقة: "رمز الحساب مهم جدًا بتحديد نوع الحساب بعد
+// جلب شجرة حسابات العميل" — classifyMissingAccount تستنتج فئة الحساب (مستوى2)
+// من رمزه أولاً (بمطابقته فعليًا بشجرة حسابات العميل المجلوبة عبر
+// buildCodeCategoryHints — لا افتراض ترقيم قياسي ثابت)، ثم تطابق الاسم ضمنها.
+// الحساب يبقى قابلاً للتعديل يدويًا دومًا (checked/level2Category/type كلها
+// حقول قابلة للتغيير بالنموذج أدناه) — هذا فقط اقتراح ابتدائي.
+function buildInitialAccountsState(accounts, codeCategoryHints) {
   const out = {};
   (accounts || []).forEach((a) => {
     const nameAr = a.nameFromFile || a.code;
-    const { type } = matchAccountType(nameAr);
-    const level2Category = type ? level2ForType(type) : "";
+    const { type, level2Category } = classifyMissingAccount(nameAr, a.code, codeCategoryHints);
     // [إصلاح خطأ حقيقي شهده المستخدم] الاسم الإنجليزي حقل مطلوب فعليًا بـQoyod
     // (buildQoyodAccountPayload يرفض إنشاء الحساب لو فارغًا) — تركه فارغًا افتراضيًا
     // كان يعني رفض كل حساب لم يكتب المستخدم اسمه الإنجليزي يدويًا بنفسه. الآن
     // يتكرر الاسم العربي كقيمة افتراضية للإنجليزي (قابلة للتعديل بالطبع)، تمامًا
     // كما طلب المستخدم: "وان لم يجد الانجليزي فكرره كما هو بالعربي".
-    out[a.code] = { checked: true, nameAr, nameEn: nameAr, level2Category, type: level2Category ? type : "" };
+    out[a.code] = { checked: true, nameAr, nameEn: nameAr, level2Category, type };
   });
   return out;
 }
@@ -79,9 +80,13 @@ function Section({ title, count, children }) {
   );
 }
 
-export default function JournalMissingEntitiesPanel({ plan, busy, progress, result, onConfirm, onClose }) {
+export default function JournalMissingEntitiesPanel({ plan, chartAccounts, busy, progress, result, onConfirm, onClose }) {
   const { t } = useLanguage();
-  const [accountsState, setAccountsState] = useState(() => buildInitialAccountsState(plan.accounts));
+  // [إضافة] فهرس {رمز: فئة/جذر} من شجرة حسابات العميل الفعلية — يُبنى مرة واحدة
+  // فقط عند فتح اللوحة (شجرة العميل لا تتغيّر أثناء عرضها)، يُستخدَم لتصنيف كل
+  // حساب ناقص أدناه اعتمادًا على رمزه لا اسمه فقط — راجع تعليق classifyMissingAccount.
+  const codeCategoryHints = useMemo(() => buildCodeCategoryHints(chartAccounts), [chartAccounts]);
+  const [accountsState, setAccountsState] = useState(() => buildInitialAccountsState(plan.accounts, codeCategoryHints));
   const [customersState, setCustomersState] = useState(() => buildInitialContactsState(plan.customers));
   const [vendorsState, setVendorsState] = useState(() => buildInitialContactsState(plan.vendors));
   const [locationsState, setLocationsState] = useState(() => buildInitialLocationsState(plan.locations));
