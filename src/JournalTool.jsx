@@ -683,7 +683,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // [إضافة] تحذير غير حاجب (النجاح الجزئي يبقى نجاحًا) — منفصل عن apiFetchError
   // (الذي يُخفي ملخص النجاح عمدًا) حتى يظهر ملخص العدد الفعلي المجلوب مع
   // تنبيه واضح بجانبه أن الشجرة قد تكون غير مكتملة، بدل إخفاء النجاح كليًا.
-  const [apiFetchWarning, setApiFetchWarning] = useState("");
   const [apiFetchSummary, setApiFetchSummary] = useState(null);
   // [إضافة — بلاغ حقيقي من المستخدم: "طول كتير الى الان ما خلص"] عدد الحسابات
   // المُجمَّعة حتى الآن أثناء الجلب — بلا هذا كان زر "جارٍ الجلب..." يبقى بلا أي
@@ -1102,7 +1101,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // يملأ نفس الحالات (chartAccounts/customersRefList/suppliersRefList) التي
   // يملؤها الرفع اليدوي بالضبط — بلا أي تعديل على أي منطق تحليل/مطابقة قائم.
   const handleFetchFromApi = async () => {
-    setApiFetchError(""); setApiFetchWarning(""); setApiFetchBusy(true); setApiFetchSummary(null); setApiFetchProgress(0);
+    setApiFetchError(""); setApiFetchBusy(true); setApiFetchSummary(null); setApiFetchProgress(0);
     try {
       const result = await fetchJournalReferencesFromApi(apiKey, { onAccountsProgress: (total) => setApiFetchProgress(total) });
       suggestionCacheRef.current.clear();
@@ -1117,12 +1116,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setProjectsRef(result.projectsRef);
       setLocationsRef(result.locationsRef);
       setApiFetchSummary(result.counts);
-      // [إضافة — بلاغ حقيقي من المستخدم] خطأ 500 من خوادم قيود نفسها لبعض
-      // المنشآت (شجرة حسابات أكبر من 100 حساب) — راجع تعليق fetchAll
-      // بnetwork.js وqoyodJournalRefFetch.js لتفاصيل التشخيص الحي المؤكَّد.
-      // الجلب لم يعد يفشل كليًا بهذي الحالة، لكن يجب تنبيه المستخدم أن الشجرة
-      // قد تكون غير مكتملة بدل تركه يظنها كاملة بصمت.
-      if (result.warning) setApiFetchWarning(result.warning);
       setAuditVersion((version) => version + 1);
     } catch (err) {
       setApiFetchError(err.message || String(err));
@@ -1584,11 +1577,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
                     ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع، ${apiFetchSummary.locations} موقع.`,
                     en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s), ${apiFetchSummary.locations} location(s).`,
                   })}
-                </div>
-              )}
-              {!apiFetchBusy && apiFetchWarning && (
-                <div className="mt-3 rounded-md border px-3 py-2" style={{ borderColor: COLORS.amber, background: "rgba(251,191,36,0.1)", color: "#92400E" }}>
-                  {apiFetchWarning}
                 </div>
               )}
             </div>

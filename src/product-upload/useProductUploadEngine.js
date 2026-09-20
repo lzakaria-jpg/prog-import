@@ -135,31 +135,15 @@ export default function useProductUploadEngine() {
     try {
       const [accounts, taxes, units, categories] = await Promise.all([
         fetchAllByCursor("/accounts", key),
-        fetchAll("/taxes", key),
-        fetchAll("/product_unit_types", key),
-        fetchAll("/categories", key),
+        fetchAllByCursor("/taxes", key),
+        fetchAllByCursor("/product_unit_types", key),
+        fetchAllByCursor("/categories", key),
       ]);
       setPreviewAccounts(accounts);
       setPreviewTaxes(taxes);
       setPreviewUnits(units);
       setPreviewCategories(categories);
       referenceDataForKeyRef.current = key;
-      // [إضافة — بلاغ حقيقي من المستخدم: "API 500" عند إدخال مفتاح العميل]
-      // خطأ 500 مؤكَّد من خوادم قيود نفسها (لا من الأداة — أُعيد إنتاجه مباشرة
-      // بـfetch خام من console المتصفح) يظهر لبعض المنشآت عند تجاوز أول 100
-      // عنصر من /accounts (شجرة حسابات كبيرة). fetchAll لم يعد يُسقِط الأداة
-      // بالكامل بهذي الحالة (راجع network.js) — يكتفي بأول 100 عنصر ويُعلِّم
-      // الناتج. هنا فقط نُظهر تحذيرًا واضحًا بدل ترك المستخدم يظن أن كل
-      // الحسابات وصلت فعلاً.
-      const truncatedFrom = [
-        ["الحسابات", accounts], ["الضرائب", taxes], ["الوحدات", units], ["الفئات", categories],
-      ].filter(([, list]) => list?.qoyodFetchTruncatedError).map(([label]) => label);
-      if (truncatedFrom.length) {
-        setReferenceDataError(
-          `⚠️ تحذير: تعذّر جلب كل بيانات (${truncatedFrom.join("، ")}) — خطأ من خوادم قيود نفسها عند تجاوز أول 100 عنصر (ليس خللاً بالأداة). ` +
-          `تم تحميل أول 100 فقط من كل قائمة متأثرة؛ قد لا يظهر بعض الحسابات/الفئات بالقوائم أدناه. راجع دعم قيود بهذا الخطأ.`
-        );
-      }
     } catch (e) {
       setReferenceDataError(e.message);
       referenceDataForKeyRef.current = null;
@@ -346,26 +330,10 @@ export default function useProductUploadEngine() {
         ? [previewAccounts, previewTaxes, previewUnits, previewCategories]
         : await Promise.all([
             fetchAllByCursor("/accounts", key),
-            fetchAll("/taxes", key),
-            fetchAll("/product_unit_types", key),
-            fetchAll("/categories", key),
+            fetchAllByCursor("/taxes", key),
+            fetchAllByCursor("/product_unit_types", key),
+            fetchAllByCursor("/categories", key),
           ]);
-
-      // [إضافة — راجع تعليق fetchReferenceData أعلاه لتفاصيل الخطأ الحقيقي
-      // من خوادم قيود] نفس التحذير هنا لأن الرفع الفعلي قد يعتمد هذه القوائم
-      // مباشرة (لا المُجهَّزة مسبقًا) لو تغيّر المفتاح أو انتهت صلاحية التجهيز.
-      const truncatedLabels = [
-        ["الحسابات", accounts], ["الضرائب", taxes], ["الوحدات", units], ["الفئات", categories],
-      ].filter(([, list]) => list?.qoyodFetchTruncatedError).map(([label]) => label);
-      if (truncatedLabels.length) {
-        appendLog(
-          t({
-            ar: `⚠️ تحذير: خطأ من خوادم قيود نفسها منع جلب كل (${truncatedLabels.join("، ")}) — تم الاكتفاء بأول 100 عنصر من كل قائمة متأثرة. قد يفشل إنشاء منتجات تحتاج حسابًا/فئة خارج هذه المئة. راجع دعم قيود بهذا الخطأ.`,
-            en: `⚠️ Warning: an error from Qoyod's own servers prevented fetching all of (${truncatedLabels.join(", ")}) — only the first 100 items of each affected list were loaded. Products needing an account/category outside that range may fail. Report this to Qoyod support.`,
-          }),
-          "warn"
-        );
-      }
 
       accounts.forEach((a) => {
         const nameAr = (a.name_ar || "").toLowerCase();
@@ -462,7 +430,7 @@ export default function useProductUploadEngine() {
       // skipDups فقط) لبناء فهرس skuToId اللازم للتحديث.
       if (skipDups || updateExisting) {
         appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
-        const products = await fetchAll("/products", key);
+        const products = await fetchAllByCursor("/products", key);
         products.forEach((p) => {
           if (p.sku) {
             const skuTrim = p.sku.trim();

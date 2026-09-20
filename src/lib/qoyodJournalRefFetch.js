@@ -177,21 +177,21 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
 
   let apiCustomers;
   try {
-    apiCustomers = await fetchAll('/customers', key);
+    apiCustomers = await fetchAllByCursor('/customers', key);
   } catch (e) {
     apiCustomers = [];
   }
 
   let apiVendors;
   try {
-    apiVendors = await fetchAll('/vendors', key);
+    apiVendors = await fetchAllByCursor('/vendors', key);
   } catch (e) {
     apiVendors = [];
   }
 
   let apiProjects;
   try {
-    apiProjects = await fetchAll('/projects', key);
+    apiProjects = await fetchAllByCursor('/projects', key);
   } catch (e) {
     apiProjects = [];
   }
@@ -201,20 +201,14 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
   // مُرقَّم يُعامَل كصفحة واحدة كاملة، لا حاجة لأي تعديل عليها).
   let apiInventories;
   try {
-    apiInventories = await fetchAll('/inventories', key);
+    apiInventories = await fetchAllByCursor('/inventories', key);
   } catch (e) {
     apiInventories = [];
   }
 
-  // [إضافة — بلاغ حقيقي من المستخدم] خطأ 500 مؤكَّد من خوادم قيود نفسها (لا من
-  // الأداة) يظهر لبعض المنشآت عند تجاوز أول 100 حساب من /accounts (شجرة كبيرة).
-  // fetchAll لم يعد يُسقِط الجلب بالكامل بهذي الحالة (راجع network.js) — يكتفي
-  // بأول 100 ويُعلِّم الناتج؛ هنا فقط نمرّر تحذيرًا واضحًا لـJournalTool.jsx
-  // بدل ترك المستخدم يظن أن الشجرة الكاملة وصلت.
-  const truncationWarning = apiAccounts.qoyodFetchTruncatedError
-    ? `⚠️ تحذير: تعذّر جلب شجرة الحسابات كاملة — خطأ من خوادم قيود نفسها عند تجاوز أول ${apiAccounts.length} حساب (ليس خللاً بالأداة). قد لا تظهر بعض الحسابات؛ راجع دعم قيود بهذا الخطأ.`
-    : '';
-
+  // [قرار المستخدم] الجلب بالمؤشر (fetchAllByCursor) يجلب كل الحسابات الطرفية
+  // كاملة؛ خطأ 500 على "التالي" بعد اكتمالها نهاية طبيعية بلا تحذير — لا حاجة
+  // لأي حقل warning إطلاقًا.
   return {
     chartAccounts: buildChartAccountsFromApi(apiAccounts),
     customersRefList: buildNameRefListFromApi(apiCustomers),
@@ -222,6 +216,5 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
     projectsRef: { loaded: true, ...buildProjectsIndexFromApi(apiProjects) },
     locationsRef: { loaded: true, ...buildLocationsIndexFromApi(apiInventories) },
     counts: { accounts: apiAccounts.length, customers: apiCustomers.length, vendors: apiVendors.length, projects: apiProjects.length, locations: apiInventories.length },
-    warning: truncationWarning,
   };
 }

@@ -295,7 +295,9 @@ describe("fetchAllByCursor() — ترقيم بالمؤشر (q[s]=id asc + q[id_g
     expect(result).toHaveLength(738);
   });
 
-  it("سجل معطوب بجهة قيود (500 بعد نجاح جزئي) ⇒ يكتفي بما تجمَّع ويُعلّم النقص", async () => {
+  it("خطأ 500 بعد جلب البيانات (الحسابات الطرفية) ⇒ نهاية طبيعية بلا تحذير — يرجّع ما تجمَّع", async () => {
+    // سيناريو حي: q[id_gt]=0 يرجّع 738 حساب طرفي (كامل)، ثم q[id_gt]=آخر id
+    // يطيح 500 من قيود على "التالي" — هذا هو الصحيح والكامل، بلا أي علم نقص.
     global.fetch = vi.fn().mockImplementation(async (url) => {
       const gt = Number(new URL(url, "http://x").searchParams.get("q[id_gt]"));
       if (gt === 0) {
@@ -306,8 +308,7 @@ describe("fetchAllByCursor() — ترقيم بالمؤشر (q[s]=id asc + q[id_g
     });
     const result = await fetchAllByCursor("/accounts", "KEY");
     expect(result).toHaveLength(738);
-    expect(result.qoyodFetchTruncatedError).toMatch(/^API 500:/);
-    expect(JSON.stringify(result)).not.toContain("qoyodFetchTruncatedError");
+    expect(result.qoyodFetchTruncatedError).toBeUndefined();
   }, 10000);
 
   it("فشل أول طلب (لا بيانات) يبقى يرمي خطأ كالمعتاد", async () => {
