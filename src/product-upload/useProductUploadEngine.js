@@ -135,9 +135,9 @@ export default function useProductUploadEngine() {
     try {
       const [accounts, taxes, units, categories] = await Promise.all([
         fetchAllByCursor("/accounts", key),
-        fetchAllByCursor("/taxes", key),
-        fetchAllByCursor("/product_unit_types", key),
-        fetchAllByCursor("/categories", key),
+        fetchAll("/taxes", key),
+        fetchAll("/product_unit_types", key),
+        fetchAll("/categories", key),
       ]);
       setPreviewAccounts(accounts);
       setPreviewTaxes(taxes);
@@ -330,9 +330,9 @@ export default function useProductUploadEngine() {
         ? [previewAccounts, previewTaxes, previewUnits, previewCategories]
         : await Promise.all([
             fetchAllByCursor("/accounts", key),
-            fetchAllByCursor("/taxes", key),
-            fetchAllByCursor("/product_unit_types", key),
-            fetchAllByCursor("/categories", key),
+            fetchAll("/taxes", key),
+            fetchAll("/product_unit_types", key),
+            fetchAll("/categories", key),
           ]);
 
       accounts.forEach((a) => {
@@ -430,7 +430,7 @@ export default function useProductUploadEngine() {
       // skipDups فقط) لبناء فهرس skuToId اللازم للتحديث.
       if (skipDups || updateExisting) {
         appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
-        const products = await fetchAllByCursor("/products", key);
+        const products = await fetchAll("/products", key);
         products.forEach((p) => {
           if (p.sku) {
             const skuTrim = p.sku.trim();

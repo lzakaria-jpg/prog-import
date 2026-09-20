@@ -177,21 +177,21 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
 
   let apiCustomers;
   try {
-    apiCustomers = await fetchAllByCursor('/customers', key);
+    apiCustomers = await fetchAll('/customers', key);
   } catch (e) {
     apiCustomers = [];
   }
 
   let apiVendors;
   try {
-    apiVendors = await fetchAllByCursor('/vendors', key);
+    apiVendors = await fetchAll('/vendors', key);
   } catch (e) {
     apiVendors = [];
   }
 
   let apiProjects;
   try {
-    apiProjects = await fetchAllByCursor('/projects', key);
+    apiProjects = await fetchAll('/projects', key);
   } catch (e) {
     apiProjects = [];
   }
@@ -201,7 +201,7 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
   // مُرقَّم يُعامَل كصفحة واحدة كاملة، لا حاجة لأي تعديل عليها).
   let apiInventories;
   try {
-    apiInventories = await fetchAllByCursor('/inventories', key);
+    apiInventories = await fetchAll('/inventories', key);
   } catch (e) {
     apiInventories = [];
   }

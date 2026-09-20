@@ -42,50 +42,41 @@ const url = (base, proxy, path) =>
 // (يُفعِّل ترقيم /accounts فعليًا)، + كشف إضافي (نفس أول عنصر بصفحتين متتاليتين
 // = هذا المورد لا يُرقِّم حقًا) يوقف الحلقة فورًا بعد أول طلب لأي مورد من هذه،
 // بدل الانتظار حتى نهاية الـ60 محاولة.
-/** جلب مورد بكل صفحاته — ترقيم بالمؤشر (q[s]=id asc + q[id_gt]=<آخر id>)
- * [تغيير جوهري — بلاغ حقيقي + اختبار حي + مواصفة Qoyod OpenAPI v2] الترقيم
- * بـOFFSET (page&per_page) على موارد قيود (accounts/customers/vendors/products)
- * يطيح خطأ 500 من خوادم قيود على الترقيم العميق أو حتى على الصفحة الأولى لبعض
- * المنشآت. المواصفة الرسمية تؤكد أن كل هذه الموارد تدعم Ransack (q[]) وترتيب
- * q[s]. الترقيم بالمؤشر يتفادى OFFSET تمامًا (WHERE id > آخر id ORDER BY id)
- * فيتفادى الخطأ ويجلب كل السجلات بسرعة ونظام — نفس منطق fetchAllByCursor
- * بـproduct-upload/io/network.js حرفياً (منسوخ هنا للحفاظ على استقلالية هذه
- * الأداة عن طبقة شبكة الأدوات الأخرى ودعمها الوسيط proxy الاختياري). */
+/** جلب مورد بكل صفحاته */
 export async function getAll(resource, { base = DEFAULT_BASE, proxy = '', apiKey }) {
   const out = [];
-  const seenIds = new Set();
-  let lastId = 0;
-  for (let iter = 0; iter < 5000; iter++) {
-    const res = await fetch(url(base, proxy, `/${resource}?per_page=100&q[s]=id%20asc&q[id_gt]=${lastId}`), {
+  const PER_PAGE = 100;
+  let prevFirstId;
+  for (let page = 1; page <= 60; page++) {
+    const res = await fetch(url(base, proxy, `/${resource}?page=${page}&per_page=${PER_PAGE}`), {
       headers: { 'API-KEY': apiKey, Accept: 'application/json' }
     });
-    // 404 ("We found nothing") = قائمة فارغة (منشأة بلا هذا المورد) — توقف طبيعي.
+    // [إصلاح خطأ حقيقي شهده المستخدم] Qoyod API يُرجع 404 ("We found nothing")
+    // عند قائمة فارغة (منشأة بلا منتجات/موردين مثلاً) بدل [] — نفس السلوك
+    // الموثَّق والمُصلَح فعلياً بـproduct-upload/io/network.js (fetchAll) —
+    // كان يُرمى هنا كخطأ قاطع فيوقف "جلب بيانات المنشأة" بالكامل حتى لو
+    // مورد واحد فقط فارغ فعلياً (مثال حقيقي: موردون موجودون لكن بلا منتجات
+    // بعد بمنشأة اختبارية). الآن 404 = قائمة فارغة، وأي خطأ آخر (401/500...)
+    // يُرمى كالمعتاد.
     if (res.status === 404) break;
-    if (!res.ok) {
-      // خطأ 500 بعد جلب جزء = سجل معطوب بجهة قيود على "التالي" — نكتفي بما تجمَّع
-      // (البيانات الكاملة عمليًا) بلا خطأ. فشل أول طلب (لا بيانات) يُرمى كالمعتاد.
-      if (out.length > 0) break;
-      throw new Error(`${resource}: ${res.status} ${res.statusText}`);
-    }
+    if (!res.ok) throw new Error(`${resource}: ${res.status} ${res.statusText}`);
     const j = await res.json();
     const arr = Array.isArray(j) ? j : j[resource] || Object.values(j).find(Array.isArray) || [];
     if (arr.length === 0) break;
-    // فلترة السجلات الجديدة فقط (حماية من مورد يتجاهل q[id_gt] فيعيد نفس الدفعة)
-    let added = 0;
-    let maxId = lastId;
-    for (const item of arr) {
-      const id = item && item.id;
-      if (id !== undefined && id !== null) {
-        if (seenIds.has(id)) continue;
-        seenIds.add(id);
-        if (Number(id) > maxId) maxId = Number(id);
-      }
-      out.push(item);
-      added++;
-    }
-    if (added === 0) break; // لا جديد ⇒ اكتملت البيانات فعليًا
-    if (maxId === lastId) break; // مورد بلا id قابل للترتيب (نادر) — دفعة واحدة تكفي
-    lastId = maxId;
+    // مورد لا يُرقِّم فعليًا (راجع التعليق أعلاه) — الصفحة الثانية تُرجع نفس
+    // العنصر الأول بالضبط كالأولى؛ نتوقف فورًا بلا إضافة تكرار.
+    if (page > 1 && arr[0] && arr[0].id !== undefined && arr[0].id === prevFirstId) break;
+    prevFirstId = arr[0] && arr[0].id;
+    for (const item of arr) out.push(item); // بلا out.push(...arr) — يتجنب "Maximum call stack size exceeded" لو صفحة واحدة كانت كبيرة جداً
+    // [إصلاح أداء حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ: "وجدت البيانات مقروءة
+    // تمام بعد فترة طويلة... المشكلة بالوقت المستغرق". السبب: مورد بلا ترقيم
+    // فعلي (20100 مورّد بمثال حقيقي) كان يُطلَب **مرتين كاملتين** (صفحة 1 ثم
+    // صفحة 2 لاكتشاف التطابق أعلاه) قبل التوقف — أي ~40 ألف سطر JSON منقولة
+    // ومُحلَّلة بلا أي فائدة إضافية. الآن: لو الصفحة رجعت أكثر من PER_PAGE رغم
+    // طلبنا الصريح per_page=100، فهذا دليل قاطع فوري أن الخادم تجاهل per_page
+    // وأرجع كل شيء دفعة واحدة — نتوقف فورًا بلا أي طلب صفحة ثانية إطلاقاً
+    // (طلب واحد فقط بدل اثنين لأضخم الموارد تحديدًا، حيث يهم الفرق أكثر شيء).
+    if (arr.length > PER_PAGE || arr.length < PER_PAGE) break;
   }
   return out;
 }
