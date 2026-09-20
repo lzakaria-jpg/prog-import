@@ -24,38 +24,46 @@ describe('getAll', () => {
   // المُرسَل صراحة بالطلب الآن) لا رقم 15 اعتباطي — صفحة أولى ممتلئة (100 عنصر)
   // ثم صفحة أقصر تعني فعليًا "توقفت الصفحات". راجع أيضًا اختبار "[الخطأ
   // الحقيقي] مورد لا يُرقِّم إطلاقًا" تحت لسيناريو البلاغ الميداني الفعلي.
-  // [تغيير — ترقيم بالمؤشر q[s]=id asc + q[id_gt]] يجمع كل السجلات عبر المؤشر
-  // حتى دفعة فارغة (السجلات مرتّبة تصاعديًا بالـid، كل طلب يجيب ما بعد آخر id).
-  it('يجمع كل السجلات عبر المؤشر حتى دفعة فارغة', async () => {
-    global.fetch = vi.fn().mockImplementation(async (url) => {
-      const gt = Number(new URL(url, 'http://x').searchParams.get('q[id_gt]'));
-      if (gt === 0) return mockResponse(200, { vendors: Array.from({ length: 100 }, (_, i) => ({ id: i + 1 })) });
-      if (gt === 100) return mockResponse(200, { vendors: [{ id: 101 }] });
-      return mockResponse(200, { vendors: [] });
+  it('يجمع كل الصفحات حتى صفحة أقصر من PER_PAGE فتتوقف', async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) return mockResponse(200, { vendors: Array.from({ length: 100 }, (_, i) => ({ id: i })) });
+      return mockResponse(200, { vendors: [{ id: 100 }] });
     });
     const result = await getAll('vendors', { apiKey: 'KEY' });
     expect(result).toHaveLength(101);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
-  // [تغيير — ترقيم بالمؤشر] مورد لا يُرقِّم (GET /vendors مثلاً) يرجّع كل السجلات
-  // دفعة واحدة لأول طلب (q[id_gt]=0)؛ الطلب التالي (q[id_gt]=آخر id) يرجّع فارغ
-  // فتتوقف الحلقة — بلا أي تكرار بالنتيجة (المؤشر يمنع تكرار السجلات المرئية).
-  it('مورد لا يُرقِّم إطلاقًا يرجّع كل السجلات دفعة واحدة — بلا تكرار بالنتيجة', async () => {
-    const fullList = Array.from({ length: 150 }, (_, i) => ({ id: i + 1, name: `Vendor ${i + 1}` }));
-    global.fetch = vi.fn().mockImplementation(async (url) => {
-      const gt = Number(new URL(url, 'http://x').searchParams.get('q[id_gt]'));
-      return mockResponse(200, { vendors: gt === 0 ? fullList : [] });
-    });
+  // [إصلاح خطأ حقيقي مبلَّغ ميدانياً 2026-09-14] بلاغ مستخدم: "الاداة لا تجلب
+  // البيانات نهائي" — زر "جلب بيانات المنشأة" يعلّق للأبد. السبب المؤكَّد من
+  // مواصفة Qoyod الرسمية: GET /vendors (وغيرها: accounts بلا per_page، inventories،
+  // product_unit_types، taxes) لا تُرقِّم إطلاقاً — ترجع نفس القائمة الكاملة
+  // كل مرة بصرف النظر عن رقم الصفحة المطلوبة. بدون الإصلاح، كانت الحلقة تُعيد
+  // جلب نفس القائمة (قد تكون كبيرة) 60 مرة متتالية (arr.length لا يقل أبداً عن
+  // العتبة) — تعليق طويل يبدو "لا يجلب شيئًا". يجب التوقف من أول تكرار (page=2
+  // يُرجع نفس أول عنصر بالضبط) بلا أي تكرار بالنتيجة.
+  // [إصلاح أداء 2026-09-14] بلاغ: "المشكلة بالوقت الطويل المستغرق، أريده
+  // سريعاً" — مورد ضخم بلا ترقيم (20100 مورّد بمثال حقيقي) كان يُطلَب مرتين
+  // كاملتين (صفحة 1 ثم 2 لاكتشاف التطابق) قبل هذا التحسين. الآن: صفحة أطول
+  // من PER_PAGE المطلوب صراحةً = دليل قاطع فوري بلا حاجة لصفحة ثانية إطلاقاً.
+  it('[إصلاح أداء] مورد لا يُرقِّم إطلاقًا وقائمته الكاملة أطول من PER_PAGE — طلب واحد فقط بلا أي تكرار بالنتيجة', async () => {
+    // 150 عنصر: أطول من PER_PAGE(100) — بالضبط الحالة الحقيقية المبلَّغة
+    // (منشأة عميل فيها أكثر من 100 مورّد/حساب، مثال حي: 20100 مورّد).
+    const fullList = Array.from({ length: 150 }, (_, i) => ({ id: i, name: `Vendor ${i}` }));
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { vendors: fullList }));
     const result = await getAll('vendors', { apiKey: 'KEY' });
     expect(result).toHaveLength(150); // لا تكرار — لا 300 أو أكثر
+    expect(global.fetch).toHaveBeenCalledTimes(1); // طلب واحد فقط — لا حاجة لصفحة ثانية للتأكد
   });
 
-  it('مورد يتجاهل q[id_gt] ويعيد نفس الدفعة ⇒ حماية الـid تمنع التكرار وتوقف الحلقة', async () => {
-    const fullList = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, name: `Vendor ${i + 1}` }));
-    // يتجاهل المؤشر ويعيد نفس الـ40 كل مرة — كشف تكرار الـid يوقف بلا تكرار
+  it('[الخطأ الحقيقي] مورد لا يُرقِّم وقائمته أقصر من PER_PAGE — يتوقف من أول طلب فقط (بلا حاجة لكشف التكرار)', async () => {
+    const fullList = Array.from({ length: 40 }, (_, i) => ({ id: i, name: `Vendor ${i}` }));
     global.fetch = vi.fn().mockResolvedValue(mockResponse(200, { vendors: fullList }));
     const result = await getAll('vendors', { apiKey: 'KEY' });
     expect(result).toHaveLength(40);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('يرسل per_page صراحة دومًا — يُفعِّل ترقيم /accounts الفعلي (Qoyod: "only applied when both page and per_page are provided")', async () => {

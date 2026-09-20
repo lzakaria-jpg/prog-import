@@ -33,7 +33,7 @@
       الحقيقي أصلاً، لا "الرقم المرجعي" النصي الذي يحتاجه القالب اليدوي فقط).
  ============================================================================
 */
-import { fetchAllByCursor } from '../../product-upload/io/network.js';
+import { fetchAll } from '../../product-upload/io/network.js';
 import { norm, normKey } from '../engine/text.js';
 
 /**
@@ -262,8 +262,8 @@ export async function fetchSalesReferencesFromApi(apiKey) {
   let apiProducts, apiCustomers;
   try {
     [apiProducts, apiCustomers] = await Promise.all([
-      fetchAllByCursor('/products', key),
-      fetchAllByCursor('/customers', key),
+      fetchAll('/products', key),
+      fetchAll('/customers', key),
     ]);
   } catch (e) {
     throw new Error(`تعذّر جلب البيانات المرجعية من قيود: ${e.message || String(e)}`);
@@ -271,14 +271,14 @@ export async function fetchSalesReferencesFromApi(apiKey) {
 
   let apiProjects;
   try {
-    apiProjects = await fetchAllByCursor('/projects', key);
+    apiProjects = await fetchAll('/projects', key);
   } catch (e) {
     apiProjects = [];
   }
 
   let apiTaxes;
   try {
-    apiTaxes = await fetchAllByCursor('/taxes', key);
+    apiTaxes = await fetchAll('/taxes', key);
   } catch (e) {
     apiTaxes = []; // منشأة بلا ضرائب مُعرَّفة أصلاً (نادر لكن ممكن) — لا يوقف باقي الجلب
   }
@@ -290,7 +290,7 @@ export async function fetchSalesReferencesFromApi(apiKey) {
   // يُتراجَع للمصدر الجزئي القديم (منتجات فقط) بدل إيقاف الأداة بالكامل.
   let apiInventories;
   try {
-    apiInventories = await fetchAllByCursor('/inventories', key);
+    apiInventories = await fetchAll('/inventories', key);
   } catch (e) {
     apiInventories = [];
   }
