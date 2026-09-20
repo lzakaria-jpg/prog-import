@@ -173,4 +173,34 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
     await fetchAll("/accounts", "KEY", { onPage: (total, page) => pages.push([total, page]) });
     expect(pages).toEqual([[100, 1], [101, 2]]);
   });
+
+  // [إضافة — بلاغ حقيقي من المستخدم] خطأ 500 مؤكَّد من خوادم قيود نفسها (أُعيد
+  // إنتاجه مباشرة بـfetch خام من console المتصفح، بلا أي كود من هذا المشروع)
+  // لبعض المنشآت التي تملك أكثر من 100 حساب: page=1&per_page=100 ينجح دومًا،
+  // لكن أي طلب آخر (صفحة تالية، حجم أكبر، أو الجلب الكامل) يفشل بنفس 500. كان
+  // هذا يُسقِط fetchAll بالكامل فتتوقف كل الأداة رغم توفر 100 حساب حقيقي فعلاً.
+  describe("خطأ 5xx متكرر بعد صفحة أولى ناجحة: توقف بما تجمَّع بدل إسقاط كل شيء", () => {
+    it("يُرجع أول 100 عنصر (لا يرمي خطأ) ويُعلِّم الناتج بخاصية غير قابلة للتعداد", async () => {
+      let call = 0;
+      global.fetch = vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) {
+          const items = Array.from({ length: 100 }, (_, i) => ({ id: i, code: String(i) }));
+          return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+        }
+        return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+      });
+      const result = await fetchAll("/accounts", "KEY");
+      expect(result).toHaveLength(100);
+      expect(result.qoyodFetchTruncatedError).toMatch(/^API 500:/);
+      // غير قابلة للتعداد: لا تظهر بـJSON.stringify ولا Object.keys ولا تُحسَب بـ.length
+      expect(JSON.stringify(result)).not.toContain("qoyodFetchTruncatedError");
+      expect(Object.keys(result)).toHaveLength(100);
+    }, 10000);
+
+    it("فشل الصفحة الأولى نفسها (لا بيانات إطلاقًا) يبقى يرمي خطأ كالمعتاد — لا يُعامَل كنجاح جزئي", async () => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" });
+      await expect(fetchAll("/accounts", "KEY")).rejects.toThrow(/^API 500:/);
+    }, 10000);
+  });
 });
