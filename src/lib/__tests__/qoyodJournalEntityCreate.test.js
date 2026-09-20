@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildContactCreatePayload, buildLocationCreatePayload, pushMissingJournalEntitiesToQoyod } from '../qoyodJournalEntityCreate.js';
 
-vi.mock('../../product-upload/io/network.js', () => ({ api: vi.fn(), fetchAll: vi.fn() }));
-import { api, fetchAll } from '../../product-upload/io/network.js';
+vi.mock('../../product-upload/io/network.js', () => ({ api: vi.fn(), fetchAll: vi.fn(), fetchAllByCursor: vi.fn() }));
+import { api, fetchAll, fetchAllByCursor } from '../../product-upload/io/network.js';
 
 describe('buildContactCreatePayload', () => {
   it('يبني {contact:{name,status:Active}} من اسم صالح', () => {
@@ -55,7 +55,7 @@ describe('pushMissingJournalEntitiesToQoyod', () => {
   });
 
   it('ينشئ حساباً جديداً (عبر pushAccountsToQoyod الفعلية) ويسجّله بـcreated.accounts', async () => {
-    fetchAll.mockResolvedValue([]); // GET /accounts لفحص التكرار — لا شيء موجود
+    fetchAllByCursor.mockResolvedValue([]); // GET /accounts لفحص التكرار — لا شيء موجود
     api.mockImplementation(async (method, path, body) => {
       expect(path).toBe('/accounts');
       return { account: { id: 900, ...body.account } };

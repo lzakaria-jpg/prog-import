@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { norm } from '../engine/text.js';
 import { parseDateParts } from '../engine/dates.js';
-import { fetchAll } from '../../product-upload/io/network.js';
+import { fetchAll, fetchAllByCursor } from '../../product-upload/io/network.js';
 import { isCashOrBankAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
 
@@ -49,7 +49,7 @@ export default function PaymentAccountsReviewPanel({ receiptsPlan, apiKey, onCan
       if (!apiKey) return;
       setLoadingRefs(true); setRefsError(''); setLoadingProgress(0);
       try {
-        const accs = await fetchAll('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress(n) });
+        const accs = await fetchAllByCursor('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress(n) });
         if (cancelled) return;
         setAccounts(accs || []);
         const initial = {};

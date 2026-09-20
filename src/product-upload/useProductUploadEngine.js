@@ -21,7 +21,7 @@ import {
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
 } from "./engine/parsing.js";
 import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
-import { api, fetchAll } from "./io/network.js";
+import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
 import { readWorkbookRows } from "./io/excelReader.js";
 import { buildOpeningBalanceWorkbook, workbookToBlob, downloadBlob } from "./io/openingBalanceExport.js";
@@ -134,7 +134,7 @@ export default function useProductUploadEngine() {
     setReferenceDataError(null);
     try {
       const [accounts, taxes, units, categories] = await Promise.all([
-        fetchAll("/accounts", key),
+        fetchAllByCursor("/accounts", key),
         fetchAll("/taxes", key),
         fetchAll("/product_unit_types", key),
         fetchAll("/categories", key),
@@ -345,7 +345,7 @@ export default function useProductUploadEngine() {
       const [accounts, taxes, units, categories] = usePrefetched
         ? [previewAccounts, previewTaxes, previewUnits, previewCategories]
         : await Promise.all([
-            fetchAll("/accounts", key),
+            fetchAllByCursor("/accounts", key),
             fetchAll("/taxes", key),
             fetchAll("/product_unit_types", key),
             fetchAll("/categories", key),

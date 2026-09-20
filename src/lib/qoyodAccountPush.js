@@ -29,7 +29,7 @@
   كان، دون تغيير.
  ============================================================================
 */
-import { api, fetchAll } from "../product-upload/io/network.js";
+import { api, fetchAllByCursor } from "../product-upload/io/network.js";
 import { buildQoyodAccountPayload, buildQoyodDuplicateIndex, checkAccountDuplicate } from "./qoyodAccountSync.js";
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأداة رفع المنتجات
@@ -78,7 +78,7 @@ export async function pushAccountsToQoyod(rows, apiKey, opts = {}) {
   // كاملة قبل أي إرسال (بلا فحص تكرار، الإرسال غير آمن).
   let duplicateIndex;
   try {
-    const existing = await fetchAll("/accounts", key);
+    const existing = await fetchAllByCursor("/accounts", key);
     duplicateIndex = buildQoyodDuplicateIndex(existing);
   } catch (e) {
     return { total: rows.length, sent: 0, skipped: 0, failed: 0, stoppedEarly: false, fatalError: `تعذّر جلب حسابات العميل الحالية للتحقق من التكرار: ${e.message}`, entries };

@@ -14,7 +14,7 @@ import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
 import { qoyodAccountsToFile1Records, mapRowToQoyodType } from "./lib/qoyodAccountSync.js";
-import { fetchAll } from "./product-upload/io/network.js";
+import { fetchAll, fetchAllByCursor } from "./product-upload/io/network.js";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -1886,7 +1886,9 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
     setFile1ApiError("");
     setFile1ApiTruncated("");
     try {
-      const accounts = await fetchAll("/accounts", key);
+      // [تغيير — دليل حي] ترقيم بالمؤشر (q[s]=id asc + q[id_gt]) بدل OFFSET —
+      // يتفادى خطأ 500 من قيود على الترقيم العميق ويجيب كل الحسابات دفعة وحدة.
+      const accounts = await fetchAllByCursor("/accounts", key);
       const records = qoyodAccountsToFile1Records(accounts);
       if (records.length === 0) {
         setFile1ApiError(t({ ar: "ما فيه أي حساب بمنشأة العميل، أو المفتاح غير صحيح", en: "No accounts found in the client's company, or the key is invalid" }));

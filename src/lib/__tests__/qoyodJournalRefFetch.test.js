@@ -90,17 +90,21 @@ describe('fetchJournalReferencesFromApi', () => {
       return map[key] || [];
     });
   }
+  // [إضافة] /accounts صار يُجلَب عبر fetchAllByCursor بدل fetchAll — كلاهما
+  // يُوجَّه لنفس المُرسِل (dispatch حسب المسار) حتى تعمل الاختبارات لكلا الدالتين.
+  function mockNet(map) {
+    const disp = mockFetchAll(map);
+    return { fetchAll: disp, fetchAllByCursor: disp };
+  }
 
   it('يجمع الخمسة (حسابات/عملاء/موردين/مشاريع/مواقع) وتُبنى الفهارس بشكل صحيح', async () => {
-    vi.doMock('../../product-upload/io/network.js', () => ({
-      fetchAll: mockFetchAll({
+    vi.doMock('../../product-upload/io/network.js', () => mockNet({
         accounts: [{ id: 1, code: '1', name_ar: 'حساب' }],
         customers: [{ id: 10, name: 'عميل' }],
         vendors: [{ id: 20, name: 'مورد' }],
         projects: [{ id: 30, name: 'مشروع' }],
         inventories: [{ id: 40, name: 'الفرع الرئيسي' }],
-      }),
-    }));
+      }));
     vi.resetModules();
     const { fetchJournalReferencesFromApi: freshFetch } = await import('../qoyodJournalRefFetch.js');
     const result = await freshFetch('KEY');
@@ -115,24 +119,20 @@ describe('fetchJournalReferencesFromApi', () => {
   });
 
   it('فشل جلب /accounts يرمي خطأً واضحًا (لا بديل يدوي لهذا المورد بمسار API)', async () => {
-    vi.doMock('../../product-upload/io/network.js', () => ({
-      fetchAll: mockFetchAll({ accounts: 'error' }),
-    }));
+    vi.doMock('../../product-upload/io/network.js', () => mockNet({ accounts: 'error' }));
     vi.resetModules();
     const { fetchJournalReferencesFromApi: freshFetch } = await import('../qoyodJournalRefFetch.js');
     await expect(freshFetch('KEY')).rejects.toThrow(/تعذّر جلب شجرة الحسابات/);
   });
 
   it('فشل جلب /vendors أو /projects أو /inventories لا يوقف الجلب — يُعامَل كقائمة فارغة فقط', async () => {
-    vi.doMock('../../product-upload/io/network.js', () => ({
-      fetchAll: mockFetchAll({
+    vi.doMock('../../product-upload/io/network.js', () => mockNet({
         accounts: [{ id: 1, code: '1', name_ar: 'حساب' }],
         customers: [],
         vendors: 'error',
         projects: 'error',
         inventories: 'error',
-      }),
-    }));
+      }));
     vi.resetModules();
     const { fetchJournalReferencesFromApi: freshFetch } = await import('../qoyodJournalRefFetch.js');
     const result = await freshFetch('KEY');

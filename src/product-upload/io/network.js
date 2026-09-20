@@ -149,6 +149,51 @@ async function recoverOneByOne(path, apiKey, all, seenIds, itemsHaveIds, onPage)
   return { done: false, error: `fetchAll(${path}): تجاوز الحد الأقصى للإنقاذ الفردي (${MAX_FETCH_ALL_RECOVERY_ITEMS})` };
 }
 
+// [إضافة — اختبار حي مؤكَّد من المستخدم عبر console + مواصفة Qoyod OpenAPI v2]
+// مواصفة GET /accounts الرسمية: "Returns leaf accounts ... Supports Ransack
+// query parameters via q[] ... Sort order q[s]". الأداة كانت تستخدم ترقيم
+// OFFSET (page=N&per_page=100) بدون ترتيب ثابت، فكان استعلام الحسابات الطرفية
+// + OFFSET عميق يطيح 500 من قيود على الصفحة الثانية. اختبار حي أثبت أن الترقيم
+// بالمؤشر (q[s]=id asc + q[id_gt]=<آخر id>) يتفادى OFFSET تمامًا فيرجّع 738
+// حساب دفعة وحدة (بدل 100 فقط) لنفس المنشأة. يبقى سجل بيانات معطوب واحد بجهة
+// قيود (بعد id معيّن) يطيح 500 لأي استعلام يشمله — لا حل له من الأداة، فنكتفي
+// بما تجمَّع ونُعلّم النقص (qoyodFetchTruncatedError) كالمعتاد.
+// per_page يُرسَل احتياطًا فقط (لوحظ ميدانيًا أن /accounts يتجاهله ويُرجع كل
+// المطابق دفعة وحدة)؛ حلقة المؤشر تعتمد على "آخر id" لا على حجم الصفحة، وتتوقف
+// طبيعيًا عند رد فارغ أو عدم ظهور أي id جديد.
+export async function fetchAllByCursor(path, apiKey, { onPage } = {}) {
+  const all = [];
+  const seenIds = new Set();
+  let lastId = 0;
+  for (let iter = 0; iter <= MAX_FETCH_ALL_PAGES; iter++) {
+    if (iter === MAX_FETCH_ALL_PAGES) {
+      throw new Error(`fetchAllByCursor(${path}): تجاوز الحد الأقصى للتكرار (${MAX_FETCH_ALL_PAGES}) — توقف لمنع تكرار لا نهائي.`);
+    }
+    let res;
+    try {
+      res = await api("GET", `${path}?per_page=100&q[s]=id%20asc&q[id_gt]=${lastId}`, null, apiKey);
+    } catch (e) {
+      if (/^API 404:/.test(e.message || "")) break; // قائمة فارغة = انتهت البيانات
+      if (all.length > 0) {
+        // نجحنا بجزء ثم طاح استعلام قيود على سجل معطوب بجهتهم — نكتفي بما تجمَّع
+        Object.defineProperty(all, "qoyodFetchTruncatedError", { value: e.message, enumerable: false, configurable: true });
+        break;
+      }
+      throw e; // فشل أول طلب (لا بيانات إطلاقًا) — يُرمى كالمعتاد
+    }
+    const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
+    if (!items.length) break;
+    const fresh = items.filter((it) => it && it.id !== undefined && it.id !== null && !seenIds.has(it.id));
+    if (!fresh.length) break; // لا id جديد ⇒ اكتملت البيانات فعليًا
+    fresh.forEach((it) => seenIds.add(it.id));
+    all.push(...fresh);
+    // آخر id بالدفعة (الترتيب تصاعدي، فأكبر id هو مؤشر الدفعة التالية)
+    lastId = fresh.reduce((mx, it) => (Number(it.id) > mx ? Number(it.id) : mx), lastId);
+    if (onPage) onPage(all.length, iter + 1);
+  }
+  return all;
+}
+
 export async function fetchAll(path, apiKey, { onPage } = {}) {
   let all = [];
   let page = 1;
