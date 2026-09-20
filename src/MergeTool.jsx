@@ -1873,6 +1873,10 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   const [file1ApiRecords, setFile1ApiRecords] = useState(null);
   const [file1ApiFetching, setFile1ApiFetching] = useState(false);
   const [file1ApiError, setFile1ApiError] = useState("");
+  // [إضافة — بلاغ حقيقي من المستخدم] خطأ 500 من خوادم قيود يوقف الجلب بعد أول
+  // 100 حساب لبعض المنشآت، فكانت الأداة تعرض "تم جلب 100 حساب بنجاح" (أخضر)
+  // وتُخفي أن مئات الحسابات ناقصة — نص صادق مطلوب بدل ادعاء نجاح كاذب.
+  const [file1ApiTruncated, setFile1ApiTruncated] = useState("");
 
   const fetchFile1FromApi = async (keyOverride) => {
     if (blockedBySending()) return;
@@ -1880,6 +1884,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
     if (!key) return;
     setFile1ApiFetching(true);
     setFile1ApiError("");
+    setFile1ApiTruncated("");
     try {
       const accounts = await fetchAll("/accounts", key);
       const records = qoyodAccountsToFile1Records(accounts);
@@ -1887,13 +1892,18 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
         setFile1ApiError(t({ ar: "ما فيه أي حساب بمنشأة العميل، أو المفتاح غير صحيح", en: "No accounts found in the client's company, or the key is invalid" }));
         return;
       }
+      if (accounts.qoyodFetchTruncatedError) setFile1ApiTruncated(accounts.qoyodFetchTruncatedError);
       setFile1ApiRecords(records);
       setFile1Source("api");
       // نمسح أي رفع يدوي سابق لملف 1 حتى ما يتعارض مع النسخة المجلوبة عبر API
       setFile1(null); setFile1Rows(null); setMapping1(null); setShowMap1(false);
       if (fileInput1Ref.current) fileInput1Ref.current.value = "";
       setResults(null);
-      setToast({ type: "success", text: t({ ar: `تم جلب ${records.length} حساب من منشأة العميل عبر API`, en: `Fetched ${records.length} accounts from the client's company via API` }) });
+      if (accounts.qoyodFetchTruncatedError) {
+        setToast({ type: "error", text: t({ ar: `⚠️ خطأ من خوادم قيود: تم جلب ${records.length} حساب فقط ثم فشل الباقي — الشجرة غير مكتملة. استخدم "رفع ملف بدلاً من ذلك".`, en: `⚠️ Qoyod server error: only ${records.length} accounts fetched, the rest failed — the tree is incomplete. Use "Upload a file instead".` }) });
+      } else {
+        setToast({ type: "success", text: t({ ar: `تم جلب ${records.length} حساب من منشأة العميل عبر API`, en: `Fetched ${records.length} accounts from the client's company via API` }) });
+      }
       if (currentUser) trackMergeImport(currentUser, { via: "api-fetch-file1", count: records.length });
     } catch (e) {
       setFile1ApiError(e.message || String(e));
@@ -2838,16 +2848,24 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           {file1Source === "api" && file1ApiRecords ? (
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-sm">
-              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-[#0F172A]"><CheckCircle2 size={16} className="text-emerald-600" /> {t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })}</div>
+            <div className={`rounded-xl border p-4 shadow-sm ${file1ApiTruncated ? "border-amber-500/40 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5"}`}>
+              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-[#0F172A]">{file1ApiTruncated ? <AlertTriangle size={16} className="text-amber-600" /> : <CheckCircle2 size={16} className="text-emerald-600" />} {t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })}</div>
               <div className="mb-3 text-xs text-[#94A3B8]">{t({ ar: "مجلوبة مباشرة عبر API من منشأة العميل", en: "Fetched directly via API from the client's company" })}</div>
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F8FAFC] px-3 py-2.5 text-sm">
-                <span className="font-semibold text-emerald-700">{t({ ar: `تم جلب ${file1ApiRecords.length} حساب بنجاح`, en: `${file1ApiRecords.length} accounts fetched successfully` })}</span>
+                <span className={`font-semibold ${file1ApiTruncated ? "text-amber-700" : "text-emerald-700"}`}>{file1ApiTruncated ? t({ ar: `⚠️ جُلب ${file1ApiRecords.length} حساب فقط — الشجرة ناقصة`, en: `⚠️ Only ${file1ApiRecords.length} accounts fetched — tree is incomplete` }) : t({ ar: `تم جلب ${file1ApiRecords.length} حساب بنجاح`, en: `${file1ApiRecords.length} accounts fetched successfully` })}</span>
                 <div className="flex items-center gap-2">
                   <button onClick={() => fetchFile1FromApi()} disabled={file1ApiFetching} className="flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs font-semibold text-[#0F172A] hover:bg-[#F8FAFC] disabled:opacity-50">{file1ApiFetching ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {t({ ar: "تحديث", en: "Refresh" })}</button>
-                  <button onClick={switchToManualFile1} className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs font-semibold text-[#64748B] hover:bg-[#F8FAFC]">{t({ ar: "رفع ملف بدلاً من ذلك", en: "Upload a file instead" })}</button>
+                  <button onClick={switchToManualFile1} className={`rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-[#F8FAFC] ${file1ApiTruncated ? "border-amber-500 bg-amber-500/10 text-amber-700" : "border-[#E2E8F0] text-[#64748B]"}`}>{t({ ar: "رفع ملف بدلاً من ذلك", en: "Upload a file instead" })}</button>
                 </div>
               </div>
+              {file1ApiTruncated && (
+                <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-800">
+                  {t({
+                    ar: 'خطأ 500 من خوادم قيود نفسها أوقف الجلب — ليس خللاً بالأداة (نفس هذي المنشأة كانت تُجلب كاملة سابقاً). الحل الآن: صدّر شجرة الحسابات من قيود (الإعدادات ← شجرة الحسابات ← تصدير) واضغط "رفع ملف بدلاً من ذلك" فوق لتجيب الشجرة كاملة بلا API.',
+                    en: 'A 500 error from Qoyod\'s own servers stopped the fetch — not a tool bug (this same company used to fetch fully before). Workaround: export the chart of accounts from Qoyod (Settings → Chart of Accounts → Export) and click "Upload a file instead" above to load the full tree without the API.',
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <UploadCard title={t({ ar: "ملف 1 — الشجرة الحالية بقيود", en: "File 1 — Current Qoyod chart of accounts" })} hint={t({ ar: "التصدير الحالي لشجرة حسابات العميل من نظام قيود، أو مفتاح API بالأعلى", en: "The client's current chart of accounts exported from Qoyod, or an API key above" })} file={file1} onPick={() => fileInput1Ref.current?.click()} inputRef={fileInput1Ref} onChange={(f) => handleFile(f, 1)}>
