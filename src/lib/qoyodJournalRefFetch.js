@@ -31,7 +31,7 @@
   المباشر (بلا شبكة)، ودالة تنسيق واحدة تُستدعى من JournalTool.jsx فقط.
  ============================================================================
 */
-import { fetchAll } from '../product-upload/io/network.js';
+import { fetchAll, fetchAllByCursor } from '../product-upload/io/network.js';
 import { normalizeCode } from './excelCore.js';
 
 /**
@@ -165,9 +165,12 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
   // بلا أي رقم — فيبدو الجلب متجمّداً رغم أنه يعمل فعلياً ببطء. onAccountsProgress
   // يمرَّر مباشرة لـfetchAll('/accounts',...) ليُحدِّث الواجهة بعدد الحسابات
   // المُجمَّعة حتى الآن أولاً بأول، سواء بالجلب الدفعي العادي أو بالإنقاذ الفردي.
+  // [تغيير — دليل حي] /accounts يُجلَب بالترقيم بالمؤشر (q[s]=id asc + q[id_gt])
+  // بدل OFFSET: أثبت اختبار حي أنه يتفادى خطأ 500 من قيود على الترقيم العميق
+  // ويرجّع كل الحسابات القابلة للجلب دفعة وحدة بدل التوقف عند 100.
   let apiAccounts;
   try {
-    apiAccounts = await fetchAll('/accounts', key, { onPage: onAccountsProgress });
+    apiAccounts = await fetchAllByCursor('/accounts', key, { onPage: onAccountsProgress });
   } catch (e) {
     throw new Error(`تعذّر جلب شجرة الحسابات من قيود: ${e.message || String(e)}`);
   }

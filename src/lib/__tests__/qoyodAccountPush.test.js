@@ -4,8 +4,9 @@ import { pushAccountsToQoyod, isDuplicateApiError } from "../qoyodAccountPush.js
 vi.mock("../../product-upload/io/network.js", () => ({
   api: vi.fn(),
   fetchAll: vi.fn(),
+  fetchAllByCursor: vi.fn(),
 }));
-import { api, fetchAll } from "../../product-upload/io/network.js";
+import { api, fetchAll, fetchAllByCursor } from "../../product-upload/io/network.js";
 
 function row(code, nameEn, nameAr, extra = {}) {
   return { code, nameEn, nameAr, level2Category: "المبيعات", type: "المبيعات", desc: "", payCollect: "No", ...extra };
@@ -19,11 +20,11 @@ describe("pushAccountsToQoyod", () => {
   it("يرفض بلا مفتاح API قبل أي طلب شبكة", async () => {
     const result = await pushAccountsToQoyod([row("1", "A", "أ")], "");
     expect(result.fatalError).toBeTruthy();
-    expect(fetchAll).not.toHaveBeenCalled();
+    expect(fetchAllByCursor).not.toHaveBeenCalled();
   });
 
   it("يجلب الحسابات الحالية أولاً، ثم يرسل كل صف غير مكرر بنجاح (بلا تخطي)", async () => {
-    fetchAll.mockResolvedValue([]); // لا حسابات موجودة مسبقًا
+    fetchAllByCursor.mockResolvedValue([]); // لا حسابات موجودة مسبقًا
     api.mockImplementation(async (method, path, body) => {
       expect(method).toBe("POST");
       expect(path).toBe("/accounts");
@@ -33,7 +34,7 @@ describe("pushAccountsToQoyod", () => {
     const rows = [row("4101", "Sales A", "مبيعات أ"), row("4102", "Sales B", "مبيعات ب")];
     const result = await pushAccountsToQoyod(rows, "fake-key");
 
-    expect(fetchAll).toHaveBeenCalledWith("/accounts", "fake-key");
+    expect(fetchAllByCursor).toHaveBeenCalledWith("/accounts", "fake-key");
     expect(api).toHaveBeenCalledTimes(2);
     expect(result.sent).toBe(2);
     expect(result.skipped).toBe(0);
@@ -43,7 +44,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("يتخطى صف مكرر (بالرمز أو الاسم) بلا إرسال POST له، ويكمل الباقي", async () => {
-    fetchAll.mockResolvedValue([{ id: 1, code: "4101", name_en: "Existing", name_ar: "موجود" }]);
+    fetchAllByCursor.mockResolvedValue([{ id: 1, code: "4101", name_en: "Existing", name_ar: "موجود" }]);
     api.mockResolvedValue({ account: { id: 999 } });
 
     const rows = [row("4101", "Sales A", "مبيعات أ"), row("4102", "Sales B", "مبيعات ب")];
@@ -57,7 +58,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("يتوقف بالكامل فورًا عند أول فشل POST حقيقي (غير تكرار) — قرار المستخدم الصريح — ما يكمل لباقي الصفوف", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api
       .mockResolvedValueOnce({ account: { id: 1 } })
       .mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"type":["is not included in the list"]}}'));
@@ -80,7 +81,7 @@ describe("pushAccountsToQoyod", () => {
   // Qoyod بـ422 "already taken" — وأوقف هذا كل العملية رغم أن الباقي فريد.
   // التصحيح: هذا تكرار حقيقي، يُعامَل كتخطٍّ ويُكمَل الباقي، لا كفشل يوقف كل شي.
   it("رفض 422 من Qoyod بسبب تكرار فعلي (already taken) يُعامَل كتخطٍّ، لا كفشل — ويُكمَل لباقي الصفوف", async () => {
-    fetchAll.mockResolvedValue([]); // الفحص المسبق لم يلتقط التكرار (محاكاة فجوة الفهرسة الفعلية)
+    fetchAllByCursor.mockResolvedValue([]); // الفحص المسبق لم يلتقط التكرار (محاكاة فجوة الفهرسة الفعلية)
     api
       .mockResolvedValueOnce({ account: { id: 1 } })
       .mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"code":["code is already taken by id 52"]}}'))
@@ -101,7 +102,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("رفض 422 بسبب تكرار الاسم (name_en/name_ar already taken) يُعامَل أيضًا كتخطٍّ", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockRejectedValueOnce(new Error('API 422: {"error":"Invalid resource","messages":{"name_ar":["name_ar is already taken"]}}'));
 
     const result = await pushAccountsToQoyod([row("9999", "Whatever", "أيًا كان")], "fake-key");
@@ -113,7 +114,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("يتوقف بالكامل فورًا لو صف واحد بلا نوع قابل للتحويل (فشل بناء الحمولة نفسه، بلا أي طلب POST له)", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockResolvedValue({ account: { id: 1 } });
 
     const rows = [row("4101", "A", "أ"), row("4102", "B", "ب", { type: "غير معروف", level2Category: "غير معروف" }), row("4103", "C", "ج")];
@@ -130,7 +131,7 @@ describe("pushAccountsToQoyod", () => {
   // accounts_receivable) يُستبعَد من الإرسال (تخطٍّ + تنبيه)، لا يُعامَل كفشل
   // يوقف الدفعة كاملة — خلافًا لأي فشل بناء حمولة آخر (الاختبار السابق أعلاه).
   it("حساب مقفل نظاميًا (مثال: المدينون) يُتخطى مع رسالة تنبيه، ويُكمَل لباقي الصفوف بلا توقف", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockResolvedValue({ account: { id: 1 } });
 
     const rows = [
@@ -150,7 +151,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("يتوقف فورًا لو stoppedRef.current صار true بين صفين (إيقاف يدوي من المستخدم)", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     const stoppedRef = { current: false };
     api.mockImplementation(async () => {
       stoppedRef.current = true; // يحاكي ضغط المستخدم "إيقاف" أثناء إرسال الصف الأول
@@ -166,7 +167,7 @@ describe("pushAccountsToQoyod", () => {
   });
 
   it("فشل جلب حسابات العميل الحالية (فحص التكرار) يوقف كل شي قبل أي POST — بلا فحص تكرار، لا إرسال آمن", async () => {
-    fetchAll.mockRejectedValue(new Error("network down"));
+    fetchAllByCursor.mockRejectedValue(new Error("network down"));
     const result = await pushAccountsToQoyod([row("1", "A", "أ")], "fake-key");
     expect(result.fatalError).toContain("network down");
     expect(api).not.toHaveBeenCalled();
@@ -181,7 +182,7 @@ describe("pushAccountsToQoyod — continueOnError", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("الافتراضي (بلا الخيار): يتوقف عند أول فشل حقيقي كما كان تمامًا", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockImplementation(async (m, p, body) => {
       if (body.account.code === "4102") throw new Error('API 422: {"messages":{"account_kind":["Invalid branch"]}}');
       return { account: { id: 1, ...body.account } };
@@ -195,7 +196,7 @@ describe("pushAccountsToQoyod — continueOnError", () => {
   });
 
   it("مع continueOnError: يُبلِّغ عن الفاشل ويُكمل بقية الحسابات", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockImplementation(async (m, p, body) => {
       if (body.account.code === "4102") throw new Error('API 422: {"messages":{"account_kind":["Invalid branch"]}}');
       return { account: { id: 1, ...body.account } };
@@ -210,7 +211,7 @@ describe("pushAccountsToQoyod — continueOnError", () => {
   });
 
   it("مع continueOnError: فشل بناء الحمولة (نوع غير معروف) لا يوقف الباقي أيضًا", async () => {
-    fetchAll.mockResolvedValue([]);
+    fetchAllByCursor.mockResolvedValue([]);
     api.mockImplementation(async (m, p, body) => ({ account: { id: 1, ...body.account } }));
     const rows = [
       row("4101", "A", "أ"),

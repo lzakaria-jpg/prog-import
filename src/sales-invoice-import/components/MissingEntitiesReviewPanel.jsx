@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import { normKey } from '../engine/text.js';
-import { fetchAll, api } from '../../product-upload/io/network.js';
+import { fetchAll, fetchAllByCursor, api } from '../../product-upload/io/network.js';
 import { buildCategoryCreatePayload, buildUnitCreatePayload } from '../api/qoyodEntityCreate.js';
 import { resolveTaxEntry } from '../api/qoyodSalesInvoicePush.js';
 import { isExpenseAccount, isRevenueAccount, isInventoryAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
@@ -101,7 +101,7 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
       setLoadingRefs(true); setRefsError(''); setLoadingProgress({ accounts: 0, categories: 0, units: 0 });
       try {
         const [accs, cats, us] = await Promise.all([
-          fetchAll('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, accounts: n })) }),
+          fetchAllByCursor('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, accounts: n })) }),
           fetchAll('/categories', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, categories: n })) }),
           fetchAll('/product_unit_types', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, units: n })) }),
         ]);

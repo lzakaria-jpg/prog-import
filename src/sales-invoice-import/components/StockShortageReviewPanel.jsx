@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../language.jsx';
-import { fetchAll } from '../../product-upload/io/network.js';
+import { fetchAll, fetchAllByCursor } from '../../product-upload/io/network.js';
 import { isRevenueOrEquityAccount, isExpenseOrEquityAccount, filterAccountsWithFallback } from '../engine/accountFilters.js';
 import SearchableSelect from './SearchableSelect.jsx';
 
@@ -80,7 +80,7 @@ export default function StockShortageReviewPanel({ groups, onCancel, onConfirm, 
     (async () => {
       setAccountsBusy(true); setAccountsError(''); setAccountsProgress(0);
       try {
-        const accs = await fetchAll('/accounts', apiKey, { onPage: (n) => !cancelled && setAccountsProgress(n) });
+        const accs = await fetchAllByCursor('/accounts', apiKey, { onPage: (n) => !cancelled && setAccountsProgress(n) });
         if (!cancelled) setAccounts(accs || []);
       } catch (e) {
         if (!cancelled) setAccountsError(e.message || String(e));

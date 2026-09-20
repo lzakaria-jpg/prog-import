@@ -3,7 +3,7 @@
 // الرفع بالكامل قبل إنشاء أي شيء (الخلل المُصلَح: "لا يمكنها رفع منتجات على
 // منشأة لا يوجد فيها منتجات مسبقاً").
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { api, fetchAll } from "../network.js";
+import { api, fetchAll, fetchAllByCursor } from "../network.js";
 
 function mockFetchOnce(status, body) {
   global.fetch = vi.fn().mockResolvedValue({
@@ -256,5 +256,76 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
       expect(result).toHaveLength(102); // 100 بالدفعة + 2 أُنقذتا قبل فشل الإنقاذ ذاته
       expect(result.qoyodFetchTruncatedError).toMatch(/^API 500: recovery boom/);
     }, 10000);
+  });
+});
+
+// [إضافة — اختبار حي مؤكَّد من المستخدم + مواصفة Qoyod OpenAPI v2] الترقيم
+// بالمؤشر (q[s]=id asc + q[id_gt]) يتفادى خطأ 500 على OFFSET العميق: اختبار حي
+// أرجع 738 حساب دفعة وحدة بدل 100 لنفس المنشأة، ثم طاح 500 على سجل معطوب بجهة
+// قيود بعد id معيّن.
+describe("fetchAllByCursor() — ترقيم بالمؤشر (q[s]=id asc + q[id_gt])", () => {
+  it("يجمع كل الصفحات عبر q[id_gt]=<آخر id> حتى رد فارغ", async () => {
+    const calls = [];
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      calls.push(url);
+      const gt = Number(new URL(url, "http://x").searchParams.get("q[id_gt]"));
+      let items = [];
+      if (gt === 0) items = Array.from({ length: 100 }, (_, i) => ({ id: i + 1 }));
+      else if (gt === 100) items = Array.from({ length: 50 }, (_, i) => ({ id: 101 + i }));
+      else items = [];
+      return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+    });
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toHaveLength(150);
+    // أول طلب q[id_gt]=0، ثم q[id_gt]=100، ثم q[id_gt]=150 (فارغ ⇒ توقف)
+    expect(calls[0]).toContain("q[id_gt]=0");
+    expect(calls[1]).toContain("q[id_gt]=100");
+    expect(calls[0]).toContain("q[s]=id%20asc");
+  });
+
+  it("يرسل per_page لكن يعتمد على آخر id حتى لو تجاهله قيود وأرجع أكثر من per_page", async () => {
+    // سيناريو حي حقيقي: per_page=100 لكن الرد 738 عنصر دفعة وحدة
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      const items = call === 1 ? Array.from({ length: 738 }, (_, i) => ({ id: i + 1 })) : [];
+      return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+    });
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toHaveLength(738);
+  });
+
+  it("سجل معطوب بجهة قيود (500 بعد نجاح جزئي) ⇒ يكتفي بما تجمَّع ويُعلّم النقص", async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      const gt = Number(new URL(url, "http://x").searchParams.get("q[id_gt]"));
+      if (gt === 0) {
+        const items = Array.from({ length: 738 }, (_, i) => ({ id: i + 1 }));
+        return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+      }
+      return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+    });
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toHaveLength(738);
+    expect(result.qoyodFetchTruncatedError).toMatch(/^API 500:/);
+    expect(JSON.stringify(result)).not.toContain("qoyodFetchTruncatedError");
+  }, 10000);
+
+  it("فشل أول طلب (لا بيانات) يبقى يرمي خطأ كالمعتاد", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" });
+    await expect(fetchAllByCursor("/accounts", "KEY")).rejects.toThrow(/^API 500:/);
+  }, 10000);
+
+  it("404 على أول طلب = قائمة فارغة (منشأة بلا حسابات)", async () => {
+    mockFetchOnce(404, "We found nothing");
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toEqual([]);
+  });
+
+  it("توقف طبيعي لو تكرر نفس id بلا أي جديد (حماية من حلقة لا نهائية)", async () => {
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true, status: 200, text: async () => JSON.stringify({ accounts: [{ id: 5 }] }),
+    }));
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toHaveLength(1); // id=5 مرة وحدة، ثم q[id_gt]=5 يرجّع نفس id ⇒ لا جديد ⇒ توقف
   });
 });
