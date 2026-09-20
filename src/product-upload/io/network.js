@@ -107,6 +107,12 @@ const MAX_FETCH_ALL_PAGES = 500;
 // المتوفر بدل تخمين. حد دفاعي مستقل هنا أيضًا لمنع تكرار لا نهائي بنفس منطق
 // MAX_FETCH_ALL_PAGES أعلاه (بحجم إجمالي مكافئ: 500 صفحة × 100 عنصر).
 const MAX_FETCH_ALL_RECOVERY_ITEMS = MAX_FETCH_ALL_PAGES * 100;
+// [إضافة — بلاغ حقيقي من المستخدم: "طول كتير" + "أريده يرجع زي أول"] الإنقاذ
+// الفردي (per_page=1) قد يزحف دقائق طويلة لو ردّ قيود بطيء أو نجح جزئيًا فقط،
+// فيبدو للمستخدم أن الأداة معلّقة بلا فايدة. حد زمني صارم: لو ما اكتمل الإنقاذ
+// خلال هذي المدة نستسلم بما تجمّع ونُعلّم النقص — فيرى المستخدم فورًا رسالة
+// واضحة ويستخدم رفع الملف اليدوي (يجيب الشجرة كاملة بلا API) بدل انتظار طويل.
+const MAX_FETCH_ALL_RECOVERY_MS = 20000;
 
 /**
  * إنقاذ الباقي سجلاً سجلاً بعد فشل الجلب الدفعي — يُعدِّل `all`/`seenIds` في
@@ -117,7 +123,11 @@ const MAX_FETCH_ALL_RECOVERY_ITEMS = MAX_FETCH_ALL_PAGES * 100;
  */
 async function recoverOneByOne(path, apiKey, all, seenIds, itemsHaveIds, onPage) {
   let recoverPage = all.length + 1;
+  const startedAt = Date.now();
   while (all.length < MAX_FETCH_ALL_RECOVERY_ITEMS) {
+    if (Date.now() - startedAt > MAX_FETCH_ALL_RECOVERY_MS) {
+      return { done: false, error: `fetchAll(${path}): تجاوز الإنقاذ الفردي الحد الزمني (${Math.round(MAX_FETCH_ALL_RECOVERY_MS / 1000)}ث) — خطأ مستمر من خوادم قيود، استخدم رفع الملف اليدوي.` };
+    }
     let res;
     try {
       res = await api("GET", `${path}?page=${recoverPage}&per_page=1`, null, apiKey);
