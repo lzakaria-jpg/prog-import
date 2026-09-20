@@ -96,6 +96,49 @@ export async function api(method, path, body, apiKey) {
 // حسابات/منتجات واقعي بمنشأة واحدة.
 const MAX_FETCH_ALL_PAGES = 500;
 
+// [إضافة — بلاغ حقيقي من المستخدم، اختبار حي عبر console المتصفح] حين تفشل
+// الصفحة الدفعية (per_page=100) بعد صفحة أولى ناجحة بنفس خطأ 500 من خوادم
+// قيود، ثبت ميدانيًا أن per_page=1 يعمل بنجاح عند أي إزاحة (page=2&per_page=1
+// نجح، وكذلك page=101&per_page=1 نجح فأرجع سجلًا حقيقيًا بعد الموضع 100) —
+// أي أن العطل ليس بموضع السجل نفسه بل بحجم/شكل طلب الدفعة. بدل الاستسلام
+// بأول 100 عنصر فقط (كما كان بإصلاح سابق)، نحاول الآن إنقاذ الباقي سجلًا
+// سجلًا بنفس معادلة الإزاحة المؤكَّدة (page = العدد المُجمَّع + 1، per_page=1)
+// قبل التسليم بالنقص. أبطأ بكثير (طلب واحد لكل سجل) لكنه مضمون حسب الدليل
+// المتوفر بدل تخمين. حد دفاعي مستقل هنا أيضًا لمنع تكرار لا نهائي بنفس منطق
+// MAX_FETCH_ALL_PAGES أعلاه (بحجم إجمالي مكافئ: 500 صفحة × 100 عنصر).
+const MAX_FETCH_ALL_RECOVERY_ITEMS = MAX_FETCH_ALL_PAGES * 100;
+
+/**
+ * إنقاذ الباقي سجلاً سجلاً بعد فشل الجلب الدفعي — يُعدِّل `all`/`seenIds` في
+ * مكانهما (نفس المصفوفة التي بناها fetchAll حتى الآن) ويُرجع ما إذا اكتملت
+ * البيانات فعليًا (نهاية طبيعية: رد فارغ، أو سجل مكرّر معروف سابقًا) أو توقفت
+ * بفشل جديد (يُعاد سببه ليُستخدم برسالة qoyodFetchTruncatedError بدل رسالة
+ * فشل الدفعة الأصلية — أدق لأنه يعكس أين توقف الإنقاذ فعليًا).
+ */
+async function recoverOneByOne(path, apiKey, all, seenIds, itemsHaveIds, onPage) {
+  let recoverPage = all.length + 1;
+  while (all.length < MAX_FETCH_ALL_RECOVERY_ITEMS) {
+    let res;
+    try {
+      res = await api("GET", `${path}?page=${recoverPage}&per_page=1`, null, apiKey);
+    } catch (e) {
+      if (/^API 404:/.test(e.message || "")) return { done: true };
+      return { done: false, error: e.message };
+    }
+    const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
+    if (!items.length) return { done: true };
+    const item = items[0];
+    if (itemsHaveIds && item && item.id !== undefined && item.id !== null) {
+      if (seenIds.has(item.id)) return { done: true }; // سجل معروف مسبقًا ⇒ انتهت البيانات فعليًا
+      seenIds.add(item.id);
+    }
+    all.push(item);
+    if (onPage) onPage(all.length, recoverPage);
+    recoverPage++;
+  }
+  return { done: false, error: `fetchAll(${path}): تجاوز الحد الأقصى للإنقاذ الفردي (${MAX_FETCH_ALL_RECOVERY_ITEMS})` };
+}
+
 export async function fetchAll(path, apiKey, { onPage } = {}) {
   let all = [];
   let page = 1;
@@ -131,16 +174,23 @@ export async function fetchAll(path, apiKey, { onPage } = {}) {
       // تحديدًا) ترجع 500 من قيود نفسها لأي طلب يتجاوز أول 100 عنصر — سواء
       // بصفحة تالية أو حجم صفحة أكبر أو الجلب الكامل بلا ترقيم، كلها فشلت
       // بنفس الخطأ. كان هذا يُسقط fetchAll بالكامل (فتتوقف كل الأداة) رغم
-      // توفر 100 عنصر حقيقي فعلاً بالصفحة الأولى الناجحة. الآن: فشل بعد صفحة
-      // أولى ناجحة (page > 1) يوقف الجلب بما تجمَّع فقط، لا يرمي خطأ — لكن
-      // يُعلَّم المصفوفة الناتجة بخاصية غير قابلة للتعداد (Object.defineProperty،
+      // توفر 100 عنصر حقيقي فعلاً بالصفحة الأولى الناجحة.
+      // [تطوير لاحق، بدليل حي إضافي من المستخدم] per_page=1 يعمل بنجاح عند أي
+      // إزاحة (حتى بعد الموضع 100) رغم فشل الدفعة — فالعطل بشكل/حجم طلب
+      // الدفعة لا بموضع السجل. الآن: فشل بعد صفحة أولى ناجحة (page > 1) لا
+      // يوقف الجلب فورًا بما تجمَّع، بل يحاول أولاً إنقاذ الباقي سجلاً سجلاً
+      // (recoverOneByOne أعلاه). فقط لو فشل الإنقاذ نفسه (سجل سجل) تُعلَّم
+      // المصفوفة الناتجة بخاصية غير قابلة للتعداد (Object.defineProperty،
       // enumerable:false — لا تظهر بـJSON.stringify ولا Object.keys ولا تُحسَب
       // ضمن .length، فلا تكسر أي مستهلك حالي يعامل الناتج كمصفوفة عادية) حتى
       // يعرف المستدعي (إن أراد) أن القائمة غير مكتملة وليست "كل شيء" بصمت.
       // فشل الصفحة الأولى نفسها يبقى يرمي كالمعتاد — مصفوفة فارغة هناك قد
       // تُفهَم خطأً "لا حسابات إطلاقًا"، وهذا أسوأ من رمي الخطأ بوضوح.
       if (page > 1) {
-        Object.defineProperty(all, "qoyodFetchTruncatedError", { value: e.message, enumerable: false, configurable: true });
+        const recovery = await recoverOneByOne(path, apiKey, all, seenIds, itemsHaveIds, onPage);
+        if (!recovery.done) {
+          Object.defineProperty(all, "qoyodFetchTruncatedError", { value: recovery.error, enumerable: false, configurable: true });
+        }
         break;
       }
       throw e;

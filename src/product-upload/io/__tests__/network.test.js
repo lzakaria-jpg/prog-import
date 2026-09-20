@@ -203,4 +203,58 @@ describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
       await expect(fetchAll("/accounts", "KEY")).rejects.toThrow(/^API 500:/);
     }, 10000);
   });
+
+  // [إضافة — دليل حي إضافي من المستخدم: page=2&per_page=1 وpage=101&per_page=1
+  // كلاهما نجح 200 رغم فشل page=2&per_page=100 بنفس 500] بدل الاستسلام بأول
+  // 100 عنصر، fetchAll يحاول الآن إنقاذ الباقي سجلاً سجلاً (per_page=1) بنفس
+  // معادلة الإزاحة المؤكَّدة (page = العدد المُجمَّع + 1).
+  describe("إنقاذ سجل سجل (per_page=1) بعد فشل الدفعة الثانية", () => {
+    it("ينقذ كل السجلات المتبقية سجلاً سجلاً حتى نهاية طبيعية ⇒ بلا أي نقص وبلا وسم قص", async () => {
+      const TOTAL = 103; // 100 بالدفعة الأولى + 3 تُنقَذ سجلاً سجلاً
+      global.fetch = vi.fn().mockImplementation(async (url) => {
+        const u = new URL(url, "http://x");
+        const page = Number(u.searchParams.get("page"));
+        const perPage = Number(u.searchParams.get("per_page"));
+        if (page === 1 && perPage === 100) {
+          const items = Array.from({ length: 100 }, (_, i) => ({ id: i, code: String(i) }));
+          return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+        }
+        if (perPage === 100) {
+          return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+        }
+        // إنقاذ سجل سجل: page = الإزاحة+1 (0-based) بـper_page=1
+        const offset = page - 1;
+        if (offset < TOTAL) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: [{ id: offset, code: String(offset) }] }) };
+        }
+        return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: [] }) };
+      });
+      const result = await fetchAll("/accounts", "KEY");
+      expect(result).toHaveLength(TOTAL);
+      expect(result.qoyodFetchTruncatedError).toBeUndefined();
+    }, 10000);
+
+    it("الإنقاذ سجل سجل يفشل هو أيضًا بعد إنقاذ جزء ⇒ وسم قص برسالة فشل الإنقاذ نفسه (لا فشل الدفعة الأصلية)", async () => {
+      global.fetch = vi.fn().mockImplementation(async (url) => {
+        const u = new URL(url, "http://x");
+        const page = Number(u.searchParams.get("page"));
+        const perPage = Number(u.searchParams.get("per_page"));
+        if (page === 1 && perPage === 100) {
+          const items = Array.from({ length: 100 }, (_, i) => ({ id: i, code: String(i) }));
+          return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: items }) };
+        }
+        if (perPage === 100) {
+          return { ok: false, status: 500, text: async () => "batch boom" };
+        }
+        const offset = page - 1;
+        if (offset < 102) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: [{ id: offset, code: String(offset) }] }) };
+        }
+        return { ok: false, status: 500, text: async () => "recovery boom" };
+      });
+      const result = await fetchAll("/accounts", "KEY");
+      expect(result).toHaveLength(102); // 100 بالدفعة + 2 أُنقذتا قبل فشل الإنقاذ ذاته
+      expect(result.qoyodFetchTruncatedError).toMatch(/^API 500: recovery boom/);
+    }, 10000);
+  });
 });
