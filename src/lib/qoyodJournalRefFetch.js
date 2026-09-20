@@ -155,13 +155,19 @@ export function buildLocationsIndexFromApi(apiInventories) {
  * واضحة فقط لو فشل جلب /accounts نفسه (المورد الوحيد الذي بلا بديل يدوي في
  * مسار API).
  */
-export async function fetchJournalReferencesFromApi(apiKey) {
+export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress } = {}) {
   const key = (apiKey || '').trim();
   if (!key) throw new Error('أدخل مفتاح API أولاً');
 
+  // [إضافة — بلاغ حقيقي من المستخدم: "طول كتير الى الان ما خلص"] الإنقاذ
+  // سجلاً سجلاً (per_page=1) بـfetchAll عند فشل الدفعة قد يأخذ دقائق فعلياً
+  // لشجرة حسابات كبيرة، وواجهة JournalTool.jsx كانت تعرض مؤشر "جارٍ الجلب..."
+  // بلا أي رقم — فيبدو الجلب متجمّداً رغم أنه يعمل فعلياً ببطء. onAccountsProgress
+  // يمرَّر مباشرة لـfetchAll('/accounts',...) ليُحدِّث الواجهة بعدد الحسابات
+  // المُجمَّعة حتى الآن أولاً بأول، سواء بالجلب الدفعي العادي أو بالإنقاذ الفردي.
   let apiAccounts;
   try {
-    apiAccounts = await fetchAll('/accounts', key);
+    apiAccounts = await fetchAll('/accounts', key, { onPage: onAccountsProgress });
   } catch (e) {
     throw new Error(`تعذّر جلب شجرة الحسابات من قيود: ${e.message || String(e)}`);
   }
