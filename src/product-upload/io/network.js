@@ -39,21 +39,47 @@ async function waitForRateLimitSlot() {
   }
 }
 
+// [إضافة — بلاغ حقيقي من المستخدم: "API 500: {status:500,error:Internal Server
+// Error}" بكل الأدوات فجأة] خطأ 5xx يأتي من خوادم قيود نفسها (وكيلنا يمرّر
+// حالة الرد ونصه حرفيًا — أخطاؤه هو 400/502 بصيغة مختلفة تمامًا)، وغالبًا ما
+// يكون عارضًا. محاولة إضافية واحدة للقراءات فقط (GET، عملية آمنة التكرار)
+// تكفي لتجاوز الانقطاع اللحظي بلا إخفاء انقطاع حقيقي طويل. لا تُعاد أبدًا
+// طلبات POST/PUT/PATCH/DELETE: تكرارها قد يُنشئ حسابًا/منتجًا/قيدًا مرتين.
+const GET_RETRY_ON_5XX = 1;
+const GET_RETRY_DELAY_MS = 1200;
+
 export async function api(method, path, body, apiKey) {
-  await waitForRateLimitSlot();
   const opts = {
     method,
     headers: { "API-KEY": apiKey, "Content-Type": "application/json", Accept: "application/json" },
   };
   if (body) opts.body = JSON.stringify(body);
-  const resp = await fetch(PROXY_BASE + path, opts);
-  const text = await resp.text();
-  // [إصلاح] 200 حرف كانت تقطع رسائل 422 المتعددة الحقول (كل حقل ناقص برسالته
-  // الخاصة) في منتصف الجملة — حالة حقيقية وقعت فعليًا مع POST /products (راجع
-  // تعليق رأس buildProductCreatePayload بـqoyodEntityCreate.js)، فأخفت حقولًا
-  // ناقصة إضافية محتملة عن تقرير الفشل المعروض للمستخدم.
-  if (!resp.ok) throw new Error(`API ${resp.status}: ${text.substring(0, 1000)}`);
-  return text ? JSON.parse(text) : {};
+
+  const retries = method === "GET" ? GET_RETRY_ON_5XX : 0;
+  for (let attempt = 0; ; attempt++) {
+    await waitForRateLimitSlot();
+    const resp = await fetch(PROXY_BASE + path, opts);
+    const text = await resp.text();
+    if (resp.ok) return text ? JSON.parse(text) : {};
+    if (resp.status >= 500 && attempt < retries) {
+      await new Promise((r) => setTimeout(r, GET_RETRY_DELAY_MS));
+      continue;
+    }
+    // [إصلاح] 200 حرف كانت تقطع رسائل 422 المتعددة الحقول (كل حقل ناقص برسالته
+    // الخاصة) في منتصف الجملة — حالة حقيقية وقعت فعليًا مع POST /products (راجع
+    // تعليق رأس buildProductCreatePayload بـqoyodEntityCreate.js)، فأخفت حقولًا
+    // ناقصة إضافية محتملة عن تقرير الفشل المعروض للمستخدم.
+    // [إضافة] الرسالة كانت "API 500: {...}" بلا أي ذكر للمسار، فحين تفشل إحدى
+    // أربع عمليات جلب متوازية (Promise.all لـ/accounts و/taxes و
+    // /product_unit_types و/categories عند إدخال مفتاح العميل) يستحيل معرفة
+    // أيّها فشل فعلاً — ولا إبلاغ قيود بمسار محدد. المسار يُضاف بنهاية الرسالة
+    // عمدًا لا ببدايتها: البادئة "API <رمز>:" يعتمد عليها منطق قائم
+    // (isDuplicateApiError بـqoyodAccountPush.js، وفحص 404 أدناه) فتبقى كما هي.
+    const hint = resp.status >= 500
+      ? " — الخطأ من خوادم قيود نفسها لا من الأداة (جرّب مجددًا بعد قليل، أو تحقّق مع دعم قيود بهذا المسار تحديدًا)"
+      : "";
+    throw new Error(`API ${resp.status}: ${text.substring(0, 1000)} — ${method} ${path}${hint}`);
+  }
 }
 
 // [إصلاح المستخدم] Qoyod API يُرجع 404 ("We found nothing") عند قائمة فارغة
@@ -94,7 +120,11 @@ export async function fetchAll(path, apiKey, { onPage } = {}) {
     try {
       res = await api("GET", `${path}?page=${page}&per_page=100`, null, apiKey);
     } catch (e) {
-      if (e.message && e.message.includes("404")) break;
+      // [تشديد] كان الفحص `includes("404")` على نص الرسالة كاملاً — والرسالة
+      // صارت تحمل المسار بنهايتها، فمسار مثل /products/404 (أو نص خطأ يذكر 404
+      // عرضًا) كان سيُقرأ "قائمة فارغة" ويُنهي الجلب بصمت. الحالة تُقرأ الآن من
+      // بادئة الرسالة وحدها، وهي الجزء الذي يكتبه api() بنفسه.
+      if (/^API 404:/.test(e.message || "")) break;
       throw e;
     }
     // [إصلاح خطأ حقيقي] GET /projects تحديداً يرجع مصفوفة خام بلا مفتاح جذر

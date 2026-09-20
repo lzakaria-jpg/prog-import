@@ -25,6 +25,51 @@ describe("api()", () => {
     mockFetchOnce(200, "");
     expect(await api("GET", "/accounts", null, "KEY")).toEqual({});
   });
+
+  // [بلاغ حقيقي من المستخدم] "API 500: {status:500,error:Internal Server Error}"
+  // بكل الأدوات — بلا ذكر المسار، ومع أربع عمليات جلب متوازية عند إدخال المفتاح
+  // كان يستحيل معرفة أيّها فشل.
+  it("يذكر المسار والطريقة بنهاية رسالة الخطأ (مع إبقاء البادئة 'API <رمز>:' كما هي)", async () => {
+    mockFetchOnce(422, { errors: ["bad"] });
+    await expect(api("POST", "/products", { product: {} }, "KEY"))
+      .rejects.toThrow(/^API 422:.*POST \/products/s);
+  });
+
+  it("خطأ 5xx يُوضِّح أنه من خوادم قيود لا من الأداة", async () => {
+    mockFetchOnce(500, { status: 500, error: "Internal Server Error" });
+    await expect(api("POST", "/products", {}, "KEY")).rejects.toThrow(/خوادم قيود/);
+  });
+
+  it("GET على 5xx: محاولة إضافية واحدة تلقائيًا (انقطاع لحظي يُتجاوَز)", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ taxes: [] }) };
+    });
+    expect(await api("GET", "/taxes", null, "KEY")).toEqual({ taxes: [] });
+    expect(call).toBe(2);
+  });
+
+  it("GET على 5xx مستمر: يفشل بعد المحاولة الإضافية (لا إخفاء انقطاع حقيقي)", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      return { ok: false, status: 500, text: async () => "boom" };
+    });
+    await expect(api("GET", "/taxes", null, "KEY")).rejects.toThrow(/^API 500:/);
+    expect(call).toBe(2);
+  });
+
+  it("POST على 5xx لا يُعاد إطلاقًا (تكراره قد يُنشئ الكيان مرتين)", async () => {
+    let call = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      call++;
+      return { ok: false, status: 500, text: async () => "boom" };
+    });
+    await expect(api("POST", "/products", { product: {} }, "KEY")).rejects.toThrow(/^API 500:/);
+    expect(call).toBe(1);
+  });
 });
 
 describe("fetchAll() — إصلاح 404 كقائمة فارغة", () => {
