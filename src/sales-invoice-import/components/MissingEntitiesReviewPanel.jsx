@@ -102,8 +102,8 @@ export default function MissingEntitiesReviewPanel({ plan, apiKey, taxesIndex, o
       try {
         const [accs, cats, us] = await Promise.all([
           fetchAllByCursor('/accounts', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, accounts: n })) }),
-          fetchAll('/categories', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, categories: n })) }),
-          fetchAll('/product_unit_types', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, units: n })) }),
+          fetchAllByCursor('/categories', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, categories: n })) }),
+          fetchAllByCursor('/product_unit_types', apiKey, { onPage: (n) => !cancelled && setLoadingProgress((p) => ({ ...p, units: n })) }),
         ]);
         if (cancelled) return;
         setAccounts(accs || []);

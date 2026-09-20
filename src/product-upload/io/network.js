@@ -174,12 +174,14 @@ export async function fetchAllByCursor(path, apiKey, { onPage } = {}) {
       res = await api("GET", `${path}?per_page=100&q[s]=id%20asc&q[id_gt]=${lastId}`, null, apiKey);
     } catch (e) {
       if (/^API 404:/.test(e.message || "")) break; // قائمة فارغة = انتهت البيانات
-      if (all.length > 0) {
-        // نجحنا بجزء ثم طاح استعلام قيود على سجل معطوب بجهتهم — نكتفي بما تجمَّع
-        Object.defineProperty(all, "qoyodFetchTruncatedError", { value: e.message, enumerable: false, configurable: true });
-        break;
-      }
-      throw e; // فشل أول طلب (لا بيانات إطلاقًا) — يُرمى كالمعتاد
+      // [قرار المستخدم الصريح، خبير المجال] /accounts يرجّع الحسابات الطرفية
+      // (الفرعية) فقط — وهذا هو الصحيح والكامل. بعد آخر حساب طرفي يطيح استعلام
+      // قيود 500 على "التالي" بدل إرجاع قائمة فارغة (خطأ بجهتهم لا بالأداة).
+      // بما أن ما تجمَّع حتى الآن هو البيانات الكاملة فعليًا (أكّده المستخدم:
+      // 738 حساب فرعي صحيح)، نعامل الخطأ بعد نجاح جزئي كنهاية طبيعية بلا أي
+      // تحذير. فشل أول طلب (لا بيانات إطلاقًا) يبقى يُرمى كالمعتاد.
+      if (all.length > 0) break;
+      throw e;
     }
     const items = Array.isArray(res) ? res : (res[Object.keys(res)[0]] || []);
     if (!items.length) break;
