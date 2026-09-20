@@ -685,6 +685,10 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // تنبيه واضح بجانبه أن الشجرة قد تكون غير مكتملة، بدل إخفاء النجاح كليًا.
   const [apiFetchWarning, setApiFetchWarning] = useState("");
   const [apiFetchSummary, setApiFetchSummary] = useState(null);
+  // [إضافة — بلاغ حقيقي من المستخدم: "طول كتير الى الان ما خلص"] عدد الحسابات
+  // المُجمَّعة حتى الآن أثناء الجلب — بلا هذا كان زر "جارٍ الجلب..." يبقى بلا أي
+  // رقم لدقائق مع الإنقاذ الفردي (per_page=1) لشجرة حسابات كبيرة فيبدو متجمّداً.
+  const [apiFetchProgress, setApiFetchProgress] = useState(0);
   const [projectsRef, setProjectsRef] = useState({ loaded: false });
   // [إضافة 2026-09-15] فهرس مواقع/مخازن منشأة العميل (inventory_id) — طلب
   // المستخدم الصريح، مؤكَّد بمثال طلب POST /journal_entries حقيقي. نفس فلسفة
@@ -1098,9 +1102,9 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // يملأ نفس الحالات (chartAccounts/customersRefList/suppliersRefList) التي
   // يملؤها الرفع اليدوي بالضبط — بلا أي تعديل على أي منطق تحليل/مطابقة قائم.
   const handleFetchFromApi = async () => {
-    setApiFetchError(""); setApiFetchWarning(""); setApiFetchBusy(true); setApiFetchSummary(null);
+    setApiFetchError(""); setApiFetchWarning(""); setApiFetchBusy(true); setApiFetchSummary(null); setApiFetchProgress(0);
     try {
-      const result = await fetchJournalReferencesFromApi(apiKey);
+      const result = await fetchJournalReferencesFromApi(apiKey, { onAccountsProgress: (total) => setApiFetchProgress(total) });
       suggestionCacheRef.current.clear();
       setChartAccounts(result.chartAccounts);
       setChartFileName(t({ ar: "جُلبت عبر API", en: "Fetched via API" }));
@@ -1552,7 +1556,11 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
                 <button type="button" onClick={handleFetchFromApi} disabled={apiFetchBusy || !apiKey.trim()}
                   className="flex items-center gap-1.5 rounded-md px-4 py-1.5 font-semibold text-white disabled:opacity-50" style={{ background: COLORS.teal }}>
                   {apiFetchBusy ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-                  {apiFetchBusy ? t({ ar: "جارٍ الجلب...", en: "Fetching..." }) : t({ ar: "جلب البيانات الآن", en: "Fetch now" })}
+                  {apiFetchBusy
+                    ? (apiFetchProgress > 0
+                        ? t({ ar: `جارٍ الجلب... (${apiFetchProgress} حساب حتى الآن)`, en: `Fetching... (${apiFetchProgress} accounts so far)` })
+                        : t({ ar: "جارٍ الجلب...", en: "Fetching..." }))
+                    : t({ ar: "جلب البيانات الآن", en: "Fetch now" })}
                 </button>
               </div>
               {Object.keys(savedKeys).length > 0 && (
