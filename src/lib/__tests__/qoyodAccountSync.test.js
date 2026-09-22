@@ -13,6 +13,8 @@ import {
   QOYOD_BRANCH_KIND_BY_LEVEL2,
   QOYOD_KIND_INFO_BY_KIND,
   QOYOD_LOCKED_ACCOUNT_KINDS,
+  mapQoyodTypeToLevel2,
+  QOYOD_LEVEL2_BY_UNIQUE_TYPE,
 } from "../qoyodAccountSync.js";
 import { LEVEL2_TO_LEVEL1, LEVEL3_MAP, TYPE_TO_LEVEL2, compareTrees } from "../../MergeTool.jsx";
 import qoyodAccountTypesReference from "../../../config/qoyod-account-types-reference.json";
@@ -381,6 +383,21 @@ describe("qoyodAccountsToFile1Records — تحويل رد GET /accounts الفع
     expect(bank.type).toBe("");
   });
 
+  // [إضافة — بلاغ حقيقي من المستخدم] qoyodType (منفصل عن type المعروض، يبقى
+  // فارغًا كالسابق) يحمل قيمة "type" الخام من GET /accounts كما هي — تُستخدم
+  // داخليًا فقط (MergeTool.jsx) لتحديد فئة حساب أب موجود فعليًا بيقين تام.
+  it("qoyodType يحمل قيمة type الخام من رد API كما هي (منفصل عن .type المعروض الفارغ)", () => {
+    const raw = [{ id: 9, code: "5101", name_ar: "تكاليف مباشرة", name_en: "Direct Costs", type: "DirectCost", description: "", recieve_payments: "false" }];
+    const rec = qoyodAccountsToFile1Records(raw)[0];
+    expect(rec.qoyodType).toBe("DirectCost");
+    expect(rec.type).toBe("");
+  });
+
+  it("qoyodType فارغة لو الرد لا يحمل type إطلاقًا", () => {
+    const rec = qoyodAccountsToFile1Records(rawAccounts).find((r) => r.code === "1");
+    expect(rec.qoyodType).toBe("");
+  });
+
   it("تكامل حقيقي: تمريرها لـcompareTrees يحسب مستوى كل حساب صحيحًا رغم غياب level/parent صريح من Qoyod", () => {
     const file1Records = qoyodAccountsToFile1Records(rawAccounts);
     const { tree1Index } = compareTrees(file1Records, [], false);
@@ -431,5 +448,80 @@ describe("buildQoyodAccountPayload — حقل type القديم لا يناقض 
         else expect(type).toBe(TYPE_BY_BRANCH[branch]);
       }
     }
+  });
+});
+
+// [إضافة — بلاغ حقيقي من المستخدم] حساب "تكاليف مباشرة" (5101) موجود فعليًا
+// بشجرة العميل عبر API صُنِّف خطأً "تكاليف تشغيلية" عند إضافة أبناء تحته من
+// ملف عميل يحمل عمود "حساب الأب" صريحًا — رغم أن الأب موجود فعلًا بالشجرة.
+// السبب: canonicalizeLevel2Category (تخمين نصي من اسم الحساب) لا يطابق صياغة
+// "تكاليف مباشرة" (بلا "ال" التعريف) مع الاسم الرسمي "التكلفة المباشرة".
+// mapQoyodTypeToLevel2 يتفادى هذا كليًا باستخدام نوع Qoyod الحقيقي المؤكَّد.
+describe("mapQoyodTypeToLevel2 — عكس QOYOD_TYPE_BY_LEVEL2 لقيم غير ملتبسة فقط", () => {
+  it("DirectCost يطابق التكلفة المباشرة (قيمة فريدة بلا لبس)", () => {
+    expect(mapQoyodTypeToLevel2("DirectCost")).toBe("التكلفة المباشرة");
+  });
+
+  it("CurrentAsset / FixedAsset / Sale / OtherIncome — كلها فريدة بلا لبس", () => {
+    expect(mapQoyodTypeToLevel2("CurrentAsset")).toBe("الأصول المتداولة");
+    expect(mapQoyodTypeToLevel2("FixedAsset")).toBe("الأصول غير المتداولة");
+    expect(mapQoyodTypeToLevel2("Sale")).toBe("المبيعات");
+    expect(mapQoyodTypeToLevel2("OtherIncome")).toBe("الإيرادات الأخرى");
+  });
+
+  it("Equity ملتبسة (3 فئات) — ترجع فارغة عمدًا، يبقى الاستنتاج النصي المعتاد", () => {
+    expect(mapQoyodTypeToLevel2("Equity")).toBe("");
+    expect(QOYOD_LEVEL2_BY_UNIQUE_TYPE.Equity).toBeUndefined();
+  });
+
+  it("Expense ملتبسة (تكاليف تشغيلية/غير تشغيلية) — ترجع فارغة عمدًا", () => {
+    expect(mapQoyodTypeToLevel2("Expense")).toBe("");
+    expect(QOYOD_LEVEL2_BY_UNIQUE_TYPE.Expense).toBeUndefined();
+  });
+
+  it("قيمة فارغة أو غير معروفة ترجع فارغة بلا رمي خطأ", () => {
+    expect(mapQoyodTypeToLevel2("")).toBe("");
+    expect(mapQoyodTypeToLevel2(undefined)).toBe("");
+    expect(mapQoyodTypeToLevel2("NotARealType")).toBe("");
+  });
+});
+
+// [إضافة — البلاغ الحقيقي كاملاً، سيناريو تكامل] ملف عميل يحمل عمود "حساب
+// الأب" صريحًا (5101 موجود فعليًا بالشجرة المجلوبة عبر API، مصنَّف Qoyod نفسه
+// "DirectCost") — النتيجة يجب أن تكون level2Category = "التكلفة المباشرة"
+// (لا "تكاليف تشغيلية" كما كان يحدث خطأً)، والأب المُعتمَد = 5101 كما هو
+// بالضبط، بلا أي تحذير "أب مفقود" (5101 موجود فعليًا بـexistingCodes).
+describe("compareTrees — الأب الصريح من ملف العميل + qoyodType يحسمان الفئة بدقة (لا تخمين نصي)", () => {
+  it("حساب أب 5101 (DirectCost) موجود فعليًا عبر API — الابن يرث الفئة الصحيحة بيقين، لا 'تكاليف تشغيلية' الافتراضية", () => {
+    const file1Records = qoyodAccountsToFile1Records([
+      { id: 1, code: "5", name_ar: "المصاريف", name_en: "Expenses", type: "" },
+      { id: 2, code: "51", name_ar: "تكاليف مباشرة", name_en: "Direct Costs", type: "" },
+      { id: 3, code: "5101", name_ar: "تكاليف مباشرة", name_en: "Direct Costs", type: "DirectCost" },
+    ]);
+    const file2Records = [
+      { code: "5101001", nameAr: "مصروف الرواتب (001)", nameEn: "", level: "", parent: "5101", type: "", desc: "", debit: "", credit: "", payCollect: "", extra: {}, _rowIndex: 1 },
+    ];
+    const { results, existingCodes } = compareTrees(file1Records, file2Records, false);
+    expect(existingCodes).toContain("5101");
+    const newRow = results.find((r) => r.status === "new");
+    expect(newRow.parent).toBe("5101");
+    expect(newRow.level2Category).toBe("التكلفة المباشرة");
+    expect(newRow.warnings.some((w) => w.includes("أب مفقود"))).toBe(false);
+  });
+
+  it("بلا qoyodType (ملف 1 مرفوع يدويًا، لا API) — حساب مستوى2 اسمه 'تكاليف مباشرة' يُكتشَف عبر كلمة 'تكاليف' المضافة لجذر المصاريف", () => {
+    // "51" حساب مستوى2 فعلي (رمز من خانتين) — الشكل المعتاد لشجرة حسابات
+    // سعودية قياسية (1-2-4-6 خانات). بلا الكلمة المضافة ("تكاليف") لم يكن
+    // جذر "المصاريف" يُكتشَف من هذا الاسم إطلاقًا (يطابق "مصروف/مصاريف" فقط
+    // سابقًا)، فتفشل canonicalizeLevel2Category بالكامل (لا مطابقة حرفية، لا
+    // تشابه كافٍ، ولا كشف جذر) وتُرجع فئة فارغة.
+    const file1Records = [
+      { code: "5", nameAr: "المصاريف", nameEn: "Expenses", level: "", parent: "", type: "", desc: "", debit: "", credit: "", payCollect: "No", extra: {}, _rowIndex: -1 },
+      { code: "51", nameAr: "تكاليف مباشرة", nameEn: "Direct Costs", level: "", parent: "5", type: "", desc: "", debit: "", credit: "", payCollect: "No", extra: {}, _rowIndex: -1 },
+    ];
+    const { tree1Index } = compareTrees(file1Records, [], false);
+    const acc51 = tree1Index.find((r) => r.code === "51");
+    expect(acc51.level).toBe(2);
+    expect(acc51.level2Category).toBe("التكلفة المباشرة");
   });
 });

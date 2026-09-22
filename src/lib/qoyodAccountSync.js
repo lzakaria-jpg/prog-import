@@ -97,6 +97,39 @@ export function mapAccountTypeToQoyod(level3Type, level2Category) {
   return null;
 }
 
+// [إضافة — بلاغ حقيقي من المستخدم: حساب "تكاليف مباشرة" (5101) بشجرة العميل
+// الحقيقية عبر API صُنِّف خطأً "تكاليف تشغيلية" عند إضافة أبناء تحته، رغم أن
+// الأب موجود فعليًا بالشجرة] عكس QOYOD_TYPE_BY_LEVEL2 — يحوّل قيمة "type"
+// الخام المؤكَّدة من GET /accounts (واحدة من الـ16 القيمة الرسمية، لا تخمين)
+// إلى فئة مستوى2 الداخلية، لكن فقط للقيم التي تُطابق فئة مستوى2 واحدة بلا
+// لبس (DirectCost -> التكلفة المباشرة فقط، مثلاً). القيم متعددة اللبس
+// (Equity يطابق 3 فئات؛ Expense يطابق فئتين) تُستبعَد عمدًا هنا — الاعتماد
+// على النص (اسم الحساب) يبقى الملاذ الصحيح لها، فتبقى نفس السلوك السابق.
+// هذا أدق من أي تخمين نصي لأنه مصدره Qoyod نفسه لا اسم الحساب: حساب اسمه
+// "تكاليف مباشرة" (بلا "ال" التعريف، أو أي صياغة أخرى لا تطابق قاموس الأداة
+// النصي حرفيًا) لن يُخمَّن أبدًا بمطابقة نصية موثوقة 100%، لكن Qoyod نفسه
+// يعرف فرعه الحقيقي (DirectCost) بيقين تام لأنه هو من صنَّفه أصلًا.
+export const QOYOD_LEVEL2_BY_UNIQUE_TYPE = (() => {
+  const counts = {};
+  Object.values(QOYOD_TYPE_BY_LEVEL2).forEach((v) => { counts[v] = (counts[v] || 0) + 1; });
+  const out = {};
+  Object.entries(QOYOD_TYPE_BY_LEVEL2).forEach(([level2, qType]) => {
+    if (counts[qType] === 1) out[qType] = level2;
+  });
+  return out;
+})();
+
+/**
+ * يحوّل قيمة "type" الخام من GET /accounts (حساب موجود فعليًا بشجرة العميل)
+ * إلى فئة مستوى2 الداخلية — فقط لو القيمة تطابق فئة واحدة بلا لبس. يرجّع ""
+ * لو القيمة فارغة أو ملتبسة (Equity/Expense) أو غير معروفة — يُترَك الاستنتاج
+ * النصي المعتاد (canonicalizeLevel2Category) يتولى الحالات الملتبسة كما كان.
+ */
+export function mapQoyodTypeToLevel2(qoyodType) {
+  const t = String(qoyodType || "").trim();
+  return t ? (QOYOD_LEVEL2_BY_UNIQUE_TYPE[t] || "") : "";
+}
+
 // [تصحيح 2026-09-09] حسابات جذر مستوى1 المسموح بإنشائها (الإيرادات/المصاريف
 // فقط - راجع LEVEL1_TYPES_ALLOWING_NEW بـMergeTool.jsx) لا فئة مستوى2 أصلاً
 // لها - افتراض معقول لعدم وجود تصنيف Qoyod عام لكل الإيرادات/كل المصاريف.
@@ -573,8 +606,15 @@ function guessParentByCodeTruncation(code, codesSet) {
  * يحوّل مصفوفة حسابات Qoyod الفعلية (رد GET /accounts المسطّح) إلى نفس شكل
  * "records" الذي تنتجه buildRecords() من ملف إكسل مرفوع يدويًا - بحيث تُمرَّر
  * مباشرة لـcompareTrees() كبديل لرفع "ملف 1". لا نحاول ترجمة حقل type الفعلي
- * (enum إنجليزي مثل "CurrentAsset") لتصنيف عربي - نتركه فارغًا ونعتمد نفس
- * منطق الاستنتاج من الاسم الموجود أصلاً بالأداة لأي ملف بلا عمود نوع صريح.
+ * (enum إنجليزي مثل "CurrentAsset") لتصنيف عربي معروض - نترك .type فارغًا
+ * ونعتمد نفس منطق الاستنتاج من الاسم الموجود أصلاً بالأداة لأي ملف بلا عمود
+ * نوع صريح، كالسابق تمامًا.
+ * [إضافة — بلاغ حقيقي من المستخدم] .qoyodType منفصل يحمل القيمة الخام كما
+ * هي (لا تُعرَض، لا تُخمَّن) - تُستخدَم داخليًا فقط (MergeTool.jsx عبر
+ * mapQoyodTypeToLevel2) حين يحتاج حساب أب موجود فعليًا تحديد فئته بيقين تام
+ * من Qoyod نفسه بدل مطابقة نصية لاسمه قد تفشل (حساب اسمه "تكاليف مباشرة" -
+ * صياغة لا تطابق قاموس الأداة النصي حرفيًا - بينما Qoyod يعرف فرعه الحقيقي
+ * "DirectCost" بيقين لأنه هو من صنَّفه أصلًا).
  */
 export function qoyodAccountsToFile1Records(accounts) {
   const list = (accounts || []).filter((a) => a && a.code !== undefined && a.code !== null && String(a.code).trim() !== "");
@@ -588,6 +628,7 @@ export function qoyodAccountsToFile1Records(accounts) {
       level: "",
       parent: guessParentByCodeTruncation(code, codesSet),
       type: "",
+      qoyodType: String(a.type ?? "").trim(),
       desc: String(a.description ?? "").trim(),
       debit: "",
       credit: "",
