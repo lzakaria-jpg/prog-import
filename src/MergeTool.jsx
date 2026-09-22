@@ -2539,7 +2539,16 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
 
   return (
     <div dir={dir} className="h-full w-full overflow-auto bg-[#F1F5F9] font-cairo text-[#0F172A]">
-      <div className="mx-auto max-w-6xl px-4 py-8">
+      {/* [إصلاح — بلاغ حقيقي من المستخدم] max-w-6xl (1152px) كانت تُحجِّم كامل
+          الأداة (بما فيها جدول التحليل والمطابقة) بعمود ضيق وسط الشاشة بصرف
+          النظر عن المساحة الفعلية المتاحة — خصوصًا مع طي القائمة الجانبية
+          (المساحة تتضاعف تقريبًا ولا يُستفاد منها). النتيجة المرئية: عمود
+          "ملاحظات" الحر النص يضيق لدرجة كلمة أو كلمتين بالسطر، وأعمدة أخرى
+          (الاسم/الرمز/المستوى) تُعصَر. الجداول أصلاً w-full بداخل هذا الحاوي
+          (تمتد لعرضه بالكامل) — إزالة السقف تكفي وحدها ليستخدم الجدول كل
+          العرض الحقيقي المتاح، فترتفع كثافة القراءة بلا أي تعديل على الجداول
+          نفسها. */}
+      <div className="w-full px-4 py-8">
         <div className="mb-8 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <ToolIcon name="accounts" />
