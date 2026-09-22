@@ -1632,21 +1632,34 @@ export function ensureParentsExist(rows, ctx) {
   return { rows: out, created };
 }
 
-/** ترتيب طوبولوجي: الأب دائمًا قبل أبنائه في ملف الرفع */
+/**
+ * ترتيب طوبولوجي: الأب دائمًا قبل أبنائه في ملف الرفع.
+ *
+ * [إصلاح — بلاغ حقيقي من المستخدم: "19 حساب بالتحليل لكن 18 فقط بملف
+ * الإكسل"] كان الفرز (والحذف اللاحق للمكرر) يعتمد على .code كمفتاح تفرّد
+ * (visited/guard) بدل .id - فأي حسابين جديدين ينتهي بهما الحال بنفس الرمز
+ * (تصادم رموز، ولو نادرًا/ناتج عن خلل آخر في توليد الرمز) كان ثانيهما
+ * يُعتبر "زُور بالفعل" بصمت ويسقط تمامًا من ملف الرفع - رغم بقائه محسوبًا
+ * ضمن activeNewRows.length المعروض بالملخص (السبب المباشر للفارق 19 مقابل
+ * 18). .id فريد دومًا لكل صف (يُبنى من فهرس صفه بملف2 عند الإنشاء) فلا يجوز
+ * لأي صف أن يُفقَد بسببه - يبقى .code مستخدَمًا فقط لتتبّع سلسلة الآباء
+ * (byCode) وللحماية من حلقة فيها (guard)، لا لتحديد هل الصف نفسه "سبق ظهوره".
+ */
 export function orderRowsForUpload(rows) {
   const byCode = new Map();
   rows.forEach((r) => { const c = String(r.code || "").trim(); if (c && !byCode.has(c)) byCode.set(c, r); });
-  const visited = new Set();
+  const pushedIds = new Set();
   const out = [];
   const visit = (row, guard) => {
+    if (pushedIds.has(row.id)) return;
     const c = String(row.code || "").trim();
-    const key = c || row.id;
-    if (visited.has(key) || guard.has(key)) return;
-    guard.add(key);
+    const guardKey = c || row.id;
+    if (guard.has(guardKey)) return;
+    guard.add(guardKey);
     const p = String(row.parent || "").trim();
     if (p && byCode.has(p) && p !== c) visit(byCode.get(p), guard);
-    if (visited.has(key)) return;
-    visited.add(key);
+    if (pushedIds.has(row.id)) return;
+    pushedIds.add(row.id);
     out.push(row);
   };
   rows.forEach((r) => visit(r, new Set()));
