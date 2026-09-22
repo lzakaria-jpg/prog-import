@@ -132,6 +132,22 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
     delete paneApiRef.current[id];
   }, []);
 
+  // [إضافة — بلاغ حقيقي من المستخدم: "الصفحة تتحدث تلقائي وكامل البيانات تروح"]
+  // كل حالة الأدوات بالذاكرة فقط (قرار سابق)، فأي إعادة تحميل للصفحة (F5،
+  // إعادة تحميل تلقائية من المتصفح تحت ضغط الذاكرة مع ملفات كبيرة، أو انقطاع
+  // اتصال) تمسح شغل المستخدم بلا إنذار. حارس beforeunload يعطي المستخدم فرصة
+  // إلغاء إعادة التحميل قبل أن يفقد شغله — يُسلَّح فقط حين يوجد شغل فعلي بهذي
+  // الأداة (عميل مُسمّى، أو عملية إرسال جارية، أو أكثر من تبويب مفتوح) حتى لا
+  // يزعج بحالة فارغة. لا يمنع إعادة تحميل يفرضها المتصفح قسريًا (إهمال تبويب
+  // بالخلفية قد يتجاهله)، لكنه يمسك الغالب: F5/Ctrl+R/إغلاق/تنقّل بالخطأ.
+  useEffect(() => {
+    const hasWork = Object.keys(labels).length > 0 || busyIds.size > 0 || tabs.length > 1;
+    if (!hasWork) return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ""; return ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [labels, busyIds, tabs.length]);
+
   const requestClose = (id) => {
     if (busyIds.has(id)) { setCloseConfirmId(id); return; }
     doRemove(id);
