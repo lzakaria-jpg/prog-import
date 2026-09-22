@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { MergeTool } from "./MergeTool";
 import JournalTool from "./JournalTool";
 import { LanguageProvider, useLanguage } from "./language";
@@ -51,8 +52,25 @@ const CATEGORIES = [
   },
 ];
 
+// [إصلاح — بلاغ حقيقي من المستخدم، مؤكَّد باختبار حي] compact لم تكن مُستخدَمة
+// إطلاقاً داخل المكوّن — الزر كان يعرض نفس الشكل الكامل (أيقونة + نص "English")
+// دومًا حتى بالوضع المضغوط، فيفيض خارج حدود الشريط الجانبي الضيق (72px) ويظهر
+// متراكبًا فوق محتوى الصفحة. بالوضع المضغوط الآن: مربع أيقونة فقط بنفس حجم
+// أيقونات الشريط الأخرى، يبقى بحدود العمود تمامًا.
 function LanguageToggle({ compact }) {
   const { lang, toggle, t } = useLanguage();
+  if (compact) {
+    return (
+      <button
+        onClick={toggle}
+        className="flex items-center justify-center rounded-lg w-full transition-all duration-200"
+        style={{ height: 32, background: "rgba(255,255,255,0.06)", color: "#CBD5E1", border: "1px solid rgba(255,255,255,0.1)" }}
+        title={lang === "ar" ? "Switch to English" : "التبديل للعربية"}
+      >
+        <Languages size={15} />
+      </button>
+    );
+  }
   return (
     <button
       onClick={toggle}
@@ -183,6 +201,33 @@ function AppShell() {
   // منزلق (overlay) فوق المحتوى بدل عمود ثابت العرض يلتهم أغلب شاشة الجوال —
   // sidebar سطح المكتب (md فأعلى) بلا أي تغيير إطلاقاً.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // [إضافة — بلاغ حقيقي من المستخدم: فيديو مرجعي لموقع قيود نفسه] بالوضع
+  // المضغوط (collapsed) كانت أيقونات المجموعات بلا أي تفاعل إطلاقًا — لا نقر
+  // ولا قائمة فرعية، فتصير أدوات المجموعة كلها بلا طريقة وصول أثناء الطي. الآن
+  // تمرير الماوس على أيقونة مجموعة (بالوضع المضغوط فقط) يفتح قائمة فرعية عائمة
+  // بنفس آلية قيود المصورة بالفيديو. flyoutCat = {catId, top} أو null. تُرسَم
+  // عبر portal لـdocument.body (لا داخل <nav> ذات overflow-y-auto، التي كانت
+  // ستقص أي عنصر ممتد أفقيًا خارج حدودها — راجع نفس المشكلة الكلاسيكية
+  // "overflow-y يفرض overflow-x تلقائيًا" لو رُسمت داخليًا) فتبقى ظاهرة كاملة
+  // فوق محتوى الصفحة بصرف النظر عن أي تمرير/قص بالعناصر الأب.
+  const [flyoutCat, setFlyoutCat] = useState(null);
+  const flyoutCloseTimerRef = useRef(null);
+  const clearFlyoutCloseTimer = useCallback(() => {
+    if (flyoutCloseTimerRef.current) { clearTimeout(flyoutCloseTimerRef.current); flyoutCloseTimerRef.current = null; }
+  }, []);
+  const openFlyout = useCallback((catId, targetEl) => {
+    clearFlyoutCloseTimer();
+    const rect = targetEl.getBoundingClientRect();
+    setFlyoutCat({ catId, top: rect.top, height: rect.height });
+  }, [clearFlyoutCloseTimer]);
+  // تأخير قصير قبل الإغلاق يتيح للمؤشر عبور الفجوة بين الأيقونة والقائمة
+  // العائمة بلا إغلاقها بالغلط (نمط قياسي لقوائم hover) — يُلغى فورًا لو دخل
+  // المؤشر أي منهما (الأيقونة أو القائمة نفسها) خلال المهلة.
+  const scheduleCloseFlyout = useCallback(() => {
+    clearFlyoutCloseTimer();
+    flyoutCloseTimerRef.current = setTimeout(() => setFlyoutCat(null), 150);
+  }, [clearFlyoutCloseTimer]);
+  useEffect(() => clearFlyoutCloseTimer, [clearFlyoutCloseTimer]);
   const { lang, dir, t } = useLanguage();
   const { currentUser, isAdmin, isUserManager, canAddUsers, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
@@ -332,8 +377,10 @@ function AppShell() {
                 {collapsed ? (
                   <div
                     className="w-full flex items-center justify-center"
-                    style={{ padding: "10px 0", color: isCurrent ? "#60A5FA" : "#64748B" }}
+                    style={{ padding: "10px 0", color: isCurrent ? "#60A5FA" : "#64748B", cursor: cat.items.length > 0 ? "pointer" : "default" }}
                     title={t(cat.label)}
+                    onMouseEnter={(e) => cat.items.length > 0 && openFlyout(cat.id, e.currentTarget)}
+                    onMouseLeave={() => cat.items.length > 0 && scheduleCloseFlyout()}
                   >
                     <CatIcon size={18} style={{ flexShrink: 0 }} />
                   </div>
@@ -376,6 +423,57 @@ function AppShell() {
                       );
                     })}
                   </div>
+                )}
+
+                {/* [إضافة] القائمة الفرعية العائمة — الوضع المضغوط فقط، تظهر
+                    عند تمرير الماوس على أيقونة المجموعة (نفس آلية قيود
+                    المصورة بالفيديو). عبر portal لتفادي أي قصّ من overflow
+                    الأب (راجع تعليق flyoutCat أعلى الملف). */}
+                {collapsed && flyoutCat?.catId === cat.id && cat.items.length > 0 && createPortal(
+                  <div
+                    onMouseEnter={clearFlyoutCloseTimer}
+                    onMouseLeave={scheduleCloseFlyout}
+                    style={{
+                      position: "fixed",
+                      top: Math.min(Math.max(flyoutCat.top, 8), window.innerHeight - 8),
+                      [dir === "rtl" ? "right" : "left"]: 76,
+                      minWidth: 220,
+                      maxWidth: 280,
+                      background: "linear-gradient(180deg, var(--qoyod-sidebar-grad-a) 0%, var(--qoyod-sidebar-grad-b) 100%)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: 12,
+                      boxShadow: "0 12px 32px rgba(15,23,42,0.35)",
+                      padding: 6,
+                      zIndex: 60,
+                    }}
+                  >
+                    <p className="px-2 pb-1.5 pt-1 text-[10.5px] font-bold uppercase" style={{ color: "#64748B", letterSpacing: "0.02em" }}>{t(cat.label)}</p>
+                    {cat.items.map((item, itemIndex) => {
+                      const Icon = item.icon;
+                      const active = item.id === tab;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => { item.action(); setMobileNavOpen(false); setFlyoutCat(null); }}
+                          className="w-full flex items-center gap-3 rounded-lg transition-all duration-200 group"
+                          style={{
+                            padding: "8px 10px",
+                            justifyContent: "flex-start",
+                            background: active ? "rgba(74,144,217,0.2)" : "transparent",
+                            color: active ? "#93C5FD" : "#94A3B8",
+                            borderTop: itemIndex > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                          }}
+                        >
+                          <Icon size={16} className={active ? "" : "group-hover:text-slate-300"} style={{ flexShrink: 0, color: active ? "#60A5FA" : undefined }} />
+                          <div className="text-start min-w-0">
+                            <p className={`text-[13px] font-semibold leading-snug truncate ${active ? "text-blue-200" : "text-slate-300 group-hover:text-white"}`}>{t(item.label)}</p>
+                            <p className="text-[10.5px] text-slate-500 leading-tight mt-0.5 truncate">{t(item.desc)}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  document.body
                 )}
               </div>
             );
