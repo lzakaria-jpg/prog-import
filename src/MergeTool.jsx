@@ -13,7 +13,7 @@ import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityT
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
-import { qoyodAccountsToFile1Records, mapRowToQoyodType } from "./lib/qoyodAccountSync.js";
+import { qoyodAccountsToFile1Records, mapRowToQoyodType, mapQoyodTypeToLevel2 } from "./lib/qoyodAccountSync.js";
 import { fetchAll, fetchAllByCursor } from "./product-upload/io/network.js";
 import { loadSnapshot, useSnapshotPersist } from "./lib/persistSnapshot.js";
 
@@ -108,7 +108,10 @@ const LEVEL1_ROOT_KEYWORDS = {
   الالتزامات: ["التزام", "liabilit", "مستحق"],
   "حقوق الملاك": ["حقوق الملاك", "حقوق الملكيه", "equity", "owners equity"],
   الايرادات: ["ايراد", "تبرع", "دخل", "revenue"],
-  المصاريف: ["مصروف", "مصاريف", "expense"],
+  // [إضافة — بلاغ حقيقي من المستخدم] "تكاليف"/"تكلفة" مصطلح محاسبي شائع بملفات
+  // عملاء حقيقية (مثال: حساب اسمه حرفيًا "تكاليف مباشرة") لم يكن مغطى - فشل
+  // اكتشاف جذر "المصاريف" منه، فتعذَّر تصنيف الحساب وأبنائه بالكامل.
+  المصاريف: ["مصروف", "مصاريف", "تكلفة", "تكلفه", "تكاليف", "expense", "cost"],
 };
 
 const KEYWORD_SYNONYMS = {
@@ -1135,6 +1138,15 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     const rec = findRecordByCode(code);
     if (!rec) return null;
     const lvl = getLevel(code);
+    // [إضافة — بلاغ حقيقي من المستخدم: حساب "تكاليف مباشرة" (5101) موجود
+    // فعليًا بشجرة العميل عبر API صُنِّف خطأً "تكاليف تشغيلية" عند إضافة
+    // أبناء تحته] حساب مجلوب فعليًا من Qoyod يحمل نوعه الحقيقي (qoyodType،
+    // واحد من 16 قيمة رسمية لا تخمين) - يُعتمد بيقين تام قبل أي مطابقة نصية
+    // لاسمه (قد تفشل لصياغات لا تطابق قاموس الأداة حرفيًا، كـ"تكاليف مباشرة"
+    // بلا "ال" التعريف). يعمل لأي مستوى، ومستبعَد تلقائيًا للقيم الملتبسة
+    // (Equity/Expense) عبر mapQoyodTypeToLevel2 نفسها - تبقى تلك تعتمد النص.
+    const fromQoyodType = mapQoyodTypeToLevel2(rec.qoyodType);
+    if (fromQoyodType) { catCache.set(code, fromQoyodType); return fromQoyodType; }
     if (lvl === 2) {
       const t = canonicalizeLevel2Category(rec.type) || canonicalizeLevel2Category(rec.nameAr || rec.nameEn);
       if (t) { catCache.set(code, t); return t; }
