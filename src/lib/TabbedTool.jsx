@@ -22,41 +22,69 @@
   وتحديث الشريط أصبحا O(١) — لا يُعاد رندر أي أداة ثقيلة إطلاقًا؛ كل أداة
   تُعاد رندرتها فقط من حالتها الداخلية هي (كما لو كانت وحيدة بلا تبويبات).
 
-  عدم استمرار عبر تحديث الصفحة (F5) — قرار صريح من المستخدم — كل الحالة
-  بالذاكرة فقط.
+  [تحديث — بلاغ حقيقي من المستخدم: "حتى لو صار تحديث تبقى البيانات محفوظة"]
+  عُكس القرار السابق (كانت الحالة بالذاكرة فقط وتضيع بإعادة التحميل): الآن
+  يُحفَظ هيكل التبويبات (بمعرّفات ثابتة) وتُمرَّر persistKey لكل أداة لتحفظ
+  مدخلاتها وتستعيدها صامتة بعد إعادة التحميل — عبر persistSnapshot.js
+  (localStorage مؤجَّل، آمن ضد تجاوز الحد). البدء بأداة مطابقة شجرة الحسابات.
  ============================================================================
 */
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X, Loader2 } from "lucide-react";
 import { useLanguage } from "../language.jsx";
 import { showToast } from "./toast.jsx";
+import { loadSnapshot, useSnapshotPersist, clearSnapshot } from "./persistSnapshot.js";
 
 let tabSeq = 0;
 function makeTab(label) {
   return { id: `t${Date.now()}_${++tabSeq}`, label: label || null };
 }
 
+// [بلاغ حقيقي من المستخدم] استمرار التبويبات عبر إعادة تحميل الصفحة — نطاق
+// المفتاح بالمستخدم الحالي (بريده محفوظ بـsessionStorage الذي يبقى بعد F5)
+// حتى لا تتسرّب مسودّات مستخدم لمستخدم آخر على نفس المتصفح.
+function userScope() {
+  try { return sessionStorage.getItem("qoyod_session") || "anon"; } catch { return "anon"; }
+}
+
 // [تحسين أداء] حدّ فاصل مُذكَّر: طالما Component/componentProps/api ثابتة الهوية
 // (وهي كذلك بالتصميم أدناه)، لا يُعاد رندر هذا المكوّن أبدًا عند إعادة رندر
 // TabbedTool (تبديل تبويب/تحديث شريط) — فتظل الأداة الثقيلة بداخله ساكنة تمامًا
 // ولا تُعاد رندرتها إلا من حالتها الداخلية هي. هذا هو مربط الأداء كله.
-const TabPane = memo(function TabPane({ Component, componentProps, api }) {
+const TabPane = memo(function TabPane({ Component, componentProps, api, persistKey }) {
   return (
     <Component
       {...componentProps}
       ref={api.setRef}
       onNameChange={api.onNameChange}
       onBusyChange={api.onBusyChange}
+      persistKey={persistKey}
     />
   );
 });
 
 export default function TabbedTool({ Component, toolKey, defaultTabLabel, componentProps }) {
   const { t, dir } = useLanguage();
-  const [tabs, setTabs] = useState(() => [makeTab()]);
-  const [activeId, setActiveId] = useState(() => tabs[0].id);
+  // [بلاغ حقيقي من المستخدم: "حتى لو صار تحديث تبقى البيانات محفوظة"] نستعيد
+  // هيكل التبويبات (بمعرّفاتها الثابتة) وأسماء العملاء من آخر لقطة محفوظة، حتى
+  // تُطابِق معرّفات التبويبات المُستعادة مفاتيح حفظ كل أداة بداخلها فتُستعاد
+  // بياناتها صامتة. لقطة فاسدة/ناقصة تسقط بأمان للحالة الافتراضية (تبويب واحد).
+  const tabsKeyRef = useRef(`tabs_${toolKey}_${userScope()}`);
+  const restoredRef = useRef(loadSnapshot(tabsKeyRef.current));
+  const restored = restoredRef.current;
+  const initialTabs = Array.isArray(restored?.tabs) && restored.tabs.length
+    ? restored.tabs.filter((tb) => tb && tb.id).map((tb) => ({ id: String(tb.id), label: tb.label || null }))
+    : null;
+  const [tabs, setTabs] = useState(() => (initialTabs && initialTabs.length ? initialTabs : [makeTab()]));
+  const [activeId, setActiveId] = useState(() => {
+    const ids = (initialTabs && initialTabs.length ? initialTabs : tabs).map((tb) => tb.id);
+    return ids.includes(restored?.activeId) ? restored.activeId : (initialTabs?.[0]?.id ?? tabs[0].id);
+  });
   const [busyIds, setBusyIds] = useState(() => new Set());
-  const [labels, setLabels] = useState({}); // id -> اسم العميل الحيّ
+  const [labels, setLabels] = useState(() => (restored?.labels && typeof restored.labels === "object" ? restored.labels : {})); // id -> اسم العميل الحيّ
+
+  // حفظ هيكل التبويبات (معرّفات ثابتة + أسماء + التبويب النشط) مؤجَّلًا
+  useSnapshotPersist(tabsKeyRef.current, { tabs, activeId, labels });
   const [closeConfirmId, setCloseConfirmId] = useState(null);
   const refs = useRef({}); // id -> ref المكوّن (لدعم requestStop عند الإغلاق القسري)
   const activeIdRef = useRef(activeId);
@@ -130,7 +158,9 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
     setBusyIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     delete refs.current[id];
     delete paneApiRef.current[id];
-  }, []);
+    // امسح لقطة بيانات هذي الأداة المحفوظة (لا نريدها تُستعاد لتبويب مُغلق)
+    clearSnapshot(`${toolKey}_${userScope()}_${id}`);
+  }, [toolKey]);
 
   // [إضافة — بلاغ حقيقي من المستخدم: "الصفحة تتحدث تلقائي وكامل البيانات تروح"]
   // كل حالة الأدوات بالذاكرة فقط (قرار سابق)، فأي إعادة تحميل للصفحة (F5،
@@ -210,7 +240,7 @@ export default function TabbedTool({ Component, toolKey, defaultTabLabel, compon
           // [تحسين أداء] style التبديل (display) على هذه الحاوية الخارجية فقط —
           // تغيّره عند تبديل التبويب لا يمسّ TabPane المُذكَّر بداخله إطلاقًا.
           <div key={tb.id} style={{ display: tb.id === activeId ? "block" : "none", height: "100%" }}>
-            <TabPane Component={Component} componentProps={componentProps} api={getPaneApi(tb.id)} />
+            <TabPane Component={Component} componentProps={componentProps} api={getPaneApi(tb.id)} persistKey={`${toolKey}_${userScope()}_${tb.id}`} />
           </div>
         ))}
       </div>
