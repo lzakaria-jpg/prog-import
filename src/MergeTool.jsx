@@ -15,6 +15,7 @@ import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
 import { qoyodAccountsToFile1Records, mapRowToQoyodType } from "./lib/qoyodAccountSync.js";
 import { fetchAll, fetchAllByCursor } from "./product-upload/io/network.js";
+import { loadSnapshot, useSnapshotPersist } from "./lib/persistSnapshot.js";
 
 // Translate the known dynamic Arabic error/toast messages to English.
 function localizeMergeError(msg) {
@@ -1776,19 +1777,29 @@ export function repairLevels(rows, ctx) {
 // يبقى يعمل بالضبط كما كان). لا تعديل على أي منطق داخلي — فقط استمع لحالتين
 // موجودتين أصلاً (customerName/sending) وبلّغهما لأعلى، وعرّف requestStop لإيقاف
 // إرسال جارٍ فعليًا لو المستخدم أغلق تبويبه (راجع تعليق TabbedTool.jsx).
-export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyChange } = {}, ref) {
+export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyChange, persistKey } = {}, ref) {
   const { t, dir, lang } = useLanguage();
   const { currentUser } = useAuth();
+  // [بلاغ حقيقي من المستخدم: "حتى لو صار تحديث تبقى البيانات محفوظة"] نستعيد
+  // مدخلات الأداة (الشجرتان المُحلَّلتان + خرائط الأعمدة + الإعدادات + اسم
+  // العميل) من آخر لقطة محفوظة صامتة. لا نستعيد نتيجة المقارنة (results)
+  // عمدًا: هي حالة مشتقّة تعتمد على فهارس داخلية (treeMetaRef) تُبنى وقت
+  // المقارنة، واستعادتها بلا إعادة بنائها قد ينتج تعديلات لاحقة غير دقيقة على
+  // بيانات محاسبية — بدلًا: تُستعاد المدخلات فورًا ويكفي زر "قارن الشجرتين"
+  // لإعادة توليد المقارنة (حتمية وسريعة). لا نحفظ كائنات File الخام (غير قابلة
+  // للتسلسل) ولا مفتاح API (حساس).
+  const snap0Ref = useRef(persistKey ? loadSnapshot(persistKey) : null);
+  const snap0 = snap0Ref.current;
   const [file1, setFile1] = useState(null);
   const treeMetaRef = useRef({ level2CodeMap: {}, level1CodeMap: {}, tree1Index: [], siblingCodesByParent: {}, existingCodes: [], file2ByCode: new Map() });
   const [file2, setFile2] = useState(null);
-  const [file1Rows, setFile1Rows] = useState(null);
-  const [file2Rows, setFile2Rows] = useState(null);
-  const [mapping1, setMapping1] = useState(null);
-  const [mapping2, setMapping2] = useState(null);
+  const [file1Rows, setFile1Rows] = useState(snap0?.file1Rows ?? null);
+  const [file2Rows, setFile2Rows] = useState(snap0?.file2Rows ?? null);
+  const [mapping1, setMapping1] = useState(snap0?.mapping1 ?? null);
+  const [mapping2, setMapping2] = useState(snap0?.mapping2 ?? null);
   const [showMap1, setShowMap1] = useState(false);
   const [showMap2, setShowMap2] = useState(false);
-  const [useFile2Codes, setUseFile2Codes] = useState(false);
+  const [useFile2Codes, setUseFile2Codes] = useState(snap0?.useFile2Codes ?? false);
   const [results, setResults] = useState(null);
   const resultsRef = useRef(null);
   useEffect(() => { resultsRef.current = results; }, [results]);
@@ -1807,7 +1818,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   const [showApiPanel, setShowApiPanel] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [customerName, setCustomerName] = useState("");
+  const [customerName, setCustomerName] = useState(snap0?.customerName ?? "");
   const [savedKeys, setSavedKeysState] = useState(() => getSavedKeys());
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [showSendResults, setShowSendResults] = useState(false);
@@ -1869,8 +1880,8 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   // ===== [إضافة 2026-09-09] جلب "ملف 1" (الشجرة الحالية بقيود) مباشرة عبر API
   // بدل رفعه يدويًا — يُشغَّل تلقائيًا فور حفظ/اختيار مفتاح صالح. اختياري بحت:
   // فشل الجلب يترك رفع الملف اليدوي متاحًا كما هو بلا أي تأثير. =====
-  const [file1Source, setFile1Source] = useState("upload"); // "upload" | "api"
-  const [file1ApiRecords, setFile1ApiRecords] = useState(null);
+  const [file1Source, setFile1Source] = useState(snap0?.file1Source ?? "upload"); // "upload" | "api"
+  const [file1ApiRecords, setFile1ApiRecords] = useState(snap0?.file1ApiRecords ?? null);
   const [file1ApiFetching, setFile1ApiFetching] = useState(false);
   const [file1ApiError, setFile1ApiError] = useState("");
 
@@ -2123,6 +2134,10 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
   // [إضافة 2026-09-14] راجع تعليق forwardRef أعلى الملف — تبليغ الغلاف (لو
   // موجود) باسم العميل وحالة الانشغال، وإتاحة إيقاف قسري عند إغلاق التبويب.
   useEffect(() => { onNameChange && onNameChange(customerName); }, [customerName, onNameChange]);
+  // [بلاغ حقيقي من المستخدم] حفظ تلقائي صامت لمدخلات الأداة (مؤجَّل) — تُستعاد
+  // بعد أي إعادة تحميل للصفحة بلا فقدان الشغل. لا نحفظ results (مشتقّة، تُعاد
+  // بالمقارنة) ولا File الخام ولا مفتاح API.
+  useSnapshotPersist(persistKey, { file1Rows, file2Rows, mapping1, mapping2, useFile2Codes, file1Source, file1ApiRecords, customerName });
   useEffect(() => { onBusyChange && onBusyChange(busy || sending); }, [busy, sending, onBusyChange]);
   useImperativeHandle(ref, () => ({ requestStop: stopSending }), []);
 
