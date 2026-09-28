@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useLanguage } from "../../language.jsx";
-import { parseSellingPriceNumber, parseQuantityNumber } from "../engine/parsing.js";
+import { parseSellingPriceNumber, parseQuantityNumber, PRODUCT_TYPE_LABELS } from "../engine/parsing.js";
 
 const BASE_COL_COUNT = 9;
 const DEFAULT_REVENUE_CODE = "4101";
@@ -40,7 +40,7 @@ export default function PreviewCard({ eng }) {
     excelData, baseExcelData, previewSummary,
     previewAccounts, referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
-    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct,
+    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct, bundlePlan,
   } = eng;
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -81,7 +81,10 @@ export default function PreviewCard({ eng }) {
   const showBarcode = previewSummary.withBarcode > 0;
   const showQuantity = previewSummary.withQuantity > 0;
   const showLocation = previewSummary.withLocation > 0;
-  const colCount = BASE_COL_COUNT + [showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
+  // [إضافة 2026-09-28] عمود النوع يظهر فقط لملف فيه نوع منتج صريح أو شيت مكوّنات
+  const showType = previewSummary.withType > 0 || !!bundlePlan;
+  const typeOf = (p, i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : p.product_type || "Product");
+  const colCount = BASE_COL_COUNT + [showType, showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
 
   return (
     <div className="qpu-panel">
@@ -89,6 +92,10 @@ export default function PreviewCard({ eng }) {
       <div className="qpu-hint" style={{ marginBottom: 10 }}>
         {previewSummary.count} {t({ ar: "منتج", en: "products" })} | {previewSummary.categories} {t({ ar: "فئة", en: "categories" })} | {previewSummary.units} {t({ ar: "وحدة", en: "units" })}
         {showQuantity && ` | ${previewSummary.withQuantity} ${t({ ar: "منتج فيه كمية افتتاحية", en: "product(s) with an opening quantity" })}`}
+        {showType && Object.entries(PRODUCT_TYPE_LABELS).map(([k, lbl]) => {
+          const n = excelData.filter((p, i) => typeOf(p, i) === k).length;
+          return n ? ` | ${n} ${t(lbl)}` : "";
+        }).join("")}
       </div>
 
       {/* [إضافة 2026-09-19، وسِّعت 2026-09-20] جلب بيانات المنشأة المرجعية يدوياً
@@ -129,7 +136,7 @@ export default function PreviewCard({ eng }) {
         <table>
           <thead>
             <tr>
-              <th>#</th><th>{t({ ar: "الرمز", en: "SKU" })}</th><th>{t({ ar: "الاسم", en: "Name" })}</th>
+              <th>#</th>{showType && <th>{t({ ar: "النوع", en: "Type" })}</th>}<th>{t({ ar: "الرمز", en: "SKU" })}</th><th>{t({ ar: "الاسم", en: "Name" })}</th>
               {showNameEn && <th>{t({ ar: "الاسم (إنجليزي)", en: "Name (English)" })}</th>}
               {showDescription && <th>{t({ ar: "الوصف", en: "Description" })}</th>}
               <th>{t({ ar: "الفئة", en: "Category" })}</th><th>{t({ ar: "الوحدة", en: "Unit" })}</th>
@@ -148,6 +155,13 @@ export default function PreviewCard({ eng }) {
               return (
                 <tr key={i}>
                   <td>{i + 1}</td>
+                  {showType && (
+                    <td>
+                      {p.product_type_explicit && !p.product_type_recognized
+                        ? <span className="qpu-badge yellow" title={t({ ar: "نوع غير معروف — يمنع الرفع", en: "Unknown type — blocks upload" })}>⚠ {p.product_type_raw}</span>
+                        : <span className={`qpu-badge ${typeOf(p, i) === "Recipe" ? "green" : "blue"}`}>{t(PRODUCT_TYPE_LABELS[typeOf(p, i)])}</span>}
+                    </td>
+                  )}
                   <td>{p.sku || "-"}</td>
                   <td>{p.name}</td>
                   {showNameEn && <td>{p.name_en || <span className="qpu-muted">-</span>}</td>}

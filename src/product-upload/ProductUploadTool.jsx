@@ -7,6 +7,7 @@ import FileUploadCard from "./components/FileUploadCard.jsx";
 import ColumnMappingCard from "./components/ColumnMappingCard.jsx";
 import SettingsCard from "./components/SettingsCard.jsx";
 import PreviewCard from "./components/PreviewCard.jsx";
+import BundleReviewCard from "./components/BundleReviewCard.jsx";
 import ActionBar from "./components/ActionBar.jsx";
 import ProgressLog from "./components/ProgressLog.jsx";
 import "./styles/qoyod-product-upload.css";
@@ -63,6 +64,7 @@ const ProductUploadTool = forwardRef(function ProductUploadTool({ showHeader = t
         <ColumnMappingCard eng={eng} />
         <SettingsCard eng={eng} />
         <PreviewCard eng={eng} />
+        <BundleReviewCard eng={eng} />
         <ActionBar eng={eng} />
         <ProgressLog eng={eng} />
       </div>

@@ -19,11 +19,12 @@ import {
   findHeaderRowIndex, detectColumnsWithFallback, rowsToProducts, MAPPABLE_FIELDS,
   buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
+  parseBomRows, planBundles, matchKey, PRODUCT_TYPE_LABELS, describeBundleIssue,
 } from "./engine/parsing.js";
 import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
 import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
-import { readWorkbookRows } from "./io/excelReader.js";
+import { readWorkbookSheets } from "./io/excelReader.js";
 import { buildOpeningBalanceWorkbook, workbookToBlob, downloadBlob } from "./io/openingBalanceExport.js";
 
 const DEFAULT_REVENUE_ACCT = "4101";
@@ -123,9 +124,13 @@ export default function useProductUploadEngine() {
   const [previewTaxes, setPreviewTaxes] = useState([]);
   const [previewUnits, setPreviewUnits] = useState([]);
   const [previewCategories, setPreviewCategories] = useState([]);
+  // [إضافة 2026-09-28] منتجات منشأة العميل الحالية — تُجلَب فقط لو بالملف شيت
+  // مكوّنات (منتجات مجمّعة)، لمطابقة المكوّنات بمنتجات موجودة مسبقاً بالمعاينة.
+  const [previewProducts, setPreviewProducts] = useState(null);
   const [referenceDataLoading, setReferenceDataLoading] = useState(false);
   const [referenceDataError, setReferenceDataError] = useState(null);
   const referenceDataForKeyRef = useRef(null);
+  const hasBomRef = useRef(false);
 
   const fetchReferenceData = useCallback(async (keyOverride) => {
     const key = (keyOverride ?? apiKey).trim();
@@ -133,16 +138,19 @@ export default function useProductUploadEngine() {
     setReferenceDataLoading(true);
     setReferenceDataError(null);
     try {
-      const [accounts, taxes, units, categories] = await Promise.all([
+      const withProducts = hasBomRef.current;
+      const [accounts, taxes, units, categories, products] = await Promise.all([
         fetchAllByCursor("/accounts", key),
         fetchAll("/taxes", key),
         fetchAll("/product_unit_types", key),
         fetchAll("/categories", key),
+        withProducts ? fetchAll("/products", key) : Promise.resolve(null),
       ]);
       setPreviewAccounts(accounts);
       setPreviewTaxes(taxes);
       setPreviewUnits(units);
       setPreviewCategories(categories);
+      setPreviewProducts(products);
       referenceDataForKeyRef.current = key;
     } catch (e) {
       setReferenceDataError(e.message);
@@ -152,12 +160,40 @@ export default function useProductUploadEngine() {
     }
   }, [apiKey]);
 
+  // [إضافة 2026-09-28] شيت المكوّنات (أول ورقة بعد الأولى فيها أعمدة المنتج
+  // المجمّع/المكوّن/الكمية) + الربط اليدوي لكل مكوّن غير مطابق.
+  const [bomSheetName, setBomSheetName] = useState("");
+  const [bomLines, setBomLines] = useState([]);
+  const [bomErrors, setBomErrors] = useState([]);
+  const [componentLinks, setComponentLinks] = useState({});
+
+  const setComponentLink = useCallback((key, link) => {
+    setComponentLinks((prev) => {
+      const next = { ...prev };
+      if (link) next[key] = link; else delete next[key];
+      return next;
+    });
+  }, []);
+
   const handleFile = useCallback(async (file) => {
     if (!file) return;
     setFileName(file.name);
     setRowOverrides({});
+    setComponentLinks({});
     try {
-      const rows = await readWorkbookRows(file);
+      const sheets = await readWorkbookSheets(file);
+      const rows = sheets[0] ? sheets[0].rows : [];
+      let bom = { found: false, lines: [], errors: [] };
+      let bomName = "";
+      for (const sh of sheets.slice(1)) {
+        const parsed = parseBomRows(sh.rows);
+        if (parsed.found) { bom = parsed; bomName = sh.name; break; }
+      }
+      setBomSheetName(bomName);
+      setBomLines(bom.lines);
+      setBomErrors(bom.errors);
+      hasBomRef.current = bom.found;
+      if (!bom.found) setPreviewProducts(null);
       const headerIdx = findHeaderRowIndex(rows);
       if (headerIdx === -1) {
         setUploadAlert(t({ ar: "تعذر العثور على صف العناوين في ملف Excel.", en: "Could not find a header row in the Excel file." }));
@@ -215,6 +251,19 @@ export default function useProductUploadEngine() {
 
   const mappingHeaders = headerRowIndex >= 0 ? (rawRows[headerRowIndex] || []) : [];
   const mappingPreviewRows = headerRowIndex >= 0 ? rawRows.slice(headerRowIndex + 1, headerRowIndex + 7) : [];
+
+  // [إضافة 2026-09-28] خطة المنتجات المجمّعة (تُحدَّث حيّاً مع أي ربط يدوي)
+  const bundlePlan = useMemo(() => (
+    bomLines.length || excelData.some((p) => p.product_type === "Recipe")
+      ? planBundles({ products: excelData, bomLines, existingProducts: previewProducts || [], links: componentLinks })
+      : null
+  ), [excelData, bomLines, previewProducts, componentLinks]);
+
+  // صفوف فيها نوع منتج مكتوب لكن غير معروف — تمنع الرفع (لا افتراض "منتج" بصمت)
+  const unrecognizedTypeRows = useMemo(
+    () => excelData.map((p, i) => ({ p, i })).filter(({ p }) => p.product_type_explicit && !p.product_type_recognized),
+    [excelData]
+  );
 
   const revenueAccountOptions = useMemo(() => previewAccounts.filter(isRevenueAccount), [previewAccounts]);
   const expenseAccountOptions = useMemo(
@@ -279,6 +328,23 @@ export default function useProductUploadEngine() {
     const key = apiKey.trim();
     if (!key) { setUploadAlert(t({ ar: "أدخل مفتاح API", en: "Enter API key" })); return; }
     if (!excelData.length) { setUploadAlert(t({ ar: "ارفع ملف Excel أولاً", en: "Upload an Excel file first" })); return; }
+    // [إضافة 2026-09-28] لا رفع إطلاقاً بوجود نوع منتج غير معروف أو سطر مكوّنات
+    // معطوب — قرار المستخدم: لا افتراض صامت بأي بيانات محاسبية.
+    if (unrecognizedTypeRows.length) {
+      const sample = unrecognizedTypeRows.slice(0, 5).map(({ p, i }) => `#${i + 1} "${p.product_type_raw}"`).join("، ");
+      setUploadAlert(t({
+        ar: `نوع المنتج غير معروف في ${unrecognizedTypeRows.length} صف (${sample}) — الأنواع المقبولة: مادة أولية، منتج، خدمة، مصروف، منتج مجمّع.`,
+        en: `Unknown product type in ${unrecognizedTypeRows.length} row(s) (${sample}) — accepted: raw material, product, service, expense, bundle.`,
+      }));
+      return;
+    }
+    if (bomErrors.length) {
+      setUploadAlert(t({
+        ar: `شيت المكوّنات فيه ${bomErrors.length} سطر ناقص (بلا منتج/مكوّن أو بلا كمية صالحة) — صحّحها بالملف أولاً. راجع قسم "المنتجات المجمّعة".`,
+        en: `The components sheet has ${bomErrors.length} incomplete line(s) (missing bundle/component or valid quantity) — fix them in the file first. See the "Bundled products" section.`,
+      }));
+      return;
+    }
 
     stoppedRef.current = false;
     setLog([]);
@@ -307,8 +373,6 @@ export default function useProductUploadEngine() {
     const revCode = revenueAcct.trim() || DEFAULT_REVENUE_ACCT;
     const expCode = expenseAcct.trim() || DEFAULT_EXPENSE_ACCT;
 
-    const updateStats = () => setStats({ total: excelData.length, uploaded, updated: updatedCount, skipped, errors });
-    const setProg = (current) => setProgress({ current, total: excelData.length });
 
     try {
       appendLog(t({ ar: "=== بدء الرفع ===", en: "=== Starting Upload ===" }), "header");
@@ -351,6 +415,33 @@ export default function useProductUploadEngine() {
       else appendLog(t({ ar: `  تحذير: الحساب ${revCode} غير موجود!`, en: `  WARNING: Account ${revCode} not found!` }), "error");
       if (defaultExp) appendLog(t({ ar: `  حساب المصروف ${expCode}: ${defaultExp.name_ar} (المعرّف: ${defaultExp.id})`, en: `  Expense account ${expCode}: ${defaultExp.name_ar} (ID: ${defaultExp.id})` }), "success");
       else appendLog(t({ ar: `  تحذير: الحساب ${expCode} غير موجود!`, en: `  WARNING: Account ${expCode} not found!` }), "error");
+
+      // [إضافة 2026-09-28] المنتجات الموجودة تُجلَب هنا (قبل إنشاء أي فئة/وحدة)
+      // لأن خطة المنتجات المجمّعة تحتاجها للتحقق من كل المكوّنات — أي مكوّن غير
+      // محلول يوقف الرفع قبل أي كتابة على منشأة العميل.
+      const hasBundles = bomLines.length > 0 || excelData.some((p) => p.product_type === "Recipe");
+      let existingProductList = [];
+      if (skipDups || updateExisting || hasBundles) {
+        if (usePrefetched && previewProducts) {
+          existingProductList = previewProducts;
+        } else {
+          appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
+          existingProductList = await fetchAll("/products", key);
+        }
+        appendLog(t({ ar: `  تم العثور على ${existingProductList.length} منتج موجود`, en: `  Found ${existingProductList.length} existing products` }), "info");
+      }
+
+      let plan = null;
+      if (hasBundles) {
+        plan = planBundles({ products: excelData, bomLines, existingProducts: existingProductList, links: componentLinks });
+        if (plan.unresolved.length || plan.issues.length) {
+          appendLog(t({ ar: "\nتوقف الرفع قبل أي إنشاء: المنتجات المجمّعة فيها مكوّنات غير مربوطة أو أخطاء بنيوية — راجع قسم \"المنتجات المجمّعة\" بالمعاينة.", en: "\nUpload stopped before creating anything: bundled products have unlinked components or structural issues — see the \"Bundled products\" section in the preview." }), "error");
+          plan.unresolved.slice(0, 20).forEach((u) => appendLog(t({ ar: `  مكوّن غير مربوط: "${u.ref}" (في: ${u.usedBy.join("، ")})`, en: `  Unlinked component: "${u.ref}" (in: ${u.usedBy.join(", ")})` }), "error"));
+          plan.issues.slice(0, 20).forEach((x) => appendLog(`  ${describeBundleIssue(x, t)}`, "error"));
+          setUploading(false);
+          return;
+        }
+      }
 
       // 2. Taxes — prefer rate 15%
       try {
@@ -428,31 +519,63 @@ export default function useProductUploadEngine() {
       // وname_en معاً (نفس نمط accountsByName أعلى بهذا الملف). [إضافة
       // 2026-09-07] أيضاً: يُجلب المنتجات أيضاً لو updateExisting مفعَّل (لا
       // skipDups فقط) لبناء فهرس skuToId اللازم للتحديث.
-      if (skipDups || updateExisting) {
-        appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
-        const products = await fetchAll("/products", key);
-        products.forEach((p) => {
-          if (p.sku) {
-            const skuTrim = p.sku.trim();
-            existingProducts.skus.add(skuTrim);
-            skuToId[skuTrim] = p.id;
-          }
-          const nameAr = (p.name_ar || "").trim().toLowerCase();
-          const nameEn = (p.name_en || "").trim().toLowerCase();
-          if (nameAr) existingProducts.names.add(nameAr);
-          if (nameEn) existingProducts.names.add(nameEn);
-        });
-        appendLog(t({ ar: `  تم العثور على ${products.length} منتج موجود`, en: `  Found ${products.length} existing products` }), "info");
-      }
+      // [تعديل 2026-09-28] المنتجات الموجودة جُلبت أعلاه (existingProductList)
+      // — تُفهرَس هنا بنفس المنطق السابق حرفياً، مع فهرس id/وحدة لكل رمز واسم
+      // لربط مكوّنات المنتجات المجمّعة بمنتج موجود مسبقاً (حتى لو تُخطّي).
+      const existingRefBySku = new Map();
+      const existingRefByName = new Map();
+      existingProductList.forEach((p) => {
+        if (p.sku) {
+          const skuTrim = p.sku.trim();
+          existingProducts.skus.add(skuTrim);
+          skuToId[skuTrim] = p.id;
+        }
+        const nameAr = (p.name_ar || "").trim().toLowerCase();
+        const nameEn = (p.name_en || "").trim().toLowerCase();
+        if (nameAr) existingProducts.names.add(nameAr);
+        if (nameEn) existingProducts.names.add(nameEn);
+        const ref = { id: p.id, unitTypeId: p.unit_type || null };
+        const sk = matchKey(p.sku);
+        if (sk && !existingRefBySku.has(sk)) existingRefBySku.set(sk, ref);
+        [p.name_ar, p.name_en].forEach((nm) => { const k = matchKey(nm); if (k && !existingRefByName.has(k)) existingRefByName.set(k, ref); });
+      });
+
+      // [إضافة 2026-09-28] مكوّنات اختار المستخدم إنشاءها كمادة أولية جديدة
+      // تُضاف كصفوف إضافية تُرفَع أولاً، ثم ترتيب الخطة (غير المجمّعة، ثم
+      // المجمّعة بعد مكوّناتها).
+      const createRows = plan ? plan.createRefs.map(({ key: ck, name }) => ({
+        name, sku: "", name_en: "", description: "", unit: "", category: "", cost: "",
+        is_sellable: false, sellable_explicit: false, is_inventory: false,
+        revenue_account_name: "", expense_account_name: "",
+        selling_price_raw: "", barcode: "", quantity_raw: "", location: "",
+        product_type: "RawMaterial", _createKey: ck,
+      })) : [];
+      const list = [...excelData, ...createRows];
+      const createIndexByKey = {};
+      createRows.forEach((r, j) => { createIndexByKey[r._createKey] = excelData.length + j; });
+      const typeOf = (i) => (i >= excelData.length ? "RawMaterial" : (plan ? plan.effectiveTypes[i] : (excelData[i].product_type || "Product")));
+      const order = plan
+        ? [...createRows.map((_, j) => excelData.length + j), ...plan.order]
+        : list.map((_, i) => i);
+      const idByIndex = {};
+      const total = list.length;
+      const updateStatsN = () => setStats({ total, uploaded, updated: updatedCount, skipped, errors });
+      const setProgN = (current) => setProgress({ current, total });
+      setStats({ total, uploaded: 0, updated: 0, skipped: 0, errors: 0 });
+      setProgress({ current: 0, total });
 
       // 4. Upload products
-      appendLog(t({ ar: `\nجارٍ رفع ${excelData.length} منتج...`, en: `\nUploading ${excelData.length} products...` }), "header");
+      appendLog(t({ ar: `\nجارٍ رفع ${total} منتج...`, en: `\nUploading ${total} products...` }), "header");
+      if (createRows.length) appendLog(t({ ar: `  منها ${createRows.length} مادة أولية جديدة من ربط المكوّنات`, en: `  including ${createRows.length} new raw material(s) from component linking` }), "info");
       appendLog(t({ ar: `شامل الضريبة: ${taxInclusive ? "نعم" : "لا"}`, en: `Tax inclusive: ${taxInclusive ? "Yes" : "No"}` }), "info");
 
-      for (let i = 0; i < excelData.length; i++) {
+      for (let step = 0; step < order.length; step++) {
         if (stoppedRef.current) { appendLog(t({ ar: "تم الإيقاف من قبل المستخدم", en: "STOPPED by user" }), "error"); break; }
 
-        const p = excelData[i];
+        const i = order[step];
+        const p = list[i];
+        const pType = typeOf(i);
+        const tag = `[${step + 1}/${total}]`;
 
         // Check duplicates / existing-product match
         // [إضافة 2026-09-07] resolveExistingProductAction تقرر: تحديث (بالرمز
@@ -465,14 +588,45 @@ export default function useProductUploadEngine() {
         if (existingAction.action === "skip") {
           appendLog(
             t({
-              ar: `[${i + 1}/${excelData.length}] تخطي (${existingAction.reason === "sku" ? "الرمز موجود" : "الاسم موجود"}): ${p.sku || p.name} - ${p.name}`,
-              en: `[${i + 1}/${excelData.length}] SKIP (${existingAction.reason === "sku" ? "SKU exists" : "name exists"}): ${p.sku || p.name} - ${p.name}`,
+              ar: `${tag} تخطي (${existingAction.reason === "sku" ? "الرمز موجود" : "الاسم موجود"}): ${p.sku || p.name} - ${p.name}`,
+              en: `${tag} SKIP (${existingAction.reason === "sku" ? "SKU exists" : "name exists"}): ${p.sku || p.name} - ${p.name}`,
             }),
             "warn"
           );
+          // منتج موجود مسبقاً يبقى صالحاً كمكوّن لمنتج مجمّع لاحق بنفس الدفعة
+          const exRef = (p.sku && existingRefBySku.get(matchKey(p.sku))) || existingRefByName.get(matchKey(p.name));
+          if (exRef) idByIndex[i] = exRef;
           skipped++;
-          updateStats(); setProg(i + 1);
+          updateStatsN(); setProgN(step + 1);
           continue;
+        }
+
+        // [إضافة 2026-09-28] مكوّنات المنتج المجمّع — كل مكوّن لازم يكون له
+        // معرّف فعلي (أُنشئ/وُجد قبله بالترتيب). مكوّن فشل إنشاؤه => لا يُرسَل
+        // المنتج المجمّع إطلاقاً (وصفة ناقصة أخطر من عدم وجودها).
+        let ingredients;
+        if (pType === "Recipe" && plan) {
+          ingredients = [];
+          const missing = [];
+          (plan.recipes.get(i) || []).forEach((c) => {
+            let ref = null;
+            if (c.target.kind === "existing") ref = { id: c.target.id, unitTypeId: c.target.unitTypeId };
+            else if (c.target.kind === "file") ref = idByIndex[c.target.index];
+            else if (c.target.kind === "create") ref = idByIndex[createIndexByKey[c.target.key]];
+            if (!ref || !ref.id) { missing.push(c.ref); return; }
+            const item = { product_id: ref.id, quantity: c.qty };
+            if (ref.unitTypeId) item.product_unit_id = ref.unitTypeId;
+            ingredients.push(item);
+          });
+          if (missing.length) {
+            appendLog(t({
+              ar: `${tag} لم يُرسَل المنتج المجمّع "${p.name}": مكوّنات لم تُنشأ بنجاح قبله (${missing.join("، ")})`,
+              en: `${tag} Bundle "${p.name}" NOT sent: components were not created successfully before it (${missing.join(", ")})`,
+            }), "error");
+            errors++;
+            updateStatsN(); setProgN(step + 1);
+            continue;
+          }
         }
 
         // Resolve unit
@@ -535,8 +689,9 @@ export default function useProductUploadEngine() {
           if (cat) categoryId = cat.id;
         }
 
-        const payload = buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive });
+        const payload = buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type: pType, ingredients });
         const nameLower = p.name.trim().toLowerCase();
+        const typeLabel = t(PRODUCT_TYPE_LABELS[pType] || PRODUCT_TYPE_LABELS.Product);
 
         try {
           // [إضافة 2026-09-07] تحديث (PUT) لمنتج موجود مطابق بالرمز، أو إنشاء
@@ -546,29 +701,37 @@ export default function useProductUploadEngine() {
             ? await api("PUT", `/products/${existingAction.id}`, { product: payload }, key)
             : await api("POST", "/products", { product: payload }, key);
           if (res.product) {
+            const newId = isUpdate ? existingAction.id : res.product.id;
+            idByIndex[i] = { id: newId, unitTypeId: res.product.unit_type || unitId || null };
+            const compNote = ingredients && ingredients.length ? t({ ar: ` — ${ingredients.length} مكوّن`, en: ` — ${ingredients.length} component(s)` }) : "";
             if (isUpdate) {
-              appendLog(t({ ar: `[${i + 1}/${excelData.length}] تم التحديث: ${p.name} (المعرّف: ${existingAction.id})`, en: `[${i + 1}/${excelData.length}] UPDATED: ${p.name} (ID: ${existingAction.id})` }), "success");
+              appendLog(t({ ar: `${tag} تم التحديث (${typeLabel}): ${p.name} (المعرّف: ${existingAction.id})${compNote}`, en: `${tag} UPDATED (${typeLabel}): ${p.name} (ID: ${existingAction.id})${compNote}` }), "success");
               updatedCount++;
               // عمداً: لا createdRowIndexes.add(i) — منتج موجود أصلاً يُستثنى من
               // ملف الأرصدة الافتتاحية (راجع تعليق createdRowIndexes أعلاه).
             } else {
-              appendLog(t({ ar: `[${i + 1}/${excelData.length}] تم الإنشاء: ${p.name} (المعرّف: ${res.product.id})`, en: `[${i + 1}/${excelData.length}] CREATED: ${p.name} (ID: ${res.product.id})` }), "success");
+              appendLog(t({ ar: `${tag} تم الإنشاء (${typeLabel}): ${p.name} (المعرّف: ${res.product.id})${compNote}`, en: `${tag} CREATED (${typeLabel}): ${p.name} (ID: ${res.product.id})${compNote}` }), "success");
               uploaded++;
-              createdRowIndexes.add(i);
+              if (i < excelData.length) createdRowIndexes.add(i);
             }
             existingProducts.names.add(nameLower);
             if (p.sku) { existingProducts.skus.add(p.sku); skuToId[p.sku] = res.product.id; }
           } else {
-            appendLog(t({ ar: `[${i + 1}/${excelData.length}] فشل: ${p.name}`, en: `[${i + 1}/${excelData.length}] FAILED: ${p.name}` }), "error");
+            appendLog(t({ ar: `${tag} فشل: ${p.name}`, en: `${tag} FAILED: ${p.name}` }), "error");
             errors++;
           }
         } catch (e) {
-          appendLog(t({ ar: `[${i + 1}/${excelData.length}] خطأ: ${p.name} - ${e.message}`, en: `[${i + 1}/${excelData.length}] ERROR: ${p.name} - ${e.message}` }), "error");
+          // مواصفة قيود: نوعا "مادة أولية" و"منتج مجمّع" يتطلبان صلاحية
+          // Products > advanced لمفتاح API — تلميح صريح عند رفض الصلاحية.
+          const permHint = (pType === "RawMaterial" || pType === "Recipe") && /^API 40[13]:/.test(e.message || "")
+            ? t({ ar: " — نوع المادة الأولية/المنتج المجمّع يتطلب صلاحية Products > advanced لمفتاح API", en: " — raw material/bundle types require the Products > advanced permission on the API key" })
+            : "";
+          appendLog(t({ ar: `${tag} خطأ: ${p.name} - ${e.message}${permHint}`, en: `${tag} ERROR: ${p.name} - ${e.message}${permHint}` }), "error");
           errors++;
         }
 
-        updateStats();
-        setProg(i + 1);
+        updateStatsN();
+        setProgN(step + 1);
 
         // [إزالة 2026-09-20، طلب صريح من المستخدم: "احتاج رفع سريع جدًا ودقيق
         // 100%" على ملف 4200 منتج] كان هنا انتظار 300ms إضافي بعد كل منتج،
@@ -626,8 +789,8 @@ export default function useProductUploadEngine() {
       appendLog(t({ ar: "\n=== اكتمل الرفع ===", en: "\n=== Upload Complete ===" }), "header");
       appendLog(
         t({
-          ar: `الإجمالي: ${excelData.length} | تم الرفع: ${uploaded} | تم التحديث: ${updatedCount} | تم التخطي: ${skipped} | الأخطاء: ${errors}`,
-          en: `Total: ${excelData.length} | Uploaded: ${uploaded} | Updated: ${updatedCount} | Skipped: ${skipped} | Errors: ${errors}`,
+          ar: `الإجمالي: ${total} | تم الرفع: ${uploaded} | تم التحديث: ${updatedCount} | تم التخطي: ${skipped} | الأخطاء: ${errors}`,
+          en: `Total: ${total} | Uploaded: ${uploaded} | Updated: ${updatedCount} | Skipped: ${skipped} | Errors: ${errors}`,
         }),
         "header"
       );
@@ -638,7 +801,8 @@ export default function useProductUploadEngine() {
     setUploading(false);
   }, [
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
-    previewAccounts, previewTaxes, previewUnits, previewCategories, appendLog, t,
+    previewAccounts, previewTaxes, previewUnits, previewCategories, previewProducts, appendLog, t,
+    unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
   ]);
 
   const previewSummary = useMemo(() => {
@@ -652,9 +816,10 @@ export default function useProductUploadEngine() {
     const withBarcode = excelData.filter((p) => p.barcode && p.barcode.trim()).length;
     const withQuantity = excelData.filter((p) => parseQuantityNumber(p.quantity_raw) !== null).length;
     const withLocation = excelData.filter((p) => p.location && p.location.trim()).length;
+    const withType = excelData.filter((p) => p.product_type_explicit).length;
     return {
       count: excelData.length, categories: catSet.size, units: unitSet.size,
-      withNameEn, withDescription, withSellingPrice, withBarcode, withQuantity, withLocation,
+      withNameEn, withDescription, withSellingPrice, withBarcode, withQuantity, withLocation, withType,
     };
   }, [excelData]);
 
@@ -678,6 +843,8 @@ export default function useProductUploadEngine() {
     referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
     rowOverrides, setRowAccountOverride,
+    // [إضافة 2026-09-28] المنتجات المجمّعة (شيت المكوّنات + الربط اليدوي)
+    previewProducts, bomSheetName, bomLines, bomErrors, bundlePlan, componentLinks, setComponentLink, unrecognizedTypeRows,
     // preview
     previewSummary,
     // upload run
