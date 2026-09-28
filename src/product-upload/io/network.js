@@ -203,6 +203,8 @@ export async function fetchAllByCursor(path, apiKey, { onPage } = {}) {
   return all;
 }
 
+const UNPAGINATED_WHEN_BARE = new Set(["/product_unit_types", "/categories", "/accounts"]);
+
 export async function fetchAll(path, apiKey, { onPage } = {}) {
   let all = [];
   let page = 1;
@@ -250,6 +252,25 @@ export async function fetchAll(path, apiKey, { onPage } = {}) {
       // يعرف المستدعي (إن أراد) أن القائمة غير مكتملة وليست "كل شيء" بصمت.
       // فشل الصفحة الأولى نفسها يبقى يرمي كالمعتاد — مصفوفة فارغة هناك قد
       // تُفهَم خطأً "لا حسابات إطلاقًا"، وهذا أسوأ من رمي الخطأ بوضوح.
+      // [إصلاح — بلاغ حقيقي من المستخدم] منشأة ترجّع 500 على
+      // /product_unit_types?page=1&per_page=100. مواصفة قيود: هذا المورد
+      // و/categories "No pagination" أصلاً، و/accounts يرجّع الكل لو ما أُرسل
+      // page/per_page معاً — فالطلب بلا أي معامل هو الشكل الموثّق لها ويرجّع
+      // القائمة كاملة. محاولة وحدة بهذا الشكل عند 5xx فقط، ولهذه الموارد
+      // الثلاثة فقط (مورد مرقّم فعلاً مثل /products قد يرجّع بلا معاملات صفحة
+      // افتراضية ناقصة بصمت).
+      if (page === 1 && /^API 5\d\d:/.test(e.message || "") && UNPAGINATED_WHEN_BARE.has(path)) {
+        let bare;
+        try {
+          bare = await api("GET", path, null, apiKey);
+        } catch (e2) {
+          if (/^API 404:/.test(e2.message || "")) return [];
+          throw e2;
+        }
+        const items = Array.isArray(bare) ? bare : (bare[Object.keys(bare)[0]] || []);
+        if (onPage) onPage(items.length, 1);
+        return items;
+      }
       if (page > 1) {
         const recovery = await recoverOneByOne(path, apiKey, all, seenIds, itemsHaveIds, onPage);
         if (!recovery.done) {
