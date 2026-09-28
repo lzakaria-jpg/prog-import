@@ -276,6 +276,9 @@ export function detectColumns(headerRow) {
     // اختياري، يبقى -1 لملف لا يحويه فلا يتغيّر أي سلوك حالي. مكوّنات المنتج
     // المجمّع بشيت مستقل (parseBomRows)، لا عمود هنا.
     product_type: -1,
+    // [إضافة 2026-09-28] الوحدة الثانوية + معامل تحويلها للوحدة الأساسية
+    // (مثال: كيلو = 1000 جرام) — اختياريان، -1 لملف لا يحويهما.
+    unit2: -1, unit2_rate: -1,
   };
   headerRow.forEach((h, i) => {
     const hh = norm(h).toLowerCase();
@@ -312,7 +315,11 @@ export function detectColumns(headerRow) {
     // كانت القيمة الفعلية بالعمود (نعم/لا) — راجع buildProductsFromRows أسفله.
     if (map.inventory === -1 && /مخزون|مخزن|حالة التخزين|تخزين|inventory|stock/i.test(hh)) map.inventory = i;
     // Unit
-    if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh)) map.unit = i;
+    // [تعديل 2026-09-28] "الوحدة الثانوية"/"وحدة الشراء" مستثناة من عمود الوحدة
+    // الأساسية (كانت ستُخطَف كوحدة أساسية لو سبقتها بالملف).
+    if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh) && !/ثانوي|secondary|الشراء|purchase|تحويل|conversion/i.test(hh)) map.unit = i;
+    if (map.unit2 === -1 && /(الوحدة|وحدة)\s*(ال)?ثانوي|وحدة\s*الشراء|secondary\s*unit|purchase\s*unit/i.test(hh)) map.unit2 = i;
+    if (map.unit2_rate === -1 && /معامل|معدل\s*التحويل|نسبة\s*التحويل|conversion|unit\s*rate/i.test(hh) && !/ضريب|tax/i.test(hh)) map.unit2_rate = i;
     // Revenue account
     // [إصلاح 2026-09-04] عملاء قيود يسمّون هذا العمود بعدة صيغ حقيقية شائعة:
     // "حساب الإيراد"/"الإيرادات"/"حساب المبيعات"/"حساب البيع" — كان النمط
@@ -390,6 +397,8 @@ export const MAPPABLE_FIELDS = [
   ['description', 'الوصف', false, 'Description'],
   // [إضافة 2026-09-28]
   ['product_type', 'نوع المنتج', false, 'Product type'],
+  ['unit2', 'الوحدة الثانوية', false, 'Secondary unit'],
+  ['unit2_rate', 'معامل التحويل (كم وحدة أساسية بالثانوية)', false, 'Conversion rate (base units per secondary)'],
 ];
 
 // [إضافة 2026-09-19] الاكتشاف التلقائي الكامل لخريطة الأعمدة (detectColumns +
@@ -466,6 +475,8 @@ export function rowsToProducts(rows, headerIdx, cols) {
     // هل عمود "حالة البيع" موجود فعلاً؟ — لتحديد افتراضي البيع حسب النوع فقط
     // حين يغيب العمود (راجع buildProductPayload).
     p.sellable_explicit = cols.sellable >= 0;
+    p.unit2 = cols.unit2 >= 0 && get(cols.unit2) !== null ? String(get(cols.unit2)).trim() : "";
+    p.unit2_rate_raw = cols.unit2_rate >= 0 && get(cols.unit2_rate) !== null ? String(get(cols.unit2_rate)).trim() : "";
 
     data.push(p);
   }
@@ -547,7 +558,7 @@ export function parseQuantityNumber(rawQty) {
 //  - خدمة/مصروف: لا تتبّع كمية أبداً (track_quantity=false) مهما كان عمود المخزون.
 //  - مادة أولية/مصروف بلا عمود "حالة البيع" بالملف: غير قابلة للبيع افتراضياً.
 //    عمود صريح بالملف يتفوّق دائماً.
-export function buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type, ingredients }) {
+export function buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type, ingredients, unitConversions }) {
   const costNum = parseCostNumber(p.cost);
   const nameEn = p.name_en && p.name_en.trim() ? p.name_en.trim() : p.name;
   const resolvedType = PRODUCT_TYPES.includes(type) ? type : "Product";
@@ -586,7 +597,82 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
   payload.is_buying_price_inclusive = taxInclusive;
   payload.is_selling_price_inclusive = taxInclusive;
   if (resolvedType === "Recipe" && Array.isArray(ingredients) && ingredients.length) payload.ingredients = ingredients;
+  if (Array.isArray(unitConversions) && unitConversions.length) payload.unit_conversions = unitConversions;
   return payload;
+}
+
+// ============================================================================
+// [إضافة 2026-09-28] الوحدات الثانوية (unit_conversions بمواصفة قيود)
+// ============================================================================
+// كل عنصر: { from_unit: معرّف الوحدة الثانوية، rate: كم وحدة أساسية بوحدة
+// ثانوية واحدة، unit_purchase_price، unit_selling_price } — الوحدة الأساسية
+// (to_unit) هي product_unit_type_id نفسه. مثال مواصفة قيود: rate 12 وسعر
+// شراء الوحدة 600 لمنتج سعر شرائه 50 (= 50 × 12).
+
+// تحويلات فيزيائية ثابتة فقط (لا اجتهاد): جرام→كيلو ومل→لتر، كلاهما ×1000.
+// aliases: أسماء الوحدة الثانوية المحتملة بمنشأة العميل (تُعاد استخدامها لو
+// موجودة بدل إنشاء وحدة مكررة)، name: الاسم الذي يُنشأ به لو ما وُجدت.
+const AUTO_SECONDARY_UNITS = [
+  { base: /^(جرام|غرام|جم|غم|g|gm|gram|grams)$/i, name: "كيلو", aliases: /^(كيلو|كيلوجرام|كيلو جرام|كيلوغرام|كيلو غرام|كجم|كغ|kg|kilo|kilogram)$/i, rate: 1000 },
+  { base: /^(مل|ملي|مليلتر|ملليتر|ml|milliliter|millilitre)$/i, name: "لتر", aliases: /^(لتر|ليتر|l|lt|liter|litre)$/i, rate: 1000 },
+];
+
+export function autoSecondaryFor(baseUnit) {
+  const b = String(baseUnit || "").trim().replace(/\s+/g, " ");
+  return AUTO_SECONDARY_UNITS.find((r) => r.base.test(b)) || null;
+}
+
+/**
+ * الوحدة الثانوية لصف واحد:
+ *  - عمود صريح بالملف (الوحدة الثانوية + معامل التحويل) يتفوّق دائماً.
+ *  - بلا عمود صريح: للمادة الأولية فقط وبإعداد مفعَّل، جرام→كيلو ومل→لتر.
+ * يُرجع null (لا وحدة ثانوية) أو { unit, rate, source, aliases? } أو
+ * { error } لبيانات ناقصة/متعارضة تمنع الرفع (لا افتراض معامل أبداً).
+ */
+export function resolveSecondaryUnit(p, { type, autoForRawMaterial } = {}) {
+  const unit2 = String(p.unit2 || "").trim();
+  const rateRaw = String(p.unit2_rate_raw || "").trim();
+  if (unit2 || rateRaw) {
+    if (!unit2) return { error: "rate_without_unit" };
+    if (!String(p.unit || "").trim()) return { error: "no_base_unit" };
+    if (matchKey(unit2) === matchKey(p.unit)) return { error: "same_as_base" };
+    const rate = parseFloat(rateRaw.replace(/[^\d.]/g, ""));
+    if (!rateRaw || !isFinite(rate) || rate <= 0) {
+      const auto = autoSecondaryFor(p.unit);
+      if (auto && auto.aliases.test(unit2)) return { unit: unit2, rate: auto.rate, source: "auto" };
+      return { error: "bad_rate" };
+    }
+    return { unit: unit2, rate, source: "file" };
+  }
+  if (autoForRawMaterial && type === "RawMaterial") {
+    const auto = autoSecondaryFor(p.unit);
+    if (auto) return { unit: auto.name, rate: auto.rate, source: "auto", aliases: auto.aliases };
+  }
+  return null;
+}
+
+const round6 = (n) => Math.round(n * 1e6) / 1e6;
+
+// عنصر unit_conversions واحد. سعرا الوحدة الثانوية = سعر الوحدة الأساسية ×
+// المعامل (نفس علاقة مثال مواصفة قيود)، ويُرسَلان فقط لو السعر الأساسي
+// موجود فعلاً بالملف.
+export function buildUnitConversion({ fromUnitId, rate, p }) {
+  const item = { from_unit: fromUnitId, rate };
+  const costTrim = p.cost ? String(p.cost).trim() : "";
+  if (costTrim !== "" && costTrim !== "0") item.unit_purchase_price = round6(parseCostNumber(p.cost) * rate);
+  const sp = parseSellingPriceNumber(p.selling_price_raw);
+  if (sp !== null) item.unit_selling_price = round6(sp * rate);
+  return item;
+}
+
+export function describeSecondaryUnitError(err, t) {
+  switch (err) {
+    case "rate_without_unit": return t({ ar: "معامل تحويل بدون وحدة ثانوية", en: "Conversion rate without a secondary unit" });
+    case "no_base_unit": return t({ ar: "وحدة ثانوية بدون وحدة أساسية", en: "Secondary unit without a base unit" });
+    case "same_as_base": return t({ ar: "الوحدة الثانوية نفس الأساسية", en: "Secondary unit equals the base unit" });
+    case "bad_rate": return t({ ar: "معامل التحويل فارغ أو غير صالح", en: "Conversion rate is empty or invalid" });
+    default: return err;
+  }
 }
 
 // [إضافة 2026-09-07] يبني صفوف "الأرصدة الافتتاحية" (الكمية المتوفرة) لكل منتج

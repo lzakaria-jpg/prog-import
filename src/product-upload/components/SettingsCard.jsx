@@ -10,7 +10,7 @@ export default function SettingsCard({ eng }) {
   const { t } = useLanguage();
   const {
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct, taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
-    updateExisting, toggleUpdateExisting,
+    updateExisting, toggleUpdateExisting, autoSecondaryUnits, toggleAutoSecondaryUnits,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
   } = eng;
 
@@ -45,6 +45,12 @@ export default function SettingsCard({ eng }) {
       <div className="qpu-toggle-row">
         <div className={"qpu-toggle" + (updateExisting ? " active" : "")} onClick={toggleUpdateExisting} />
         <span className="qpu-toggle-label">{t({ ar: "تحديث المنتجات الموجودة (بدل تخطيها) — مطابقة بالرمز فقط، يتطلب عمود رمز/كود بالملف", en: "Update existing products (instead of skipping) — matched by SKU only, requires a SKU/code column in the file" })}</span>
+      </div>
+
+      {/* [إضافة 2026-09-28] عمود "الوحدة الثانوية" بالملف يتفوّق دائماً على هذا */}
+      <div className="qpu-toggle-row">
+        <div className={"qpu-toggle" + (autoSecondaryUnits ? " active" : "")} onClick={toggleAutoSecondaryUnits} />
+        <span className="qpu-toggle-label">{t({ ar: "وحدة شراء ثانوية تلقائية للمواد الأولية: جرام ← كيلو (1 كيلو = 1000 جرام)، مل ← لتر (1 لتر = 1000 مل)", en: "Automatic secondary purchase unit for raw materials: gram → kilo (1 kg = 1000 g), ml → liter (1 L = 1000 ml)" })}</span>
       </div>
 
       {/* [إضافة 2026-09-07، محدَّث بعد مطابقة القالب الرسمي] إعدادا الرصيد
