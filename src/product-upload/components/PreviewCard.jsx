@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useLanguage } from "../../language.jsx";
-import { parseSellingPriceNumber, parseQuantityNumber, PRODUCT_TYPE_LABELS } from "../engine/parsing.js";
+import { parseSellingPriceNumber, parseQuantityNumber, PRODUCT_TYPE_LABELS, describeSecondaryUnitError } from "../engine/parsing.js";
 
 const BASE_COL_COUNT = 9;
 const DEFAULT_REVENUE_CODE = "4101";
@@ -40,7 +40,7 @@ export default function PreviewCard({ eng }) {
     excelData, baseExcelData, previewSummary,
     previewAccounts, referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
-    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct, bundlePlan,
+    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct, bundlePlan, secondaryUnits,
   } = eng;
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -84,7 +84,8 @@ export default function PreviewCard({ eng }) {
   // [إضافة 2026-09-28] عمود النوع يظهر فقط لملف فيه نوع منتج صريح أو شيت مكوّنات
   const showType = previewSummary.withType > 0 || !!bundlePlan;
   const typeOf = (p, i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : p.product_type || "Product");
-  const colCount = BASE_COL_COUNT + [showType, showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
+  const showUnit2 = secondaryUnits.some(Boolean);
+  const colCount = BASE_COL_COUNT + [showType, showUnit2, showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
 
   return (
     <div className="qpu-panel">
@@ -139,7 +140,7 @@ export default function PreviewCard({ eng }) {
               <th>#</th>{showType && <th>{t({ ar: "النوع", en: "Type" })}</th>}<th>{t({ ar: "الرمز", en: "SKU" })}</th><th>{t({ ar: "الاسم", en: "Name" })}</th>
               {showNameEn && <th>{t({ ar: "الاسم (إنجليزي)", en: "Name (English)" })}</th>}
               {showDescription && <th>{t({ ar: "الوصف", en: "Description" })}</th>}
-              <th>{t({ ar: "الفئة", en: "Category" })}</th><th>{t({ ar: "الوحدة", en: "Unit" })}</th>
+              <th>{t({ ar: "الفئة", en: "Category" })}</th><th>{t({ ar: "الوحدة", en: "Unit" })}</th>{showUnit2 && <th>{t({ ar: "الوحدة الثانوية", en: "Secondary unit" })}</th>}
               <th>{t({ ar: "مخزون", en: "Inventory" })}</th><th>{t({ ar: "التكلفة", en: "Cost" })}</th>
               {showSellingPrice && <th>{t({ ar: "سعر البيع", en: "Selling price" })}</th>}
               {showBarcode && <th>{t({ ar: "الباركود", en: "Barcode" })}</th>}
@@ -168,6 +169,14 @@ export default function PreviewCard({ eng }) {
                   {showDescription && <td>{p.description || <span className="qpu-muted">-</span>}</td>}
                   <td>{p.category ? <span className="qpu-badge blue">{p.category}</span> : <span className="qpu-muted">-</span>}</td>
                   <td>{p.unit || "-"}</td>
+                  {showUnit2 && (
+                    <td>
+                      {!secondaryUnits[i] ? <span className="qpu-muted">-</span>
+                        : secondaryUnits[i].error
+                          ? <span className="qpu-badge yellow">⚠ {describeSecondaryUnitError(secondaryUnits[i].error, t)}</span>
+                          : <span title={secondaryUnits[i].source === "auto" ? t({ ar: "تلقائي", en: "Automatic" }) : ""}>1 {secondaryUnits[i].unit} = {secondaryUnits[i].rate} {p.unit}{secondaryUnits[i].source === "auto" ? " ⚙" : ""}</span>}
+                    </td>
+                  )}
                   <td>{p.is_inventory ? <span className="qpu-badge green">{t({ ar: "نعم", en: "Yes" })}</span> : <span className="qpu-badge yellow">{t({ ar: "لا", en: "No" })}</span>}</td>
                   <td>{p.cost || "-"}</td>
                   {showSellingPrice && <td>{sellingPriceNum !== null ? sellingPriceNum : <span className="qpu-muted">-</span>}</td>}

@@ -20,6 +20,7 @@ import {
   buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
   parseBomRows, planBundles, matchKey, PRODUCT_TYPE_LABELS, describeBundleIssue,
+  resolveSecondaryUnit, buildUnitConversion, describeSecondaryUnitError,
 } from "./engine/parsing.js";
 import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
 import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
@@ -288,6 +289,25 @@ export default function useProductUploadEngine() {
   // مطابقة بالرمز (sku) فقط — قرار صريح من المستخدم، راجع resolveExistingProductAction.
   const [updateExisting, setUpdateExisting] = useState(false);
   const toggleUpdateExisting = useCallback(() => setUpdateExisting((v) => !v), []);
+  // [إضافة 2026-09-28] وحدة ثانوية تلقائية للمادة الأولية (جرام→كيلو، مل→لتر،
+  // ×1000) لو ما حدّدها الملف صراحة — طلب المستخدم: الجرام أساسية للمادة
+  // الأولية (تُستخدم بالوصفات) والكيلو/اللتر للشراء.
+  const [autoSecondaryUnits, setAutoSecondaryUnits] = useState(true);
+  const toggleAutoSecondaryUnits = useCallback(() => setAutoSecondaryUnits((v) => !v), []);
+
+  const effectiveTypeOf = useCallback(
+    (i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : (excelData[i]?.product_type || "Product")),
+    [bundlePlan, excelData]
+  );
+  // الوحدة الثانوية لكل صف (للمعاينة والرفع) + الصفوف ذات بيانات ناقصة تمنع الرفع
+  const secondaryUnits = useMemo(
+    () => excelData.map((p, i) => resolveSecondaryUnit(p, { type: effectiveTypeOf(i), autoForRawMaterial: autoSecondaryUnits })),
+    [excelData, effectiveTypeOf, autoSecondaryUnits]
+  );
+  const secondaryUnitErrorRows = useMemo(
+    () => secondaryUnits.map((u, i) => ({ u, i })).filter(({ u }) => u && u.error),
+    [secondaryUnits]
+  );
   // [إضافة 2026-09-07] إعدادا الرصيد الافتتاحي — يُضبطان داخل الأداة (وليس من
   // ملف العميل) كما طلب المستخدم صراحةً: تاريخ واحد للدفعة كاملة، وموقع افتراضي
   // لأي منتج بلا عمود "الموقع" بملفه.
@@ -335,6 +355,14 @@ export default function useProductUploadEngine() {
       setUploadAlert(t({
         ar: `نوع المنتج غير معروف في ${unrecognizedTypeRows.length} صف (${sample}) — الأنواع المقبولة: مادة أولية، منتج، خدمة، مصروف، منتج مجمّع.`,
         en: `Unknown product type in ${unrecognizedTypeRows.length} row(s) (${sample}) — accepted: raw material, product, service, expense, bundle.`,
+      }));
+      return;
+    }
+    if (secondaryUnitErrorRows.length) {
+      const sample = secondaryUnitErrorRows.slice(0, 5).map(({ u, i }) => `#${i + 1} ${excelData[i].name}: ${describeSecondaryUnitError(u.error, t)}`).join("، ");
+      setUploadAlert(t({
+        ar: `الوحدة الثانوية ناقصة أو غير صالحة في ${secondaryUnitErrorRows.length} صف (${sample}) — صحّحها بالملف أولاً.`,
+        en: `Secondary unit missing or invalid in ${secondaryUnitErrorRows.length} row(s) (${sample}) — fix them in the file first.`,
       }));
       return;
     }
@@ -522,6 +550,10 @@ export default function useProductUploadEngine() {
       // [تعديل 2026-09-28] المنتجات الموجودة جُلبت أعلاه (existingProductList)
       // — تُفهرَس هنا بنفس المنطق السابق حرفياً، مع فهرس id/وحدة لكل رمز واسم
       // لربط مكوّنات المنتجات المجمّعة بمنتج موجود مسبقاً (حتى لو تُخطّي).
+      const existingConvUnitsById = new Map();
+      existingProductList.forEach((p) => {
+        existingConvUnitsById.set(p.id, new Set((p.unit_conversions || []).map((c) => c.from_unit)));
+      });
       const existingRefBySku = new Map();
       const existingRefByName = new Map();
       existingProductList.forEach((p) => {
@@ -559,6 +591,24 @@ export default function useProductUploadEngine() {
         : list.map((_, i) => i);
       const idByIndex = {};
       const total = list.length;
+      const ensureUnitId = async (name) => {
+        const uKey = name.toLowerCase();
+        if (unitsCache[uKey]) return unitsCache[uKey].id;
+        try {
+          appendLog(t({ ar: `  جارٍ إنشاء الوحدة: ${name}`, en: `  Creating unit: ${name}` }), "info");
+          const res = await api("POST", "/product_unit_types", {
+            product_unit_type: { unit_name: name, unit_representation: name.substring(0, 3) },
+          }, key);
+          if (res.product_unit_type) {
+            unitsCache[uKey] = res.product_unit_type;
+            appendLog(t({ ar: `  تم إنشاء الوحدة: ${name} (المعرّف: ${res.product_unit_type.id})`, en: `  Unit created: ${name} (ID: ${res.product_unit_type.id})` }), "success");
+            return res.product_unit_type.id;
+          }
+        } catch (e) {
+          appendLog(t({ ar: `  فشل إنشاء الوحدة '${name}': ${e.message}`, en: `  Failed to create unit '${name}': ${e.message}` }), "error");
+        }
+        return null;
+      };
       const updateStatsN = () => setStats({ total, uploaded, updated: updatedCount, skipped, errors });
       const setProgN = (current) => setProgress({ current, total });
       setStats({ total, uploaded: 0, updated: 0, skipped: 0, errors: 0 });
@@ -630,26 +680,30 @@ export default function useProductUploadEngine() {
         }
 
         // Resolve unit
-        let unitId = null;
-        if (p.unit) {
-          const uKey = p.unit.toLowerCase();
-          if (unitsCache[uKey]) {
-            unitId = unitsCache[uKey].id;
-          } else {
-            try {
-              appendLog(t({ ar: `  جارٍ إنشاء الوحدة: ${p.unit}`, en: `  Creating unit: ${p.unit}` }), "info");
-              const res = await api("POST", "/product_unit_types", {
-                product_unit_type: { unit_name: p.unit, unit_representation: p.unit.substring(0, 3) },
-              }, key);
-              if (res.product_unit_type) {
-                unitsCache[uKey] = res.product_unit_type;
-                unitId = res.product_unit_type.id;
-                appendLog(t({ ar: `  تم إنشاء الوحدة: ${p.unit} (المعرّف: ${unitId})`, en: `  Unit created: ${p.unit} (ID: ${unitId})` }), "success");
-              }
-            } catch (e) {
-              appendLog(t({ ar: `  فشل إنشاء الوحدة '${p.unit}': ${e.message}`, en: `  Failed to create unit '${p.unit}': ${e.message}` }), "error");
-            }
+        const unitId = p.unit ? await ensureUnitId(p.unit) : null;
+
+        // [إضافة 2026-09-28] الوحدة الثانوية (كيلو = 1000 جرام...). فشل إنشاء
+        // الوحدة الثانوية => لا يُرسَل المنتج (منتج بلا وحدة الشراء المطلوبة
+        // أسوأ من إعادة المحاولة بعد تصحيح السبب).
+        let unitConversions;
+        const sec = i < excelData.length
+          ? secondaryUnits[i]
+          : resolveSecondaryUnit(p, { type: pType, autoForRawMaterial: autoSecondaryUnits });
+        if (sec && !sec.error) {
+          if (!unitId) {
+            appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": الوحدة الأساسية لم تُنشأ، والوحدة الثانوية (${sec.unit}) تعتمد عليها`, en: `${tag} "${p.name}" NOT sent: base unit wasn't created and the secondary unit (${sec.unit}) depends on it` }), "error");
+            errors++; updateStatsN(); setProgN(step + 1);
+            continue;
           }
+          const existingAlias = sec.aliases ? Object.values(unitsCache).find((u) => sec.aliases.test(String(u.unit_name || "").trim())) : null;
+          const unit2Id = existingAlias ? existingAlias.id : await ensureUnitId(sec.unit);
+          if (!unit2Id) {
+            appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": تعذّر إنشاء الوحدة الثانوية "${sec.unit}"`, en: `${tag} "${p.name}" NOT sent: could not create secondary unit "${sec.unit}"` }), "error");
+            errors++; updateStatsN(); setProgN(step + 1);
+            continue;
+          }
+          const alreadyThere = existingAction.action === "update" && (existingConvUnitsById.get(existingAction.id) || new Set()).has(unit2Id);
+          if (!alreadyThere) unitConversions = [buildUnitConversion({ fromUnitId: unit2Id, rate: sec.rate, p })];
         }
 
         // Resolve revenue account — [إصلاح] يطابق برقم الحساب أولاً ثم بالاسم
@@ -689,7 +743,7 @@ export default function useProductUploadEngine() {
           if (cat) categoryId = cat.id;
         }
 
-        const payload = buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type: pType, ingredients });
+        const payload = buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type: pType, ingredients, unitConversions });
         const nameLower = p.name.trim().toLowerCase();
         const typeLabel = t(PRODUCT_TYPE_LABELS[pType] || PRODUCT_TYPE_LABELS.Product);
 
@@ -703,7 +757,8 @@ export default function useProductUploadEngine() {
           if (res.product) {
             const newId = isUpdate ? existingAction.id : res.product.id;
             idByIndex[i] = { id: newId, unitTypeId: res.product.unit_type || unitId || null };
-            const compNote = ingredients && ingredients.length ? t({ ar: ` — ${ingredients.length} مكوّن`, en: ` — ${ingredients.length} component(s)` }) : "";
+            const compNote = (ingredients && ingredients.length ? t({ ar: ` — ${ingredients.length} مكوّن`, en: ` — ${ingredients.length} component(s)` }) : "")
+              + (unitConversions ? t({ ar: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}`, en: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}` }) : "");
             if (isUpdate) {
               appendLog(t({ ar: `${tag} تم التحديث (${typeLabel}): ${p.name} (المعرّف: ${existingAction.id})${compNote}`, en: `${tag} UPDATED (${typeLabel}): ${p.name} (ID: ${existingAction.id})${compNote}` }), "success");
               updatedCount++;
@@ -723,9 +778,12 @@ export default function useProductUploadEngine() {
         } catch (e) {
           // مواصفة قيود: نوعا "مادة أولية" و"منتج مجمّع" يتطلبان صلاحية
           // Products > advanced لمفتاح API — تلميح صريح عند رفض الصلاحية.
-          const permHint = (pType === "RawMaterial" || pType === "Recipe") && /^API 40[13]:/.test(e.message || "")
+          const denied = /^API 40[13]:/.test(e.message || "");
+          const permHint = (denied && (pType === "RawMaterial" || pType === "Recipe")
             ? t({ ar: " — نوع المادة الأولية/المنتج المجمّع يتطلب صلاحية Products > advanced لمفتاح API", en: " — raw material/bundle types require the Products > advanced permission on the API key" })
-            : "";
+            : "") + (denied && unitConversions
+            ? t({ ar: " — الوحدات الثانوية تتطلب صلاحية Unit Conversions لمفتاح API", en: " — secondary units require the Unit Conversions permission on the API key" })
+            : "");
           appendLog(t({ ar: `${tag} خطأ: ${p.name} - ${e.message}${permHint}`, en: `${tag} ERROR: ${p.name} - ${e.message}${permHint}` }), "error");
           errors++;
         }
@@ -803,6 +861,7 @@ export default function useProductUploadEngine() {
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
     previewAccounts, previewTaxes, previewUnits, previewCategories, previewProducts, appendLog, t,
     unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
+    secondaryUnits, secondaryUnitErrorRows, autoSecondaryUnits,
   ]);
 
   const previewSummary = useMemo(() => {
@@ -837,6 +896,7 @@ export default function useProductUploadEngine() {
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct,
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
+    autoSecondaryUnits, toggleAutoSecondaryUnits, secondaryUnits, secondaryUnitErrorRows,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
     // [إضافة 2026-09-19] بيانات المنشأة المرجعية (حسابات/ضرائب/وحدات/فئات) + التجاوز لكل صف
     previewAccounts, previewTaxes, previewUnits, previewCategories,
