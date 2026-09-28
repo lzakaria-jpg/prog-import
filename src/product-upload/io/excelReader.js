@@ -19,14 +19,25 @@ import * as XLSX from "xlsx";
  * @returns {Promise<any[][]>}
  */
 export function readWorkbookRows(file) {
+  return readWorkbookSheets(file).then((sheets) => (sheets[0] ? sheets[0].rows : []));
+}
+
+/**
+ * [إضافة 2026-09-28] كل أوراق الملف بالترتيب — الأولى تبقى شيت المنتجات (نفس
+ * السلوك السابق)، وأي ورقة تالية قد تكون شيت المكوّنات (BOM) للمنتجات المجمّعة.
+ * @param {File} file
+ * @returns {Promise<{name:string, rows:any[][]}[]>}
+ */
+export function readWorkbookSheets(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const wb = XLSX.read(evt.target.result, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-        resolve(rows);
+        resolve(wb.SheetNames.map((name) => ({
+          name,
+          rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null }),
+        })));
       } catch (err) {
         reject(err);
       }

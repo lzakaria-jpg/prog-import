@@ -13,6 +13,252 @@ export function isTrue(v) {
   return /^(نعم|مخزن|مخزني|نعم$|yes|y|true|١|1)/i.test(v.trim());
 }
 
+// [إضافة 2026-09-28، طلب صريح من المستخدم] أنواع المنتج الخمسة المدعومة فعلياً
+// بمواصفة Qoyod API الرسمية (ProductInput.type enum) — مصدر الحقيقة الوحيد
+// (لا اجتهاد): مادة أولية RawMaterial، منتج Product (الافتراضي)، خدمة Service،
+// مصروف Expense، ومنتج مجمّع (وصفة/BOM) Recipe — الوحيد الذي يقبل مكوّنات
+// (ingredients: [{product_id, quantity, product_unit_id}]).
+export const PRODUCT_TYPES = ["Product", "Service", "Expense", "RawMaterial", "Recipe"];
+
+export const PRODUCT_TYPE_LABELS = {
+  Product: { ar: "منتج", en: "Product" },
+  Service: { ar: "خدمة", en: "Service" },
+  Expense: { ar: "مصروف", en: "Expense" },
+  RawMaterial: { ar: "مادة أولية", en: "Raw material" },
+  Recipe: { ar: "منتج مجمّع", en: "Bundle" },
+};
+
+// نص عرض لخطأ بنيوي من planBundles (t = دالة اللغة المشتركة)
+export function describeBundleIssue(x, t) {
+  switch (x.kind) {
+    case "parent_not_found":
+      return t({ ar: `سطر ${x.rowNumber} بشيت المكوّنات: المنتج المجمّع "${x.parent}" غير موجود بشيت المنتجات`, en: `Components sheet row ${x.rowNumber}: bundle "${x.parent}" is not in the products sheet` });
+    case "parent_wrong_type":
+      return t({ ar: `"${x.parent}" له مكوّنات لكن نوعه بالملف "${t(PRODUCT_TYPE_LABELS[x.type] || PRODUCT_TYPE_LABELS.Product)}" لا "منتج مجمّع"`, en: `"${x.parent}" has components but its type in the file is "${t(PRODUCT_TYPE_LABELS[x.type] || PRODUCT_TYPE_LABELS.Product)}", not "Bundle"` });
+    case "recipe_without_components":
+      return t({ ar: `"${x.parent}" نوعه منتج مجمّع لكن ما له أي مكوّن بشيت المكوّنات`, en: `"${x.parent}" is a bundle but has no components in the components sheet` });
+    case "self_reference":
+      return t({ ar: `سطر ${x.rowNumber}: "${x.parent}" مكوّن لنفسه`, en: `Row ${x.rowNumber}: "${x.parent}" is a component of itself` });
+    case "cycle":
+      return t({ ar: `حلقة مكوّنات: ${x.path.join(" ← ")}`, en: `Component cycle: ${x.path.join(" → ")}` });
+    default:
+      return x.kind;
+  }
+}
+
+// ترتيب الفحص أدناه مقصود: "مجمّع/تركيبة" يجب أن تُطابَق قبل النمط العام لـ
+// Product (المطابقة الفضفاضة له تشمل كلمة "منتج" وحدها، و"منتج مجمّع" تحويها
+// حرفياً) — وإلا خُطف كل صف "منتج مجمّع" كـProduct عادي بصمت.
+const PRODUCT_TYPE_PATTERNS = [
+  { type: "RawMaterial", re: /مادة\s*(أولية|اولية|خام)|raw\s*-?\s*material/i },
+  { type: "Recipe", re: /مجمّع|مجمع|تركيب[ةه]|وصف[ةه]|طقم|bundle|recipe|kit|assembl/i },
+  { type: "Service", re: /خدم[ةه]|service/i },
+  { type: "Expense", re: /مصروف|مصاريف|expense/i },
+  { type: "Product", re: /منتج|سلع[ةه]|بضاع[ةه]|product|goods/i },
+];
+
+// يطابق نص عمود "نوع المنتج" (إن وُجد) بأحد الأنواع الخمسة. عمود فارغ/غائب
+// => Product (نفس الافتراضي الرسمي لقيود عند حذف الحقل كلياً)، explicit:false.
+// نص غير فارغ لا يطابق أي نمط => Product أيضاً لكن recognized:false، ليُنبَّه
+// المستخدم بالمعاينة بدل تجاهل القيمة بصمت.
+export function normalizeProductType(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return { type: "Product", recognized: true, explicit: false };
+  for (const { type, re } of PRODUCT_TYPE_PATTERNS) {
+    if (re.test(s)) return { type, recognized: true, explicit: true };
+  }
+  return { type: "Product", recognized: false, explicit: true };
+}
+
+// مفتاح مطابقة الأسماء/الرموز: قصّ المسافات وتوحيد المسافات الداخلية وحروف
+// صغيرة فقط — لا توحيد إملائي (موزريلا ≠ جبنة موزريلا عمداً): أي اختلاف
+// بالكتابة يُعرَض للمستخدم ليربطه يدوياً، قراره الصريح.
+export function matchKey(v) {
+  return String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// ============================================================================
+// [إضافة 2026-09-28] شيت المكوّنات (BOM) للمنتجات المجمّعة (Recipe)
+// ============================================================================
+// شيت مستقل بثلاثة أعمدة: المنتج المجمّع | المكوّن | الكمية — سطر لكل مكوّن.
+// المنتج المجمّع والمكوّن يُشار لهما بالاسم أو الرمز كما وردا بشيت المنتجات
+// (أو منتج موجود مسبقاً بمنشأة العميل للمكوّن).
+export function detectBomColumns(headerRow) {
+  const cols = { parent: -1, component: -1, qty: -1 };
+  (headerRow || []).forEach((h, i) => {
+    const hh = String(h ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+    if (!hh) return;
+    if (cols.parent === -1 && /المنتج\s*المجم|الصنف\s*المجم|مجمّع|مجمع|وصفة|bundle|recipe|parent/i.test(hh)) { cols.parent = i; return; }
+    if (cols.component === -1 && /مكوّن|مكون|component|ingredient|material/i.test(hh)) { cols.component = i; return; }
+    if (cols.qty === -1 && /كمية|الكمية|qty|quantity/i.test(hh)) cols.qty = i;
+  });
+  return cols;
+}
+
+export function findBomHeader(rows) {
+  for (let i = 0; i < Math.min((rows || []).length, 10); i++) {
+    const cols = detectBomColumns(rows[i] || []);
+    if (cols.parent >= 0 && cols.component >= 0 && cols.qty >= 0) return { headerIdx: i, cols };
+  }
+  return null;
+}
+
+// كل سطر صالح => { parent, component, qty, rowNumber }. سطر فيه مرجع بلا كمية
+// صالحة (>0) لا يُفترض له كمية أبداً: يُرجَع بقائمة errors ليظهر للمستخدم.
+export function parseBomRows(rows) {
+  const found = findBomHeader(rows);
+  if (!found) return { found: false, lines: [], errors: [] };
+  const { headerIdx, cols } = found;
+  const lines = [];
+  const errors = [];
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const parent = String(r[cols.parent] ?? "").trim();
+    const component = String(r[cols.component] ?? "").trim();
+    const qtyRaw = r[cols.qty];
+    if (!parent && !component && (qtyRaw === null || qtyRaw === undefined || String(qtyRaw).trim() === "")) continue;
+    const rowNumber = i + 1;
+    if (!parent || !component) { errors.push({ rowNumber, reason: "missing_ref", parent, component }); continue; }
+    const qty = typeof qtyRaw === "number" ? qtyRaw : parseFloat(String(qtyRaw ?? "").replace(/[^\d.-]/g, ""));
+    if (!isFinite(qty) || qty <= 0) { errors.push({ rowNumber, reason: "bad_qty", parent, component }); continue; }
+    lines.push({ parent, component, qty, rowNumber });
+  }
+  return { found: true, lines, errors };
+}
+
+/**
+ * يخطّط رفع المنتجات المجمّعة — طبقة نقية بلا شبكة.
+ *
+ * products: صفوف شيت المنتجات (excelData). existingProducts: منتجات منشأة
+ * العميل الحالية (GET /products). links: ربط يدوي من المستخدم لكل مكوّن غير
+ * مطابق، مفتاحه matchKey(اسم المكوّن) => {kind:"file",index} |
+ * {kind:"existing",id} | {kind:"create"}.
+ *
+ * ترتيب حلّ المكوّن: ربط يدوي أولاً، ثم منتج بنفس الملف (رمز ثم اسم)، ثم منتج
+ * موجود بقيود (رمز ثم اسم عربي/إنجليزي). لا مطابقة تقريبية إطلاقاً.
+ *
+ * يُرجع:
+ *  - recipes: Map(fileIndex => [{ ref, qty, target }])
+ *  - unresolved: [{ key, ref, usedBy: [أسماء المنتجات المجمّعة] }]
+ *  - issues: [{ kind, ... }] أخطاء بنيوية تمنع الرفع
+ *  - order: ترتيب رفع فهارس الملف (غير المجمّعة أولاً، ثم المجمّعة بعد كل
+ *    مكوّناتها — يدعم منتج مجمّع داخل منتج مجمّع)
+ *  - createRefs: مكوّنات اختار المستخدم إنشاءها كمادة أولية جديدة
+ *  - effectiveTypes: نوع كل صف فعلياً (صف له مكوّنات ونوعه غير محدد => Recipe)
+ */
+export function planBundles({ products, bomLines, existingProducts, links }) {
+  const fileBySku = new Map();
+  const fileByName = new Map();
+  (products || []).forEach((p, i) => {
+    const s = matchKey(p.sku);
+    const n = matchKey(p.name);
+    const ne = matchKey(p.name_en);
+    if (s && !fileBySku.has(s)) fileBySku.set(s, i);
+    if (n && !fileByName.has(n)) fileByName.set(n, i);
+    if (ne && !fileByName.has(ne)) fileByName.set(ne, i);
+  });
+  const exBySku = new Map();
+  const exByName = new Map();
+  (existingProducts || []).forEach((p) => {
+    const s = matchKey(p.sku);
+    if (s && !exBySku.has(s)) exBySku.set(s, p);
+    [p.name_ar, p.name_en].forEach((nm) => { const k = matchKey(nm); if (k && !exByName.has(k)) exByName.set(k, p); });
+  });
+
+  const findFile = (ref) => {
+    const k = matchKey(ref);
+    if (fileBySku.has(k)) return fileBySku.get(k);
+    if (fileByName.has(k)) return fileByName.get(k);
+    return -1;
+  };
+
+  const issues = [];
+  const recipes = new Map();
+  const unresolvedMap = new Map();
+  const createRefs = new Map();
+  const effectiveTypes = (products || []).map((p) => p.product_type || "Product");
+
+  (bomLines || []).forEach((line) => {
+    const pi = findFile(line.parent);
+    if (pi === -1) { issues.push({ kind: "parent_not_found", parent: line.parent, rowNumber: line.rowNumber }); return; }
+    const pp = products[pi];
+    if (pp.product_type_explicit && pp.product_type !== "Recipe") {
+      if (!issues.some((x) => x.kind === "parent_wrong_type" && x.index === pi)) {
+        issues.push({ kind: "parent_wrong_type", index: pi, parent: pp.name, type: pp.product_type });
+      }
+      return;
+    }
+    effectiveTypes[pi] = "Recipe";
+
+    const key = matchKey(line.component);
+    const link = links && links[key];
+    let target = null;
+    if (link && link.kind === "file" && products[link.index]) target = { kind: "file", index: link.index };
+    else if (link && link.kind === "existing" && link.id) target = { kind: "existing", id: link.id, unitTypeId: link.unitTypeId || null };
+    else if (link && link.kind === "create") target = { kind: "create", key, name: line.component.trim() };
+    if (!target) {
+      const fi = findFile(line.component);
+      if (fi !== -1) target = { kind: "file", index: fi };
+    }
+    if (!target) {
+      const ex = exBySku.get(key) || exByName.get(key);
+      if (ex) target = { kind: "existing", id: ex.id, unitTypeId: ex.unit_type || null };
+    }
+    if (target && target.kind === "file" && target.index === pi) {
+      issues.push({ kind: "self_reference", parent: pp.name, rowNumber: line.rowNumber });
+      return;
+    }
+    if (!target) {
+      if (!unresolvedMap.has(key)) unresolvedMap.set(key, { key, ref: line.component.trim(), usedBy: [] });
+      const u = unresolvedMap.get(key);
+      if (!u.usedBy.includes(pp.name)) u.usedBy.push(pp.name);
+    }
+    if (target && target.kind === "create" && !createRefs.has(key)) createRefs.set(key, target.name);
+    if (!recipes.has(pi)) recipes.set(pi, []);
+    recipes.get(pi).push({ ref: line.component.trim(), qty: line.qty, target });
+  });
+
+  (products || []).forEach((p, i) => {
+    if (p.product_type === "Recipe" && !recipes.has(i)) issues.push({ kind: "recipe_without_components", index: i, parent: p.name });
+  });
+
+  // ترتيب طوبولوجي: منتج مجمّع بعد كل مكوّناته من نفس الملف. حلقة => خطأ.
+  const order = [];
+  const state = new Array((products || []).length).fill(0); // 0 لم يُزَر، 1 قيد الزيارة، 2 انتهى
+  const visit = (i, stack) => {
+    if (state[i] === 2) return;
+    if (state[i] === 1) {
+      if (!issues.some((x) => x.kind === "cycle" && x.index === i)) issues.push({ kind: "cycle", index: i, parent: products[i].name, path: [...stack, products[i].name] });
+      return;
+    }
+    state[i] = 1;
+    (recipes.get(i) || []).forEach((c) => { if (c.target && c.target.kind === "file") visit(c.target.index, [...stack, products[i].name]); });
+    state[i] = 2;
+    order.push(i);
+  };
+  (products || []).forEach((_, i) => { if (!recipes.has(i)) visit(i, []); });
+  (products || []).forEach((_, i) => { if (recipes.has(i)) visit(i, []); });
+
+  return {
+    recipes,
+    unresolved: [...unresolvedMap.values()],
+    issues,
+    order,
+    createRefs: [...createRefs.entries()].map(([key, name]) => ({ key, name })),
+    effectiveTypes,
+  };
+}
+
+// اقتراحات ربط لمكوّن غير مطابق — للعرض فقط، لا تُطبَّق إلا بضغطة المستخدم.
+// مرشّح يحوي اسم المكوّن كاملاً أو العكس (مثال: "موزريلا" لـ"جبنة موزريلا").
+export function suggestLinks(ref, candidates, limit = 3) {
+  const k = matchKey(ref);
+  if (!k) return [];
+  return (candidates || [])
+    .filter((c) => { const n = matchKey(c.name); return n && n !== k && (n.includes(k) || k.includes(n)); })
+    .slice(0, limit);
+}
+
 // Detect column indexes from the header row by matching names (Arabic/English).
 // Returns an object of logical column name -> index.
 export function detectColumns(headerRow) {
@@ -26,6 +272,10 @@ export function detectColumns(headerRow) {
     // سلوك حالي إطلاقاً لملف لا يحوي هذه الأعمدة — تماماً كما طلب المستخدم
     // ("في حال لم توجد يبقى الحال كما هو").
     name_en: -1, description: -1, sellingPrice: -1, barcode: -1, quantity: -1, location: -1,
+    // [إضافة 2026-09-28] نوع المنتج (مادة أولية/منتج/خدمة/مصروف/منتج مجمّع) —
+    // اختياري، يبقى -1 لملف لا يحويه فلا يتغيّر أي سلوك حالي. مكوّنات المنتج
+    // المجمّع بشيت مستقل (parseBomRows)، لا عمود هنا.
+    product_type: -1,
   };
   headerRow.forEach((h, i) => {
     const hh = norm(h).toLowerCase();
@@ -108,6 +358,10 @@ export function detectColumns(headerRow) {
     if (map.location === -1 && /الموقع|موقع|المخزن|location|warehouse/i.test(hh)) map.location = i;
     // [إضافة 2026-09-07] وصف المنتج — عمود اختياري جديد.
     if (map.description === -1 && /وصف المنتج|وصف الصنف|^\s*(الوصف|وصف)\s*$|description/i.test(hh)) map.description = i;
+    // [إضافة 2026-09-28] نوع المنتج — مادة أولية/منتج/خدمة/مصروف/منتج مجمّع
+    // (راجع normalizeProductType). "نوع الحساب"/"account type" مُستثنى صراحة
+    // (لا علاقة له بنوع المنتج، قد يظهر بملفات فيها كلا العمودين معاً).
+    if (map.product_type === -1 && /نوع\s*ال?منتج|نوع\s*الصنف|product\s*type|^\s*(النوع|نوع)\s*$/i.test(hh) && !/حساب|account/i.test(hh)) map.product_type = i;
   });
   return map;
 }
@@ -134,6 +388,8 @@ export const MAPPABLE_FIELDS = [
   ['quantity', 'الكمية المتوفرة', false, 'Quantity'],
   ['location', 'الموقع', false, 'Location'],
   ['description', 'الوصف', false, 'Description'],
+  // [إضافة 2026-09-28]
+  ['product_type', 'نوع المنتج', false, 'Product type'],
 ];
 
 // [إضافة 2026-09-19] الاكتشاف التلقائي الكامل لخريطة الأعمدة (detectColumns +
@@ -199,6 +455,17 @@ export function rowsToProducts(rows, headerIdx, cols) {
       quantity_raw: get(cols.quantity) !== null ? String(get(cols.quantity)).trim() : "",
       location: get(cols.location) !== null ? String(get(cols.location)).trim() : "",
     };
+
+    // [إضافة 2026-09-28] نوع المنتج — عمود غائب/فارغ => Product بلا أي تغيير.
+    const typeRaw = cols.product_type >= 0 && get(cols.product_type) !== null ? String(get(cols.product_type)).trim() : "";
+    const nt = normalizeProductType(typeRaw);
+    p.product_type = nt.type;
+    p.product_type_raw = typeRaw;
+    p.product_type_recognized = nt.recognized;
+    p.product_type_explicit = nt.explicit;
+    // هل عمود "حالة البيع" موجود فعلاً؟ — لتحديد افتراضي البيع حسب النوع فقط
+    // حين يغيب العمود (راجع buildProductPayload).
+    p.sellable_explicit = cols.sellable >= 0;
 
     data.push(p);
   }
@@ -273,10 +540,21 @@ export function parseQuantityNumber(rawQty) {
 // مؤكَّدة فعلياً باختبار حقيقي مباشر على POST /products وPUT /products/{id}
 // (المستخدم أرسل الطلب والرد الفعليين: الحقلان رجعا بالضبط بنفس القيمة
 // والاسم بالـresponse، مرتين). لا حقل اجتهادي متبقٍّ بهذه الحمولة.
-export function buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive }) {
+//
+// [إضافة 2026-09-28] type (مادة أولية/منتج/خدمة/مصروف/منتج مجمّع) وingredients
+// (للمنتج المجمّع فقط). بلا type => Product ونفس الحمولة السابقة حرفياً ما عدا
+// حقل type نفسه (نفس الافتراضي الرسمي لقيود أصلاً). قواعد حسب النوع:
+//  - خدمة/مصروف: لا تتبّع كمية أبداً (track_quantity=false) مهما كان عمود المخزون.
+//  - مادة أولية/مصروف بلا عمود "حالة البيع" بالملف: غير قابلة للبيع افتراضياً.
+//    عمود صريح بالملف يتفوّق دائماً.
+export function buildProductPayload(p, { unitId, categoryId, revId, expId, selectedTaxId, taxInclusive, type, ingredients }) {
   const costNum = parseCostNumber(p.cost);
   const nameEn = p.name_en && p.name_en.trim() ? p.name_en.trim() : p.name;
-  const payload = { name_en: nameEn, name_ar: p.name };
+  const resolvedType = PRODUCT_TYPES.includes(type) ? type : "Product";
+  const noStock = resolvedType === "Service" || resolvedType === "Expense";
+  const defaultNotSold = (resolvedType === "RawMaterial" || resolvedType === "Expense") && !p.sellable_explicit;
+  p = { ...p, is_inventory: noStock ? false : p.is_inventory, is_sellable: defaultNotSold ? false : p.is_sellable };
+  const payload = { name_en: nameEn, name_ar: p.name, type: resolvedType };
   if (p.sku) payload.sku = p.sku;
   if (p.barcode) payload.barcode = p.barcode;
   if (p.description) payload.description = p.description;
@@ -307,6 +585,7 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
   // اختيار المستخدم على الحقلين الرسميين معاً (سعر الشراء وسعر البيع).
   payload.is_buying_price_inclusive = taxInclusive;
   payload.is_selling_price_inclusive = taxInclusive;
+  if (resolvedType === "Recipe" && Array.isArray(ingredients) && ingredients.length) payload.ingredients = ingredients;
   return payload;
 }
 
