@@ -311,10 +311,30 @@ describe("fetchAllByCursor() — ترقيم بالمؤشر (q[s]=id asc + q[id_g
     expect(result.qoyodFetchTruncatedError).toBeUndefined();
   }, 10000);
 
-  it("فشل أول طلب (لا بيانات) يبقى يرمي خطأ كالمعتاد", async () => {
+  it("[بلاغ حقيقي] 500 على أول طلب مؤشر => رجوع تلقائي للترقيم العادي page/per_page", async () => {
+    const calls = [];
+    global.fetch = vi.fn().mockImplementation(async (url) => {
+      calls.push(url);
+      if (url.includes("q[id_gt]")) return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+      const page = Number(new URL(url, "http://x").searchParams.get("page"));
+      if (page === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ accounts: Array.from({ length: 40 }, (_, i) => ({ id: i + 1 })) }) };
+      return { ok: false, status: 404, text: async () => "We found nothing" };
+    });
+    const result = await fetchAllByCursor("/accounts", "KEY");
+    expect(result).toHaveLength(40);
+    expect(calls.some((u) => u.includes("page=1&per_page=100"))).toBe(true);
+  }, 10000);
+
+  it("فشل الطريقتين كلتيهما يبقى يرمي خطأ كالمعتاد", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" });
     await expect(fetchAllByCursor("/accounts", "KEY")).rejects.toThrow(/^API 500:/);
-  }, 10000);
+  }, 20000);
+
+  it("401 على أول طلب: يُرمى مباشرة بلا رجوع للترقيم العادي", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" });
+    await expect(fetchAllByCursor("/accounts", "KEY")).rejects.toThrow(/^API 401:/);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 
   it("404 على أول طلب = قائمة فارغة (منشأة بلا حسابات)", async () => {
     mockFetchOnce(404, "We found nothing");
