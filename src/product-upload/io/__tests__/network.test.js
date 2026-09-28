@@ -350,3 +350,36 @@ describe("fetchAllByCursor() — ترقيم بالمؤشر (q[s]=id asc + q[id_g
     expect(result).toHaveLength(1); // id=5 مرة وحدة، ثم q[id_gt]=5 يرجّع نفس id ⇒ لا جديد ⇒ توقف
   });
 });
+
+describe("[بلاغ حقيقي] fetchAll — موارد بلا ترقيم بمواصفة قيود: 500 على page=1 => طلب بلا معاملات", () => {
+  const serverRejectingPaging = (payloadKey, items) => vi.fn().mockImplementation(async (url) => {
+    if (url.includes("page=")) return { ok: false, status: 500, text: async () => '{"status":500,"error":"Internal Server Error"}' };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ [payloadKey]: items }) };
+  });
+
+  it("/product_unit_types يُجلب كاملاً بالشكل الموثّق (بلا page/per_page)", async () => {
+    global.fetch = serverRejectingPaging("product_unit_types", [{ id: 1, unit_name: "جرام" }, { id: 2, unit_name: "حبة" }]);
+    const res = await fetchAll("/product_unit_types", "KEY");
+    expect(res).toHaveLength(2);
+    expect(global.fetch.mock.calls.at(-1)[0]).toMatch(/\/product_unit_types$/);
+  }, 10000);
+
+  it("/categories: 404 بالطلب بلا معاملات = قائمة فارغة", async () => {
+    global.fetch = vi.fn().mockImplementation(async (url) => (url.includes("page=")
+      ? { ok: false, status: 500, text: async () => "boom" }
+      : { ok: false, status: 404, text: async () => "We found nothing" }));
+    expect(await fetchAll("/categories", "KEY")).toEqual([]);
+  }, 10000);
+
+  it("مورد مرقّم فعلاً (/products) لا يُجرَّب بلا معاملات — يُرمى الخطأ كما هو", async () => {
+    global.fetch = serverRejectingPaging("products", [{ id: 1 }]);
+    await expect(fetchAll("/products", "KEY")).rejects.toThrow(/^API 500:/);
+    expect(global.fetch.mock.calls.every(([u]) => u.includes("page="))).toBe(true);
+  }, 10000);
+
+  it("4xx على page=1 لا يُجرَّب بلا معاملات", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" });
+    await expect(fetchAll("/product_unit_types", "KEY")).rejects.toThrow(/^API 401:/);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+});
