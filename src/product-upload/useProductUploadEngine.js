@@ -299,13 +299,14 @@ export default function useProductUploadEngine() {
     (i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : (excelData[i]?.product_type || "Product")),
     [bundlePlan, excelData]
   );
-  // الوحدة الثانوية لكل صف (للمعاينة والرفع) + الصفوف ذات بيانات ناقصة تمنع الرفع
+  // الوحدة الثانوية لكل صف (للمعاينة والرفع) + صفوف وحدتها الثانوية لن تُرفَع
+  // (ناقصة/متعارضة) — تنبيه فقط، لا توقف الرفع (طلب المستخدم الصريح)
   const secondaryUnits = useMemo(
     () => excelData.map((p, i) => resolveSecondaryUnit(p, { type: effectiveTypeOf(i), autoForRawMaterial: autoSecondaryUnits })),
     [excelData, effectiveTypeOf, autoSecondaryUnits]
   );
-  const secondaryUnitErrorRows = useMemo(
-    () => secondaryUnits.map((u, i) => ({ u, i })).filter(({ u }) => u && u.error),
+  const secondaryUnitSkippedRows = useMemo(
+    () => secondaryUnits.map((u, i) => ({ u, i })).filter(({ u }) => u && u.skip),
     [secondaryUnits]
   );
   // [إضافة 2026-09-07] إعدادا الرصيد الافتتاحي — يُضبطان داخل الأداة (وليس من
@@ -355,14 +356,6 @@ export default function useProductUploadEngine() {
       setUploadAlert(t({
         ar: `نوع المنتج غير معروف في ${unrecognizedTypeRows.length} صف (${sample}) — الأنواع المقبولة: مادة أولية، منتج، خدمة، مصروف، منتج مجمّع.`,
         en: `Unknown product type in ${unrecognizedTypeRows.length} row(s) (${sample}) — accepted: raw material, product, service, expense, bundle.`,
-      }));
-      return;
-    }
-    if (secondaryUnitErrorRows.length) {
-      const sample = secondaryUnitErrorRows.slice(0, 5).map(({ u, i }) => `#${i + 1} ${excelData[i].name}: ${describeSecondaryUnitError(u.error, t)}`).join("، ");
-      setUploadAlert(t({
-        ar: `الوحدة الثانوية ناقصة أو غير صالحة في ${secondaryUnitErrorRows.length} صف (${sample}) — صحّحها بالملف أولاً.`,
-        en: `Secondary unit missing or invalid in ${secondaryUnitErrorRows.length} row(s) (${sample}) — fix them in the file first.`,
       }));
       return;
     }
@@ -689,7 +682,13 @@ export default function useProductUploadEngine() {
         const sec = i < excelData.length
           ? secondaryUnits[i]
           : resolveSecondaryUnit(p, { type: pType, autoForRawMaterial: autoSecondaryUnits });
-        if (sec && !sec.error) {
+        if (sec && sec.skip) {
+          appendLog(t({
+            ar: `  تنبيه: "${p.name}" يُرفَع بوحدته الأساسية فقط — الوحدة الثانوية "${p.unit2}" لم تُرفَع (${describeSecondaryUnitError(sec.skip, t)})`,
+            en: `  Note: "${p.name}" uploads with its base unit only — secondary unit "${p.unit2}" skipped (${describeSecondaryUnitError(sec.skip, t)})`,
+          }), "warn");
+        }
+        if (sec && sec.unit) {
           if (!unitId) {
             appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": الوحدة الأساسية لم تُنشأ، والوحدة الثانوية (${sec.unit}) تعتمد عليها`, en: `${tag} "${p.name}" NOT sent: base unit wasn't created and the secondary unit (${sec.unit}) depends on it` }), "error");
             errors++; updateStatsN(); setProgN(step + 1);
@@ -861,7 +860,7 @@ export default function useProductUploadEngine() {
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
     previewAccounts, previewTaxes, previewUnits, previewCategories, previewProducts, appendLog, t,
     unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
-    secondaryUnits, secondaryUnitErrorRows, autoSecondaryUnits,
+    secondaryUnits, autoSecondaryUnits,
   ]);
 
   const previewSummary = useMemo(() => {
@@ -896,7 +895,7 @@ export default function useProductUploadEngine() {
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct,
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
-    autoSecondaryUnits, toggleAutoSecondaryUnits, secondaryUnits, secondaryUnitErrorRows,
+    autoSecondaryUnits, toggleAutoSecondaryUnits, secondaryUnits, secondaryUnitSkippedRows,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
     // [إضافة 2026-09-19] بيانات المنشأة المرجعية (حسابات/ضرائب/وحدات/فئات) + التجاوز لكل صف
     previewAccounts, previewTaxes, previewUnits, previewCategories,

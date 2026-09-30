@@ -31,14 +31,27 @@ describe("resolveSecondaryUnit", () => {
     expect(resolveSecondaryUnit(raw({ unit2: "كرتون", unit2_rate_raw: "5000" }), { type: "RawMaterial", autoForRawMaterial: true }))
       .toEqual({ unit: "كرتون", rate: 5000, source: "file" });
   });
-  it("كيلو بدون معامل لوحدة جرام: 1000 (تحويل فيزيائي ثابت)؛ وحدة أخرى بلا معامل => خطأ", () => {
+  it("كيلو بدون معامل لوحدة جرام: 1000 (تحويل فيزيائي ثابت)؛ وحدة أخرى بلا معامل => تُتخطّى الثانوية فقط", () => {
     expect(resolveSecondaryUnit(raw({ unit2: "كيلو" }), {})).toMatchObject({ rate: 1000, source: "auto" });
-    expect(resolveSecondaryUnit(raw({ unit2: "كرتون" }), {})).toEqual({ error: "bad_rate" });
+    expect(resolveSecondaryUnit(raw({ unit2: "كرتون" }), {})).toEqual({ skip: "bad_rate" });
   });
-  it("بيانات متعارضة => خطأ يمنع الرفع", () => {
-    expect(resolveSecondaryUnit(raw({ unit2_rate_raw: "1000" }), {})).toEqual({ error: "rate_without_unit" });
-    expect(resolveSecondaryUnit(raw({ unit: "", unit2: "كيلو", unit2_rate_raw: "1000" }), {})).toEqual({ error: "no_base_unit" });
-    expect(resolveSecondaryUnit(raw({ unit2: "جرام", unit2_rate_raw: "1" }), {})).toEqual({ error: "same_as_base" });
+  it("[بلاغ حقيقي] معامل تحويل بلا وحدة ثانوية = منتج بلا وحدة ثانوية (لا خطأ ولا إيقاف)", () => {
+    expect(resolveSecondaryUnit({ name: "خضار", unit: "ريال", unit2: "", unit2_rate_raw: "1" }, { type: "Product" })).toBeNull();
+    expect(resolveSecondaryUnit({ name: "خردل", unit: "جرام", unit2: "", unit2_rate_raw: "255" }, { type: "Product" })).toBeNull();
+  });
+  it("ملف مختلط: الصف اللي له وحدة ثانوية ياخذها، والباقي بوحدته الأساسية فقط", () => {
+    const rows = [
+      ["الاسم", "الوحدة", "الوحدة الثانوية", "معامل التحويل"],
+      ["زيت", "لتر", "كرتون", "12"],
+      ["خضار", "ريال", "", "1"],
+      ["ملح", "جرام", "", ""],
+    ];
+    const res = rowsToProducts(rows, 0, detectColumns(rows[0])).map((p) => resolveSecondaryUnit(p, { type: "Product" }));
+    expect(res).toEqual([{ unit: "كرتون", rate: 12, source: "file" }, null, null]);
+  });
+  it("وحدة ثانوية مكتوبة لكن متعارضة => skip (يُرفَع المنتج بالأساسية، لا إيقاف)", () => {
+    expect(resolveSecondaryUnit(raw({ unit: "", unit2: "كيلو", unit2_rate_raw: "1000" }), {})).toEqual({ skip: "no_base_unit" });
+    expect(resolveSecondaryUnit(raw({ unit2: "جرام", unit2_rate_raw: "1" }), {})).toEqual({ skip: "same_as_base" });
   });
 });
 
