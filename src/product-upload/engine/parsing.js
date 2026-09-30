@@ -627,23 +627,28 @@ export function autoSecondaryFor(baseUnit) {
  *  - عمود صريح بالملف (الوحدة الثانوية + معامل التحويل) يتفوّق دائماً.
  *  - بلا عمود صريح: للمادة الأولية فقط وبإعداد مفعَّل، جرام→كيلو ومل→لتر.
  * يُرجع null (لا وحدة ثانوية) أو { unit, rate, source, aliases? } أو
- * { error } لبيانات ناقصة/متعارضة تمنع الرفع (لا افتراض معامل أبداً).
+ * { skip: سبب } لوحدة ثانوية مكتوبة لكن ناقصة/متعارضة.
+ *
+ * [تعديل — طلب صريح من المستخدم] لا شيء هنا يوقف الرفع: ملف فيه منتجات لها
+ * وحدات ثانوية وأخرى بدونها طبيعي. صف بلا وحدة ثانوية (ولو عمود المعامل فيه
+ * رقم) = منتج بوحدته الأساسية فقط. وصف skip يُرفَع بوحدته الأساسية فقط مع
+ * تنبيه بالمعاينة والسجل — لا يُفترض له معامل أبداً.
  */
 export function resolveSecondaryUnit(p, { type, autoForRawMaterial } = {}) {
   const unit2 = String(p.unit2 || "").trim();
   const rateRaw = String(p.unit2_rate_raw || "").trim();
-  if (unit2 || rateRaw) {
-    if (!unit2) return { error: "rate_without_unit" };
-    if (!String(p.unit || "").trim()) return { error: "no_base_unit" };
-    if (matchKey(unit2) === matchKey(p.unit)) return { error: "same_as_base" };
+  if (unit2) {
+    if (!String(p.unit || "").trim()) return { skip: "no_base_unit" };
+    if (matchKey(unit2) === matchKey(p.unit)) return { skip: "same_as_base" };
     const rate = parseFloat(rateRaw.replace(/[^\d.]/g, ""));
     if (!rateRaw || !isFinite(rate) || rate <= 0) {
       const auto = autoSecondaryFor(p.unit);
       if (auto && auto.aliases.test(unit2)) return { unit: unit2, rate: auto.rate, source: "auto" };
-      return { error: "bad_rate" };
+      return { skip: "bad_rate" };
     }
     return { unit: unit2, rate, source: "file" };
   }
+  if (rateRaw) return null;
   if (autoForRawMaterial && type === "RawMaterial") {
     const auto = autoSecondaryFor(p.unit);
     if (auto) return { unit: auto.name, rate: auto.rate, source: "auto", aliases: auto.aliases };
@@ -667,7 +672,6 @@ export function buildUnitConversion({ fromUnitId, rate, p }) {
 
 export function describeSecondaryUnitError(err, t) {
   switch (err) {
-    case "rate_without_unit": return t({ ar: "معامل تحويل بدون وحدة ثانوية", en: "Conversion rate without a secondary unit" });
     case "no_base_unit": return t({ ar: "وحدة ثانوية بدون وحدة أساسية", en: "Secondary unit without a base unit" });
     case "same_as_base": return t({ ar: "الوحدة الثانوية نفس الأساسية", en: "Secondary unit equals the base unit" });
     case "bad_rate": return t({ ar: "معامل التحويل فارغ أو غير صالح", en: "Conversion rate is empty or invalid" });

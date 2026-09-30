@@ -85,6 +85,8 @@ export default function PreviewCard({ eng }) {
   const showType = previewSummary.withType > 0 || !!bundlePlan;
   const typeOf = (p, i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : p.product_type || "Product");
   const showUnit2 = secondaryUnits.some(Boolean);
+  const unit2Count = secondaryUnits.filter((u) => u && u.unit).length;
+  const unit2Skipped = secondaryUnits.filter((u) => u && u.skip).length;
   const colCount = BASE_COL_COUNT + [showType, showUnit2, showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
 
   return (
@@ -93,6 +95,8 @@ export default function PreviewCard({ eng }) {
       <div className="qpu-hint" style={{ marginBottom: 10 }}>
         {previewSummary.count} {t({ ar: "منتج", en: "products" })} | {previewSummary.categories} {t({ ar: "فئة", en: "categories" })} | {previewSummary.units} {t({ ar: "وحدة", en: "units" })}
         {showQuantity && ` | ${previewSummary.withQuantity} ${t({ ar: "منتج فيه كمية افتتاحية", en: "product(s) with an opening quantity" })}`}
+        {unit2Count > 0 && ` | ${unit2Count} ${t({ ar: "منتج بوحدة ثانوية", en: "with a secondary unit" })}`}
+        {unit2Skipped > 0 && ` | ⚠ ${unit2Skipped} ${t({ ar: "وحدة ثانوية ناقصة (يُرفَع المنتج بالأساسية فقط)", en: "incomplete secondary unit(s) (base unit only)" })}`}
         {showType && Object.entries(PRODUCT_TYPE_LABELS).map(([k, lbl]) => {
           const n = excelData.filter((p, i) => typeOf(p, i) === k).length;
           return n ? ` | ${n} ${t(lbl)}` : "";
@@ -172,8 +176,8 @@ export default function PreviewCard({ eng }) {
                   {showUnit2 && (
                     <td>
                       {!secondaryUnits[i] ? <span className="qpu-muted">-</span>
-                        : secondaryUnits[i].error
-                          ? <span className="qpu-badge yellow">⚠ {describeSecondaryUnitError(secondaryUnits[i].error, t)}</span>
+                        : secondaryUnits[i].skip
+                          ? <span className="qpu-badge yellow" title={t({ ar: "يُرفَع المنتج بوحدته الأساسية فقط", en: "Product uploads with its base unit only" })}>⚠ {p.unit2}: {describeSecondaryUnitError(secondaryUnits[i].skip, t)}</span>
                           : <span title={secondaryUnits[i].source === "auto" ? t({ ar: "تلقائي", en: "Automatic" }) : ""}>1 {secondaryUnits[i].unit} = {secondaryUnits[i].rate} {p.unit}{secondaryUnits[i].source === "auto" ? " ⚙" : ""}</span>}
                     </td>
                   )}
