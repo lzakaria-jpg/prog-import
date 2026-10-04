@@ -20,7 +20,7 @@ import {
   buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
   parseBomRows, planBundles, matchKey, PRODUCT_TYPE_LABELS, describeBundleIssue,
-  resolveSecondaryUnit, buildUnitConversion, describeSecondaryUnitError,
+  resolveSecondaryUnit, buildUnitConversion, describeSecondaryUnitError, unitKey,
 } from "./engine/parsing.js";
 import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
 import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
@@ -443,12 +443,10 @@ export default function useProductUploadEngine() {
       const hasBundles = bomLines.length > 0 || excelData.some((p) => p.product_type === "Recipe");
       let existingProductList = [];
       if (skipDups || updateExisting || hasBundles) {
-        if (usePrefetched && previewProducts) {
-          existingProductList = previewProducts;
-        } else {
-          appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
-          existingProductList = await fetchAll("/products", key);
-        }
+        // [إصلاح] تُجلب دائماً لحظة الرفع (لا من المعاينة) — نسخة المعاينة قد
+        // تكون قديمة (قبل رفع سابق بنفس الجلسة) فتُنشأ نفس المنتجات مرتين.
+        appendLog(t({ ar: "جارٍ جلب المنتجات الموجودة...", en: "Fetching existing products..." }), "info");
+        existingProductList = await fetchAll("/products", key);
         appendLog(t({ ar: `  تم العثور على ${existingProductList.length} منتج موجود`, en: `  Found ${existingProductList.length} existing products` }), "info");
       }
 
@@ -484,7 +482,7 @@ export default function useProductUploadEngine() {
       }
 
       // 3. Units
-      units.forEach((u) => { unitsCache[(u.unit_name || "").toLowerCase()] = u; });
+      units.forEach((u) => { unitsCache[unitKey(u.unit_name)] = u; });
       appendLog(t({ ar: `  تم العثور على ${units.length} وحدة: ${units.map((u) => u.unit_name).join("، ")}`, en: `  Found ${units.length} units: ${units.map((u) => u.unit_name).join(", ")}` }), "info");
 
       // 4. Categories — ensure the ones this file needs exist
@@ -585,7 +583,7 @@ export default function useProductUploadEngine() {
       const idByIndex = {};
       const total = list.length;
       const ensureUnitId = async (name) => {
-        const uKey = name.toLowerCase();
+        const uKey = unitKey(name);
         if (unitsCache[uKey]) return unitsCache[uKey].id;
         try {
           appendLog(t({ ar: `  جارٍ إنشاء الوحدة: ${name}`, en: `  Creating unit: ${name}` }), "info");
@@ -694,7 +692,7 @@ export default function useProductUploadEngine() {
             errors++; updateStatsN(); setProgN(step + 1);
             continue;
           }
-          const existingAlias = sec.aliases ? Object.values(unitsCache).find((u) => sec.aliases.test(String(u.unit_name || "").trim())) : null;
+          const existingAlias = sec.aliases ? Object.values(unitsCache).find((u) => sec.aliases.test(unitKey(u.unit_name))) : null;
           const unit2Id = existingAlias ? existingAlias.id : await ensureUnitId(sec.unit);
           if (!unit2Id) {
             appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": تعذّر إنشاء الوحدة الثانوية "${sec.unit}"`, en: `${tag} "${p.name}" NOT sent: could not create secondary unit "${sec.unit}"` }), "error");
@@ -855,10 +853,14 @@ export default function useProductUploadEngine() {
       appendLog(t({ ar: `فادح: ${e.message}`, en: `FATAL: ${e.message}` }), "error");
     }
 
+    // [إصلاح] الرفع أنشأ وحدات/فئات/منتجات جديدة — البيانات المُجهَّزة مسبقاً صارت
+    // قديمة؛ إعادة استخدامها برفع ثانٍ كانت ستُنشئ نفس الوحدات/الفئات مرتين.
+    referenceDataForKeyRef.current = null;
+    fetchReferenceData(key);
     setUploading(false);
   }, [
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
-    previewAccounts, previewTaxes, previewUnits, previewCategories, previewProducts, appendLog, t,
+    previewAccounts, previewTaxes, previewUnits, previewCategories, appendLog, t, fetchReferenceData,
     unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
     secondaryUnits, autoSecondaryUnits,
   ]);

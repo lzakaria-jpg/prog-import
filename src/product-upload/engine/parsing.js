@@ -583,7 +583,11 @@ export function buildProductPayload(p, { unitId, categoryId, revId, expId, selec
   const sellingPriceNum = parseSellingPriceNumber(p.selling_price_raw);
   if (sellingPriceNum !== null && p.is_sellable) {
     payload.selling_price = sellingPriceNum;
-  } else if (p.is_inventory && p.is_sellable) {
+  } else if (p.is_sellable) {
+    // [إصلاح — بلاغ حقيقي: 422 "Selling price must be a number"] قيود تشترط
+    // سعر بيع رقمي لأي صنف قابل للبيع (sale_item)، مخزوناً كان أو لا — كان
+    // الافتراضي 1 يُرسَل للمخزون القابل للبيع فقط، فسقطت كل منتجات مجمّعة/
+    // خدمات قابلة للبيع بلا تتبّع مخزون (ساندوتشات، وجبات...) بلا عمود سعر.
     payload.selling_price = 1;
   }
   if (selectedTaxId) payload.tax_id = selectedTaxId;
@@ -617,8 +621,14 @@ const AUTO_SECONDARY_UNITS = [
   { base: /^(مل|ملي|مليلتر|ملليتر|ml|milliliter|millilitre)$/i, name: "لتر", aliases: /^(لتر|ليتر|l|lt|liter|litre)$/i, rate: 1000 },
 ];
 
+// [إصلاح — بلاغ حقيقي] منشأة عميل فيها وحدة "كیلو جرام" بياء فارسية (ی)
+// فلم تُطابَق مع "كيلو" العربية وأُنشئت وحدة مكررة. مفتاح موحّد للمقارنة فقط.
+export function unitKey(name) {
+  return String(name || "").replace(/ی/g, "ي").replace(/ک/g, "ك").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 export function autoSecondaryFor(baseUnit) {
-  const b = String(baseUnit || "").trim().replace(/\s+/g, " ");
+  const b = unitKey(baseUnit);
   return AUTO_SECONDARY_UNITS.find((r) => r.base.test(b)) || null;
 }
 
@@ -643,7 +653,7 @@ export function resolveSecondaryUnit(p, { type, autoForRawMaterial } = {}) {
     const rate = parseFloat(rateRaw.replace(/[^\d.]/g, ""));
     if (!rateRaw || !isFinite(rate) || rate <= 0) {
       const auto = autoSecondaryFor(p.unit);
-      if (auto && auto.aliases.test(unit2)) return { unit: unit2, rate: auto.rate, source: "auto" };
+      if (auto && auto.aliases.test(unitKey(unit2))) return { unit: unit2, rate: auto.rate, source: "auto" };
       return { skip: "bad_rate" };
     }
     return { unit: unit2, rate, source: "file" };
