@@ -280,8 +280,13 @@ describe("buildProductPayload", () => {
     // لا يجب إرساله إطلاقاً بعد الآن (كان يُتجاهَل بصمت من قيود سابقاً).
     expect(payload).not.toHaveProperty("tax_inclusive");
   });
-  it("لا يضيف selling_price لمنتج غير مخزون أو غير قابل للبيع", () => {
+  it("[بلاغ حقيقي: 422 Selling price must be a number] صنف قابل للبيع بلا مخزون يأخذ سعر بيع 1 افتراضياً", () => {
     const p = { name: "منتج", sku: "", is_inventory: false, is_sellable: true, cost: "" };
+    const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
+    expect(payload.selling_price).toBe(1);
+  });
+  it("لا يضيف selling_price لصنف غير قابل للبيع", () => {
+    const p = { name: "منتج", sku: "", is_inventory: true, is_sellable: false, cost: "" };
     const payload = buildProductPayload(p, { unitId: null, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false });
     expect(payload.selling_price).toBeUndefined();
   });

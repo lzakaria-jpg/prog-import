@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectColumns, rowsToProducts, resolveSecondaryUnit, buildUnitConversion, buildProductPayload } from "../parsing.js";
+import { detectColumns, rowsToProducts, resolveSecondaryUnit, buildUnitConversion, buildProductPayload, unitKey, autoSecondaryFor } from "../parsing.js";
 
 describe("أعمدة الوحدة الثانوية", () => {
   it("تُكتشف ولا تخطف عمود الوحدة الأساسية حتى لو سبقته", () => {
@@ -67,5 +67,17 @@ describe("buildUnitConversion + الحمولة", () => {
     const base = { unitId: 2, categoryId: null, revId: null, expId: null, selectedTaxId: null, taxInclusive: false, type: "RawMaterial" };
     expect(buildProductPayload({ name: "دجاج", cost: "" }, { ...base, unitConversions: [{ from_unit: 9, rate: 1000 }] }).unit_conversions).toEqual([{ from_unit: 9, rate: 1000 }]);
     expect(buildProductPayload({ name: "دجاج", cost: "" }, base).unit_conversions).toBeUndefined();
+  });
+});
+
+describe("[بلاغ حقيقي] unitKey — ياء/كاف فارسية بأسماء وحدات منشأة العميل", () => {
+  it("كیلو جرام (ی فارسية) = كيلو جرام", () => {
+    expect(unitKey("كیلو جرام")).toBe(unitKey("كيلو جرام"));
+    expect(autoSecondaryFor("جرام").aliases.test(unitKey("كیلو جرام"))).toBe(true);
+  });
+  it("منتج مجمّع قابل للبيع بلا مخزون: حمولته فيها سعر بيع", () => {
+    const pl = buildProductPayload({ name: "ستيك ساندوتش", is_inventory: false, is_sellable: true, sellable_explicit: true, cost: "" }, { type: "Recipe", ingredients: [{ product_id: 1, quantity: 80 }] });
+    expect(pl.selling_price).toBe(1);
+    expect(pl.sale_item).toBe(true);
   });
 });
