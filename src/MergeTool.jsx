@@ -274,6 +274,147 @@ function rootFromAccountCode(code) {
   return CODE_ROOT_BY_FIRST_DIGIT[d] || "";
 }
 
+/*
+ * [إصلاح جذري — بلاغ حقيقي من المستخدم 2026-10-07] ملف عميل جذوره مرقّمة
+ * بغير ترتيب قيود (2 = حقوق الملاك، 3 = الالتزامات). قاعدة "رمز الحساب أولاً"
+ * أعلاه كانت تفرض معنى قيود للرقم الأول (2=التزامات) على كل حسابات الملف،
+ * فانقلب تصنيف كل حسابات حقوق الملكية والالتزامات معاً ورفضها قيود بالجملة.
+ * الحل: معنى كل رقم جذر يُقرأ أولاً من صف المستوى 1 نفسه بملف العميل (عمود
+ * النوع + الاسم)، ثم تُحوَّل بادئة الرمز (وبادئة رمز الأب) لرقم قيود الصحيح
+ * قبل أي تصنيف - فتبقى قاعدة "رمز الحساب أولاً" صحيحة على ملف موحَّد الترقيم.
+ * لا تحويل إطلاقاً بأي حالة التباس (اسم يدل على جذرين، نوع يخالف الاسم، جذران
+ * لنفس المعنى، أو رقم هدف مشغول بحسابات لا تتحول) - يُسجَّل كتعارض للمراجعة.
+ */
+const DIGIT_BY_ROOT = Object.fromEntries(Object.entries(CODE_ROOT_BY_FIRST_DIGIT).map(([d, r]) => [r, d]));
+
+function canonicalRootName(normalizedOrRaw) {
+  if (!normalizedOrRaw) return "";
+  return LEVEL1_ROOT_TYPES.find((t) => typeNamesMatch(t, normalizedOrRaw)) || "";
+}
+
+// جذر نص بلا التباس: جذر واحد فقط أو "" (مثال: "الالتزامات وحقوق الملكية" = "")
+function unambiguousRootFromText(raw) {
+  if (!raw) return "";
+  const exact = canonicalRootName(raw);
+  if (exact) return exact;
+  const n = normalizeArabic(raw);
+  const hits = Object.entries(LEVEL1_ROOT_KEYWORDS)
+    .filter(([, kws]) => kws.some((kw) => n.includes(normalizeArabic(kw))))
+    .map(([root]) => root);
+  return hits.length === 1 ? hits[0] : "";
+}
+
+// جذر نوع/فئة صريح بعمود النوع (مطابقة جداول قيود الحرفية فقط، بلا تخمين)
+function explicitRootOfTypeColumn(raw) {
+  if (!raw) return "";
+  const asRoot = canonicalRootName(raw);
+  if (asRoot) return asRoot;
+  const n = normalizeArabic(raw), c = n.replace(/\s+/g, "");
+  const asType = LEVEL3_ALIAS_INDEX.get(n) || LEVEL3_ALIAS_INDEX.get(c);
+  if (asType) return canonicalRootName(rootOfType(asType));
+  const asCat = LEVEL2_ALIAS_INDEX.get(n) || LEVEL2_ALIAS_INDEX.get(c);
+  if (asCat) return canonicalRootName(rootOfCategory(asCat));
+  return "";
+}
+
+export function detectRootDigitRemap(records) {
+  const list = records || [];
+  const firstDigit = (code) => {
+    const d = String(code ?? "").trim().charAt(0);
+    return /[1-9]/.test(d) ? d : "";
+  };
+  const digitsInFile = new Set(list.map((r) => firstDigit(r.code)).filter(Boolean));
+  const evidence = {}; // digit -> { root, source }
+  const conflicts = [];
+
+  // 1) صف المستوى 1 نفسه (رمز من خانة واحدة، أو مستوى صريح 1)
+  const rootRowsByDigit = new Map();
+  list.forEach((r) => {
+    const code = String(r.code ?? "").trim();
+    const d = firstDigit(code);
+    if (!d) return;
+    const isRootRow = code.length === 1 || String(r.level ?? "").trim() === "1";
+    if (!isRootRow) return;
+    if (!rootRowsByDigit.has(d)) rootRowsByDigit.set(d, []);
+    rootRowsByDigit.get(d).push(r);
+  });
+  rootRowsByDigit.forEach((rows, d) => {
+    const found = new Set();
+    rows.forEach((r) => {
+      [unambiguousRootFromText(r.type), unambiguousRootFromText(r.nameAr), unambiguousRootFromText(r.nameEn)]
+        .filter(Boolean).forEach((x) => found.add(x));
+    });
+    if (found.size === 1) evidence[d] = { root: [...found][0], source: "level1" };
+    else if (found.size > 1) conflicts.push(`صف الجذر "${d}" بملف العميل يحمل أكثر من معنى (${[...found].join(" / ")}) - لم يُعدَّل ترقيمه`);
+  });
+
+  // 2) رقم بلا صف جذر: أغلبية واضحة (80%+ من 3 حسابات فأكثر) من عمود النوع الصريح
+  digitsInFile.forEach((d) => {
+    if (evidence[d] || rootRowsByDigit.has(d)) return;
+    const counts = new Map();
+    let total = 0;
+    list.forEach((r) => {
+      const code = String(r.code ?? "").trim();
+      if (code.length < 2 || firstDigit(code) !== d) return;
+      const root = explicitRootOfTypeColumn(String(r.type || "").trim());
+      if (!root) return;
+      total++;
+      counts.set(root, (counts.get(root) || 0) + 1);
+    });
+    if (total < 3) return;
+    const [bestRoot, bestCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (bestCount / total >= 0.8) evidence[d] = { root: bestRoot, source: "types" };
+  });
+
+  // 3) تحويل d -> رقم قيود لمعناه، بشرط عدم الالتباس وعدم الدمج مع جذر آخر
+  let proposals = new Map();
+  Object.entries(evidence).forEach(([d, { root }]) => {
+    const t = DIGIT_BY_ROOT[root];
+    if (t) proposals.set(d, t);
+  });
+  // جذران بنفس المعنى: الرقم المطابق لقيود يبقى، والآخر لا يُحوَّل
+  const claimants = new Map();
+  proposals.forEach((t, d) => { if (!claimants.has(t)) claimants.set(t, []); claimants.get(t).push(d); });
+  claimants.forEach((ds, t) => {
+    if (ds.length < 2) return;
+    ds.filter((d) => d !== t).forEach((d) => {
+      proposals.delete(d);
+      conflicts.push(`الجذر "${d}" بملف العميل يحمل نفس معنى جذر آخر (${CODE_ROOT_BY_FIRST_DIGIT[t]}) - لم يُعدَّل ترقيمه`);
+    });
+  });
+  // الرقم الهدف لازم يكون فارغاً بالملف أو هو نفسه يتحوّل لرقم آخر
+  for (let changed = true; changed;) {
+    changed = false;
+    proposals.forEach((t, d) => {
+      if (t === d) return;
+      const targetMovesAway = proposals.has(t) && proposals.get(t) !== t;
+      if (digitsInFile.has(t) && !targetMovesAway) {
+        proposals.delete(d);
+        conflicts.push(`الجذر "${d}" بملف العميل = ${CODE_ROOT_BY_FIRST_DIGIT[t]} لكن الرقم "${t}" مستخدم بحسابات أخرى بالملف - لم يُعدَّل ترقيمه`);
+        changed = true;
+      }
+    });
+  }
+  const map = new Map([...proposals].filter(([d, t]) => d !== t));
+  return { map, evidence, conflicts };
+}
+
+export function applyRootDigitRemap(records, map) {
+  if (!map || map.size === 0) return records;
+  const swap = (code) => {
+    const s = String(code ?? "").trim();
+    const t = map.get(s.charAt(0));
+    return t ? t + s.slice(1) : code;
+  };
+  return records.map((r) => {
+    const code = String(r.code ?? "").trim();
+    const newCode = swap(r.code);
+    const newParent = r.parent ? swap(r.parent) : r.parent;
+    if (newCode === r.code && newParent === r.parent) return r;
+    return { ...r, code: newCode, parent: newParent, clientCode: code };
+  });
+}
+
 // [إضافة 2026-09-15] طول رمز الحساب -> المستوى وفق تعريف قيود القياسي: خانة
 // واحدة = مستوى1، خانتان = مستوى2، وكل مستوى فأعمق يضيف خانتين (4=مستوى3،
 // 6=مستوى4، 8=مستوى5...) - مطابق تمامًا لـfirstChildCodeForParent (يضيف رقمًا
@@ -651,6 +792,16 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
   const declaredRoot = canonicalizeLevel1Root(rawType);
   // رمز الحساب نفسه أولاً - أقوى مرجع هرمي متاح، انظر التعليق أعلى الدالة
   const codeRoot = rootFromAccountCode(row.code);
+  // [إضافة 2026-10-07] عمود النوع بالملف يصرّح بجذر صريح يخالف جذر رمز الحساب
+  // (بعد توحيد ترقيم الجذور - detectRootDigitRemap) = خطأ إدخال حقيقي بالحساب
+  // نفسه (مثال: "الخسائر المرحلة" نوعها حقوق الملاك ورمزها 192404 تحت الأصول) -
+  // خطأ يحتاج تعديل لا تنبيه، لأن أي اختيار تلقائي هنا تصنيف بالتخمين.
+  const conflicts = [];
+  // جذر صريح بلا أي التباس فقط (نص مثل "إيرادات مستحقة" يطابق كلمتي جذرين فلا يُحتسب)
+  const strictDeclaredRoot = declaredRoot ? unambiguousRootFromText(rawType) : "";
+  if (level >= 2 && codeRoot && strictDeclaredRoot && !sameRoot(codeRoot, strictDeclaredRoot)) {
+    conflicts.push(`تعارض جوهري: عمود النوع بالملف يقول "${strictDeclaredRoot}" بينما رمز الحساب "${row.code}" يتبع "${codeRoot}" - راجع رمز الحساب أو أبوه أو نوعه`);
+  }
 
   // ===== المستوى 1: النوع هو جذر الشجرة (أصول / التزامات / ...) =====
   if (level === 1) {
@@ -708,7 +859,7 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
       }
     }
 
-    return { level2Category: "", type: type || "", notes };
+    return { level2Category: "", type: type || "", notes, conflicts };
   }
 
   // ===== المستوى 3 فما فوق =====
@@ -764,7 +915,7 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
   const fixedType = inferLevel3TypeFromText(nameText, "", QOYOD_FIXED_PLACEMENT_TYPES);
   const fixedCategory = fixedType ? TYPE_TO_LEVEL2[fixedType] : "";
   if (fixedType && fixedCategory && (!rowRoot || sameRoot(rootOfCategory(fixedCategory), rowRoot))) {
-    return { level2Category: fixedCategory, type: fixedType, notes };
+    return { level2Category: fixedCategory, type: fixedType, notes, conflicts };
   }
 
   // النوع المصرّح به لازم يكون ضمن أنواع الفئة المقفلة، وإلا يُرفض
@@ -824,7 +975,7 @@ export function resolveAccountTypeAndCategory(row, parentRow, level2CodeMap, anc
     type = safeCat ? (DEFAULT_TYPE_BY_LEVEL2[safeCat] || (LEVEL3_MAP[safeCat] || [])[0] || "") : "";
   }
 
-  return { level2Category: category, type, notes };
+  return { level2Category: category, type, notes, conflicts };
 }
 
 function deriveRootForRow(row) {
@@ -1018,7 +1169,10 @@ function buildTree(records) {
 // المحرك الرئيسي لمقارنة واشتقاق الشجرة
 // =====================================================================================
 
-export function compareTrees(file1Records, file2Records, useFile2Codes) {
+export function compareTrees(file1Records, file2RecordsIn, useFile2Codes) {
+  // معنى أرقام الجذور يُقرأ من ملف العميل نفسه قبل أي تصنيف (انظر detectRootDigitRemap)
+  const rootRemap = detectRootDigitRemap(file2RecordsIn);
+  const file2Records = applyRootDigitRemap(file2RecordsIn, rootRemap.map);
   const tree1 = buildTree(file1Records);
   const codes1 = new Set(Object.keys(tree1));
 
@@ -1282,11 +1436,27 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     const errors = [], warnings = [];
     let parentCode = "";
     const truncationParent = findParentByCodeTruncation(r2.code, file2ByCode);
+    const truncCode = truncationParent ? String(truncationParent.code).trim() : "";
+    const explicitParent = r2.parent ? String(r2.parent).trim() : "";
+    // [إصلاح — بلاغ حقيقي 2026-10-07] الأب الصريح أعمق من نتيجة الاقتطاع (يبدأ
+    // برمزها وأطول منها) = حلقة وسيطة غائبة عن ملف العميل (مثال: 192404 أبوه
+    // الصريح 1924 غير موجود، والاقتطاع يقفز للجذر "1"). كان الاقتطاع يغلب
+    // فيُرقّى الحساب صامتاً لمستوى 2 تحت الجذر مباشرة - الآن يُعتمد الأب الصريح
+    // (موجود بالشجرة الحالية، أو يُنشأ تلقائياً بعدها) مع تنبيه صريح لو غائب.
+    const explicitIsDeeper = explicitParent && explicitParent !== r2Code
+      && (!truncCode || (explicitParent.length > truncCode.length && explicitParent.startsWith(truncCode)));
+    let missingExplicitParent = false;
 
-    if (truncationParent) {
+    if (explicitIsDeeper) {
+      parentCode = explicitParent;
+      missingExplicitParent = !file2ByCode.has(explicitParent) && !codes1.has(explicitParent);
+    } else if (truncationParent) {
       parentCode = truncationParent.code;
-    } else if (r2.parent) {
-      parentCode = String(r2.parent).trim();
+    } else if (explicitParent) {
+      parentCode = explicitParent;
+    }
+    if (missingExplicitParent && truncCode) {
+      warnings.push(`الحساب الأب "${explicitParent}" المحدد بالملف غير موجود لا بملف العميل ولا بالشجرة الحالية - سيُنشأ تلقائياً، تأكد إنه مو خطأ إدخال برمز الأب`);
     }
 
     // [إضافة 2026-09-15] اكتشاف الحساب الأب تلقائيًا حين لا يوجد رمز حساب خاص
@@ -1328,7 +1498,9 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
     }
 
     let level = null;
-    const hierarchyLevel = parentCode ? getLevel(parentCode) : null;
+    const hierarchyLevel = parentCode
+      ? (getLevel(parentCode) ?? (missingExplicitParent ? levelFromCodeLength(parentCode) : null))
+      : null;
     if (hierarchyLevel !== null) {
       level = hierarchyLevel + 1;
       // [إضافة 2026-09-15] موقع الحساب الفعلي بالشجرة أولى بالثقة من عمود
@@ -1364,16 +1536,40 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
       : parentRowRaw;
 
     // الفئة المستنتجة من سلسلة الآباء (مثال: 1101 -> أبوه 11 -> الأصول المتداولة)
-    const ancestorCategory = parentCode ? getLevel2Cat(parentCode) : null;
+    // أب صريح غائب: أقرب جدّ موجود فعلاً (نتيجة الاقتطاع) مرجع الفئة البديل
+    const ancestorCategory = parentCode
+      ? (getLevel2Cat(parentCode) || (missingExplicitParent && truncCode && getLevel(truncCode) >= 2 ? getLevel2Cat(truncCode) : null))
+      : null;
 
     // استدعاء منطق توريث واستنتاج نوع الحساب المحسن والمربوط تلقائياً
-    const { level2Category, type, notes: typeNotes } = resolveAccountTypeAndCategory(
+    let { level2Category, type, notes: typeNotes, conflicts: typeConflicts } = resolveAccountTypeAndCategory(
       { ...r2, level, parent: parentCode },
       parentRow,
       level2CodeMap,
       ancestorCategory
     );
     (typeNotes || []).forEach((n) => warnings.push(n));
+    (typeConflicts || []).forEach((n) => errors.push(n));
+    // [إضافة 2026-10-07] حساب أب (له فروع بالملف) نوعه مستنتج من اسمه كمقفل نظامياً
+    // (مثال: "أرصدة دائنة أخرى" -> الدائنون) - المقفل لا يقبل فروعاً بقيود، فلا يجوز
+    // استنتاجه لأب. يُستبدل بأقرب نوع غير مقفل من نفس الفئة. لو العميل صرّح بالنوع
+    // أو الاسم هو الاسم النظامي حرفياً يبقى كما هو، وأبناؤه يُعلَّمون خطأً لاحقاً.
+    if (isParentInFile2 && Number(level) >= 3 && LOCKED_PARENT_TYPES.includes(type)) {
+      const nRawType = normalizeArabic(r2.type || "");
+      const explicitType = LEVEL3_ALIAS_INDEX.get(nRawType) || LEVEL3_ALIAS_INDEX.get(nRawType.replace(/\s+/g, ""));
+      const exactLockedName = LOCKED_PARENT_TYPES.some((t) => typeNamesMatch(t, r2.nameAr || "") || typeNamesMatch(t, r2.nameEn || ""));
+      if (!LOCKED_PARENT_TYPES.includes(explicitType) && !exactLockedName) {
+        const candidates = (LEVEL3_MAP[level2Category] || []).filter((t) => !LOCKED_PARENT_TYPES.includes(t));
+        const fallbackDefault = DEFAULT_TYPE_BY_LEVEL2[level2Category];
+        const replacement = inferLevel3TypeFromText([r2.nameAr, r2.nameEn].filter(Boolean).join(" "), "", candidates)
+          || (fallbackDefault && !LOCKED_PARENT_TYPES.includes(fallbackDefault) ? fallbackDefault : "")
+          || candidates[0] || "";
+        if (replacement) {
+          warnings.push(`الحساب أب لحسابات فرعية فما ينفع يكون نوعه "${type}" (مقفل نظامياً بقيود ولا يقبل فروعاً) - تم اختيار "${replacement}"، يرجى المراجعة`);
+          type = replacement;
+        }
+      }
+    }
     if (autoDiscoveredParent) {
       const parentLabel = parentRow ? (parentRow.nameAr || parentRow.nameEn || parentCode) : parentCode;
       warnings.push(`تم تحديد الحساب الأب تلقائيًا بمطابقة نوع الحساب المستنتج من الاسم مع حساب موجود فعلاً بالمنشأة: "${parentLabel}" (${parentCode}) - يُرجى مراجعة هذا الربط`);
@@ -1427,16 +1623,19 @@ export function compareTrees(file1Records, file2Records, useFile2Codes) {
   const tree1Index = Object.values(tree1).filter((rec) => rec.code).map((rec) => ({
     code: rec.code, nameAr: rec.nameAr || "", nameEn: rec.nameEn || "",
     parent: rec.parent ? String(rec.parent).trim() : "",
-    level: getLevel(rec.code), type: rec.type || "", level2Category: getLevel2Cat(rec.code) || null
+    level: getLevel(rec.code), type: rec.type || "", level2Category: getLevel2Cat(rec.code) || null,
+    payCollect: rec.payCollect || ""
   }));
 
-  const { rows: inheritedResults } = enforceCategoryInheritance(results, tree1Index);
+  const { rows: inheritedRows } = enforceCategoryInheritance(results, tree1Index);
+  const { rows: inheritedResults } = enforceQoyodParentConstraints(inheritedRows, tree1Index);
 
   return {
     results: inheritedResults, level2CodeMap, level1CodeMap, tree1Index,
     siblingCodesByParent: Object.fromEntries(siblingsByParent),
     existingCodes: Array.from(codes1),
     file2ByCode,
+    rootRemap,
   };
 }
 
@@ -1762,6 +1961,75 @@ export function enforceCategoryInheritance(rows, tree1Index) {
     });
   }
   return { rows: out, flagged };
+}
+
+/**
+ * [إضافة — بلاغ حقيقي 2026-10-07: ملف أخطاء قيود بعد الرفع] قيدان من قيود
+ * يرفض بسببهما الرفع، ولم تكن الأداة تكتشفهما:
+ * 1) حساب مقفل نظامياً (المدينون/الدائنون) لا يقبل أي حساب فرعي - العملاء
+ *    والموردين يُنشؤون كجهات اتصال داخل قيود لا كحسابات بالشجرة. خطأ على الابن.
+ * 2) حساب "يمكن الدفع والتحصيل" = Yes لا يقبل أي حساب فرعي. لو الأب حساب جديد
+ *    يُصحَّح تلقائياً (No) مع تنبيه - حساب له فروع لا يُستخدم للدفع أصلاً. لو الأب
+ *    موجود فعلاً بالمنشأة فلا تملك الأداة تعديله: خطأ على الابن.
+ * تُستدعى أكثر من مرة (بعد compareTrees وبعد إنشاء الآباء المفقودة) - آمنة للتكرار.
+ */
+export const LOCKED_PARENT_TYPES = ["المدينون", "الدائنون"];
+const LOCKED_ERROR_PREFIX = "حساب مقفل نظامياً:";
+const PAY_PARENT_ERROR_PREFIX = "أب مفعّل للدفع والتحصيل:";
+
+export function enforceQoyodParentConstraints(rows, tree1Index) {
+  const out = rows.slice();
+  const newIdxByCode = new Map();
+  out.forEach((r, i) => {
+    if (r.status !== "new" || r.deleted) return;
+    const c = String(r.code || "").trim();
+    if (c && !newIdxByCode.has(c)) newIdxByCode.set(c, i);
+  });
+  const oldByCode = new Map();
+  (tree1Index || []).forEach((r) => { const c = String(r.code || "").trim(); if (c && !oldByCode.has(c)) oldByCode.set(c, r); });
+
+  const lockedTypeOf = (rec, isNew) => {
+    if (!rec) return "";
+    if (!isNew || Number(rec.level) >= 3) {
+      const t = canonicalizeLevel3Type(rec.type);
+      if (LOCKED_PARENT_TYPES.includes(t)) return t;
+    }
+    // حساب الشجرة الحالية عبر API بلا عمود نوع: الاسم النظامي الحرفي فقط (لا تخمين)
+    if (!isNew) return LOCKED_PARENT_TYPES.find((t) => typeNamesMatch(t, rec.nameAr) || typeNamesMatch(t, rec.nameEn)) || "";
+    return "";
+  };
+
+  let flagged = 0, autoFixedPay = 0;
+  out.forEach((r, i) => {
+    if (r.status !== "new" || r.deleted) return;
+    const p = String(r.parent || "").trim();
+    if (!p) return;
+    const newIdx = newIdxByCode.get(p);
+    const parent = newIdx !== undefined ? out[newIdx] : oldByCode.get(p);
+    if (!parent) return;
+    const isNewParent = newIdx !== undefined;
+    const parentLabel = `"${parent.nameAr || parent.nameEn || p}" (${p})`;
+    const errs = r.errors || [];
+
+    const locked = lockedTypeOf(parent, isNewParent);
+    if (locked && !errs.some((e) => e.startsWith(LOCKED_ERROR_PREFIX))) {
+      out[i] = { ...out[i], errors: [...(out[i].errors || []), `${LOCKED_ERROR_PREFIX} الأب ${parentLabel} نوعه "${locked}" ولا يقبل حسابات فرعية بقيود - العملاء/الموردين يُنشؤون كجهات اتصال، احذف الحساب أو انقله تحت أب آخر`] };
+      flagged++;
+    }
+
+    if (String(parent.payCollect || "").trim().toLowerCase() !== "yes") return;
+    if (isNewParent) {
+      out[newIdx] = {
+        ...out[newIdx], payCollect: "No",
+        warnings: [...(out[newIdx].warnings || []), "تم إلغاء \"يمكن الدفع والتحصيل\" لأن الحساب له حسابات فرعية - قيود لا يسمح بها لحساب أب"],
+      };
+      autoFixedPay++;
+    } else if (!(out[i].errors || []).some((e) => e.startsWith(PAY_PARENT_ERROR_PREFIX))) {
+      out[i] = { ...out[i], errors: [...(out[i].errors || []), `${PAY_PARENT_ERROR_PREFIX} الأب ${parentLabel} مفعّل عليه "يمكن الدفع والتحصيل" بالمنشأة ولا يقبل حسابات فرعية - عطّل الخيار عليه بقيود أولاً أو انقل الحساب`] };
+      flagged++;
+    }
+  });
+  return { rows: out, flagged, autoFixedPay };
 }
 
 /** إعادة احتساب المستوى لكل حساب جديد بناءً على مستوى أبيه الفعلي */
@@ -2225,12 +2493,18 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
 
         // تشغيل تلقائي: إنشاء الآباء المفقودة ثم مطابقة المستويات مع سلسلة الآباء
         const { rows: fixedRows, created } = ensureParentsExist(meta.results, meta);
-        const { rows: leveledRows, changed } = repairLevels(fixedRows, meta);
+        const { rows: repairedRows, changed } = repairLevels(fixedRows, meta);
+        const { rows: leveledRows } = enforceQoyodParentConstraints(repairedRows, meta.tree1Index);
         setResults(leveledRows);
 
         const notes = [];
         if (created.length > 0) notes.push(`تم إنشاء ${created.length} حساب أب مفقود تلقائيًا (${created.slice(0, 6).join("، ")}${created.length > 6 ? " ..." : ""})`);
         if (changed > 0) notes.push(`تم تصحيح مستوى ${changed} حساب ليطابق مستوى أبيه`);
+        const remap = meta.rootRemap;
+        if (remap && remap.map.size > 0) {
+          notes.push(`ترقيم جذور ملف العميل مختلف عن قيود - تم تحويل بادئات الرموز حسب معنى كل جذر بالملف (${[...remap.map].map(([from, to]) => `${from} إلى ${to}`).join("، ")})`);
+        }
+        if (remap && remap.conflicts.length > 0) notes.push(remap.conflicts.join(" — "));
         if (notes.length > 0) setToast({ type: "success", text: notes.join(" — ") });
 
         setVisibleCount(ROWS_PER_PAGE); setActiveFilter("all"); setExportText(""); setSearchInput(""); setSearchQuery("");
