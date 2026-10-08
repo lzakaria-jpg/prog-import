@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { FileX2, FileCheck2 } from "lucide-react";
 import { useLanguage } from "../../language.jsx";
 
 /**
@@ -8,7 +9,7 @@ import { useLanguage } from "../../language.jsx";
  */
 export default function ProgressLog({ eng }) {
   const { t } = useLanguage();
-  const { showProgressCard, stats, progress, log } = eng;
+  const { showProgressCard, stats, progress, log, uploading, uploadOutcomes, uploadOutcomeCounts, exportFailedProducts, exportCreatedProducts } = eng;
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -50,6 +51,33 @@ export default function ProgressLog({ eng }) {
 
       <div className="qpu-progress-bar"><div className="qpu-progress-fill" style={{ width: pct + "%" }} /></div>
       <div className="qpu-hint" style={{ marginBottom: 12 }}>{progress.current} / {progress.total} ({pct}%)</div>
+
+      {/* [إضافة 2026-10-08] تصدير نتيجة الرفع بعد انتهائه: المتخطّاة والأخطاء
+          (بنفس أعمدة ملف العميل لإعادة رفعها مباشرة)، والمنتجات التي أُنشئت. */}
+      {!uploading && uploadOutcomes && (
+        <div className="qpu-action-buttons" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="qpu-btn danger"
+            disabled={!uploadOutcomeCounts.failed}
+            style={!uploadOutcomeCounts.failed ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+            onClick={exportFailedProducts}
+            title={t({ ar: "يصدّر المنتجات المتخطّاة والتي فيها أخطاء فقط، بنفس أعمدة ملفك + سبب كل واحد — صحّحها وارفع الملف مباشرة", en: "Exports only skipped and failed products, in your file's columns + the reason — fix and re-upload directly" })}
+          >
+            <FileX2 size={16} /> {t({ ar: "تصدير المتخطّاة والأخطاء", en: "Export skipped & errors" })} ({uploadOutcomeCounts.failed})
+          </button>
+          <button
+            type="button"
+            className="qpu-btn secondary"
+            disabled={!uploadOutcomeCounts.created}
+            style={!uploadOutcomeCounts.created ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+            onClick={exportCreatedProducts}
+            title={t({ ar: "يصدّر المنتجات التي أُنشئت فعلاً بهذه الدفعة مع رقمها الداخلي بقيود", en: "Exports products actually created in this run with their Qoyod internal ID" })}
+          >
+            <FileCheck2 size={16} /> {t({ ar: "تصدير المنتجات المُنشأة", en: "Export created products" })} ({uploadOutcomeCounts.created})
+          </button>
+        </div>
+      )}
 
       <div className="qpu-log-area" ref={logRef}>
         {log.map((line, i) => (
