@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { extractPdfTextLines } from "./pdfTextLines";
+import { buildContactLookup, findContactInText } from "./journalContacts.js";
 
 // ---------- low-level helpers ----------
 export function normalizeDateGuess(raw) {
@@ -354,20 +355,54 @@ function findProjectLocationColumns(header) {
   return { cProjectLine: p.line, cProjectEntry: p.entry, cLocationLine: l.line, cLocationEntry: l.entry };
 }
 
+// [إضافة 2026-10-08 — بلاغ حقيقي] عناوين أعمدة بالتطويل ("اســــم الحساب"،
+// "رقم القيـــــد") لا تطابق أي كلمة مفتاحية حرفياً — تطبيع للتخمين فقط.
+function normalizeHeaderCell(h) {
+  return cellText(h).replace(/ـ/g, "").replace(/\s+/g, " ").trim();
+}
+function exactHeaderIndex(header, ...candidates) {
+  const set = new Set(candidates.map((c) => normalizeHeaderCell(c)));
+  return header.findIndex((h) => set.has(normalizeHeaderCell(h)));
+}
+
+// عمود هوية العميل/المورد الصريح بملف القيود (اسم، أو رقم مرجعي، أو رقم ضريبي)
+// — يُقرأ بحقل party المستقل (لا contact) حتى لا يُكتب اسم بخانة "جهة اتصال/
+// ضريبة/موظف" لسطور غير المدينون/الدائنون بملف التصدير. التعبية التلقائية
+// (applyAutoContactRules) تحوّله للرقم المرجعي الصحيح لسطور المدينون/الدائنون.
+export const PARTY_COLUMN_CANDIDATES = [
+  "اسم الجهة", "رقم الجهة", "الجهة", "جهة الاتصال", "اسم العميل/المورد", "العميل/المورد", "العميل / المورد",
+  "اسم العميل", "اسم المورد", "رقم العميل", "رقم المورد", "العميل", "المورد",
+  "الرقم الضريبي للجهة", "contact", "customer", "vendor", "supplier", "party",
+];
+function findPartyColumn(header) {
+  const exact = exactHeaderIndex(header, ...PARTY_COLUMN_CANDIDATES);
+  if (exact !== -1) return exact;
+  // تطابق جزئي آمن فقط لعبارات طويلة واضحة (لا "العميل" وحدها داخل عنوان آخر)
+  const partial = ["اسم الجهة", "رقم الجهة", "اسم العميل", "اسم المورد", "العميل/المورد"];
+  return header.findIndex((h) => { const n = normalizeHeaderCell(h); return !!n && partial.some((c) => n.includes(c)); });
+}
+
 export function guessEntriesColumnMapping(rows) {
   const headerRowIndex = guessHeaderRowIndex(rows);
-  const header = (rows[headerRowIndex] || []).map(cellText);
+  const header = (rows[headerRowIndex] || []).map(normalizeHeaderCell);
   const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
+  let debit = colIndex(header, "مدين", "Debit", "DBAmount", "DebitAmount", "DR");
+  let credit = colIndex(header, "دائن", "Credit", "CRAmount", "CreditAmount", "CR");
+  // "من حـ/ ... إلى حـ/" — الصيغة المحاسبية العربية: "من" = مدين، "إلى" = دائن
+  // (مطابقة حرفية للعنوان كاملاً فقط، لا جزئية — "من" حرف جر شائع داخل عناوين أخرى)
+  if (debit === -1) debit = exactHeaderIndex(header, "من", "من حساب", "من حـ", "من ح/");
+  if (credit === -1) credit = exactHeaderIndex(header, "الى", "إلى", "الي", "الى حساب", "إلى حساب", "إلى حـ", "الى ح/");
   return {
     headerRowIndex,
     seq: colIndex(header, "تسلسل القيد", "تسلسل القيود", "تسلسل", "رقم القيد", "رقم القيود", "رقم العملية", "رقم السند", "رقم الدفتر", "رقم المستند", "VouchNumber", "VoucherNumber", "Reference"),
     date: colIndex(header, "تاريخ العملية", "التاريخ", "تاريخ", "Date", "VouchDate", "TransDate", "TransactionDate"),
     desc: colIndex(header, "وصف القيد", "البيان", "الوصف", "تعريف", "Description", "Narration", "VouchDescription"),
-    code: colIndex(header, "رمز الحساب", "رقم الحساب", "الحساب", "رمز", "AccountNumber", "AccountCode", "account code", "acc_no"),
+    code: colIndex(header, "رمز الحساب", "رقم الحساب", "كود الحساب", "الحساب", "رمز", "AccountNumber", "AccountCode", "account code", "acc_no"),
     name: colIndex(header, "اسم الحساب", "الحساب", "اسم", "AccountName", "Account Name"),
-    debit: colIndex(header, "مدين", "Debit", "DBAmount", "DebitAmount", "DR"),
-    credit: colIndex(header, "دائن", "Credit", "CRAmount", "CreditAmount", "CR"),
+    debit,
+    credit,
     comment: colIndex(header, "التعليقات", "ملاحظات", "ملاحظ", "Notes", "Remark"),
+    party: findPartyColumn(header),
     projectLine: cProjectLine,
     projectEntry: cProjectEntry,
     locationLine: cLocationLine,
@@ -387,7 +422,8 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
     return idx === undefined || idx === null || idx === -1 || idx === "" ? -1 : Number(idx);
   };
   const cSeq = get("seq"), cDate = get("date"), cDesc = get("desc"), cCode = get("code"),
-    cName = get("name"), cDebit = get("debit"), cCredit = get("credit"), cComment = get("comment");
+    cName = get("name"), cDebit = get("debit"), cCredit = get("credit"), cComment = get("comment"),
+    cParty = get("party");
   // [إضافة 2026-09-15] المشروع/الموقع - كل منهما بعمودين محتملين مستقلين
   // (مستوى القيد ومستوى السطر) - راجع تعليق guessTwoLevelColumns أعلاه.
   const cProjectLine = get("projectLine"), cProjectEntry = get("projectEntry");
@@ -406,13 +442,29 @@ export function parseEntriesFileWithMapping(rows, headerRowIndex, mapping) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
+      party: cParty !== -1 ? cellText(r[cParty]).trim() : "",
       project: cProjectLine !== -1 ? cellText(r[cProjectLine]).trim() : "",
       projectEntryCol: cProjectEntry !== -1 ? cellText(r[cProjectEntry]).trim() : "",
       location: cLocationLine !== -1 ? cellText(r[cLocationLine]).trim() : "",
       locationEntryCol: cLocationEntry !== -1 ? cellText(r[cLocationEntry]).trim() : "",
     });
   }
-  return groupEntries(flat);
+  return fillMissingEntryDescriptions(groupEntries(flat));
+}
+
+// [إضافة 2026-10-08 — بلاغ حقيقي] ملفات عملاء يكون فيها عمود الوصف معبأً لبعض
+// القيود فقط — قيد بلا وصف يرفضه قيود عند الإرسال (الوصف حقل إلزامي). نفس
+// فلسفة المخططات الأخرى بالملف (desc || name): أول تعليق نصي بالقيد (لا رقم
+// مرجعي مجرد)، وإلا اسم أول حساب. يُطبَّق فقط على قيد وصفه فارغ فعلاً.
+function fillMissingEntryDescriptions(groups) {
+  const isTextual = (v) => { const t = String(v || "").trim(); return t && !/^[\d\s.,\-/]+$/.test(t); };
+  return groups.map((g) => {
+    if (String(g.desc || "").trim()) return g;
+    const fromComment = g.rows.map((r) => r.comment).find(isTextual);
+    const fromName = g.rows.map((r) => r.name).find(isTextual);
+    const desc = String(fromComment || fromName || "").trim();
+    return desc ? { ...g, desc } : g;
+  });
 }
 
 // ---------- chart of accounts ----------
@@ -448,20 +500,26 @@ export function parseChartFile(rows) {
 // اختيارية بالكامل — تُستخدَم فقط حين توجد قيود ترحّل على حساب "المدينون" أو
 // "الدائنون" الافتراضي، حيث يتطلب قيود كتابة الرقم المرجعي للعميل/المورد (لا
 // اسمه) بعمود "جهة اتصال/ضريبة/موظف". عمودان فقط: اسم + رقم مرجعي.
+// [إضافة 2026-10-08] يقبل أيضاً ملف تصدير جهات الاتصال الرسمي من قيود
+// ("اسم الجهة"، "الرقم المرجعي"، "الرقم الضريبي") — كان يُرفض لأن عنوان الاسم
+// فيه "اسم الجهة" لا "اسم العميل"/"الاسم". الرقم الضريبي (لو موجود) يُقرأ أيضاً
+// لربط العميل/المورد بمعرّفه بقيود بيقين أعلى من الاسم (journalContacts.js).
 export function parseNameRefFile(rows) {
-  const hIdx = findHeaderRowIndex(rows, "اسم العميل", "اسم المورد", "الاسم", "name", "الرقم المرجعي", "رقم مرجعي", "مرجعي", "reference");
+  const hIdx = findHeaderRowIndex(rows, "اسم العميل", "اسم المورد", "اسم الجهة", "الاسم", "name", "الرقم المرجعي", "رقم مرجعي", "مرجعي", "reference");
   if (hIdx === -1) return [];
   const header = rows[hIdx].map(cellText);
-  const cName = colIndex(header, "اسم العميل", "اسم المورد", "الاسم", "name");
+  const cName = colIndex(header, "اسم العميل", "اسم المورد", "اسم الجهة", "الاسم", "name");
   const cRef = colIndex(header, "الرقم المرجعي", "رقم مرجعي", "مرجعي", "reference", "ref");
+  const cTax = colIndex(header, "الرقم الضريبي", "رقم ضريبي", "tax number", "vat number", "vat no");
   if (cName === -1 || cRef === -1) return [];
   const out = [];
   for (let i = hIdx + 1; i < rows.length; i++) {
     const r = rows[i] || [];
     const name = cellText(r[cName]).trim();
-    const ref = cellText(r[cRef]).trim();
+    const ref = cellText(r[cRef]).trim().replace(/\.0+$/, "");
     if (!name || !ref) continue;
-    out.push({ name, ref });
+    const taxNumber = cTax !== -1 && cTax !== cRef ? cellText(r[cTax]).trim() : "";
+    out.push(taxNumber ? { name, ref, taxNumber } : { name, ref });
   }
   return out;
 }
@@ -585,6 +643,14 @@ export function accountNameSimilarity(left, right) {
 //     لا يبلغ 0.6 مع فارق الكلمات المشتركة أيضًا دون 0.6 — فمسافة التحرير
 //     الفعلية (الأكبر أو تساوي هذا الحد الأدنى) لن تبلغ العتبة قطعًا، فيُتخطى
 //     حسابها بالكامل بأمان تام.
+// سجل الدليل (journalContacts.mergeContactDirectory) يحمل trueRef/id صراحةً؛
+// قائمة بالشكل القديم {name, ref} (ملف مرجعي أو اختبار) => ref هو الرقم المرجعي
+function asDirectoryRecord(item) {
+  if (!item) return item;
+  if ("trueRef" in item || "id" in item) return item;
+  return { ...item, trueRef: String(item.ref ?? "").trim(), id: undefined, aliases: [] };
+}
+
 function buildRefIndex(refList) {
   const exactMap = new Map();
   const items = [];
@@ -823,6 +889,10 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   // buildRefIndex/resolveRefFast أعلاه لتفاصيل الإصلاح والقياس الفعلي.
   const customersIndex = buildRefIndex(customersRef);
   const suppliersIndex = buildRefIndex(suppliersRef);
+  // [إصلاح جذري 2026-10-08] فهارس الهوية الدقيقة (رقم مرجعي/رقم ضريبي/معرّف/اسم
+  // حرفي) — راجع journalContacts.js. تسبق المطابقة الاسمية التقريبية دوماً.
+  const customersLookup = buildContactLookup(customersRef.map(asDirectoryRecord));
+  const suppliersLookup = buildContactLookup(suppliersRef.map(asDirectoryRecord));
 
   let changed = false;
   const nextEntries = entries.map((entry) => {
@@ -869,8 +939,30 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         // قيود فقط) هي خانة اسم العميل/المورد الفعلية عند وجودها، أدقّ من
         // row.comment (نص وصفي حر قد يبتر الاسم أو يستبدله بعبارة عامة) —
         // انظر تعليق Schema C أعلاه لمثال حقيقي مؤكَّد وأرقام التحسن.
-        const candidateName = row._autoRef ? (row._refCandidate ?? row.contact) : (row.detail || row.contact || row.comment || "");
-        const match = resolveRefFast(candidateName, isDebtors ? customersIndex : suppliersIndex);
+        // [إصلاح جذري 2026-10-08 — بلاغ حقيقي] مصادر هوية العميل/المورد بالسطر،
+        // بالترتيب: عمود الجهة الصريح (party: "الجهة"/"اسم العميل"/"اسم المورد"/
+        // "رقم الجهة")، التفصيل، خانة جهة الاتصال، التعليق/البيان. كل مصدر يُفحَص
+        // أولاً بهوية دقيقة (رقم مرجعي/رقم ضريبي بأي موضع بالنص، أو الاسم حرفياً)
+        // — كان التعليق يحمل الرقم المرجعي نفسه (22010002) ولا يُتعرَّف عليه
+        // إطلاقاً لأن المطابقة كانت اسمية فقط. المعرّف الداخلي يُقبَل فقط من
+        // عمود الجهة/خانة الاتصال الصريحين (لا من نص حر قد يحوي رقماً عابراً).
+        const sources = row._autoRef
+          ? (Array.isArray(row._refCandidate) ? row._refCandidate : [{ text: row._refCandidate ?? row.contact, kind: "contact" }])
+          : [
+            { text: row.party, kind: "party" },
+            { text: row.detail, kind: "detail" },
+            { text: row.contact, kind: "contact" },
+            { text: row.comment, kind: "comment" },
+          ].filter((src) => String(src.text ?? "").trim());
+        const lookup = isDebtors ? customersLookup : suppliersLookup;
+        let match = null;
+        for (const src of sources) {
+          match = findContactInText(src.text, lookup, { allowId: src.kind === "party" || src.kind === "contact" });
+          if (match) break;
+        }
+        // ملاذ أخير: نفس المطابقة الاسمية التقريبية السابقة حرفياً، على أول مصدر
+        const candidateName = sources.length ? String(sources[0].text) : "";
+        if (!match) match = resolveRefFast(candidateName, isDebtors ? customersIndex : suppliersIndex);
         // تصحيح الرمز يتم حتى لو تعذّرت مطابقة العميل/المورد (اسمه قد يحتاج
         // إنشاءً أولاً) — الرمز الصحيح مطلوب بحد ذاته للرفع.
         if (!match) {
@@ -878,9 +970,10 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
           entryChanged = true;
           return { ...row, code: canonicalCode, _originalCode: row._originalCode ?? row.code };
         }
-        if (!codeFixed && row.contact === match.ref && row._autoRef) return row;
+        const matchId = match.id === undefined || match.id === null ? undefined : match.id;
+        if (!codeFixed && row.contact === match.ref && row._autoRef && row._contactId === matchId) return row;
         entryChanged = true;
-        const next = { ...row, contact: match.ref, _autoRef: true, _refCandidate: candidateName };
+        const next = { ...row, contact: match.ref, _autoRef: true, _refCandidate: sources, _contactId: matchId, _contactValue: match.ref };
         if (codeFixed) { next._originalCode = row._originalCode ?? row.code; next.code = canonicalCode; }
         return next;
       }
@@ -894,6 +987,8 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
         entryChanged = true;
         const cleared = { ...row, contact: "", _autoRef: false };
         delete cleared._refCandidate;
+        delete cleared._contactId;
+        delete cleared._contactValue;
         return cleared;
       }
 
@@ -944,6 +1039,7 @@ function parseTemplateSchema(rows, hIdx) {
   const cDebit = colIndex(header, "مدين");
   const cCredit = colIndex(header, "دائن");
   const cComment = colIndex(header, "التعليقات");
+  const cParty = (() => { const i = findPartyColumn(header); return i === cContact ? -1 : i; })();
   // [إضافة 2026-09-15] المشروع/الموقع - عمودان محتملان مستقلان لكل منهما
   // (مستوى القيد ومستوى السطر) - راجع findProjectLocationColumns/guessTwoLevelColumns أعلاه.
   const { cProjectLine, cProjectEntry, cLocationLine, cLocationEntry } = findProjectLocationColumns(header);
@@ -966,6 +1062,7 @@ function parseTemplateSchema(rows, hIdx) {
       debit: cDebit !== -1 ? parseAmount(r[cDebit]) : null,
       credit: cCredit !== -1 ? parseAmount(r[cCredit]) : null,
       comment: cComment !== -1 ? cellText(r[cComment]).trim() : "",
+      party: cParty !== -1 ? cellText(r[cParty]).trim() : "",
     });
   }
   return groupEntries(flat);
@@ -1615,6 +1712,20 @@ export function parseEntriesFile(rows) {
   dbg.push(`Generic: ${generic ? generic.length : "null"}`);
   _parseDebug.info = dbg.join("\n");
   if (generic && generic.length > 0) return generic;
+
+  // [إضافة 2026-10-08 — بلاغ حقيقي] ملاذ أخير قبل رفض الملف: نفس تخمين لوحة
+  // "تحديد الأعمدة يدويًا" (عناوين بالتطويل، "من/الى" للمدين/الدائن، "كود
+  // الحساب") — يُستخدَم فقط لو وُجد عمود رمز حساب وعمود مدين/دائن فعلاً، ونتج
+  // عنه قيود فيها رموز حسابات حقيقية. ملف عميل حقيقي ("قيود 2023") كان يُرفض
+  // كلياً ويُجبر المستخدم على التحديد اليدوي لكل ملف من ملفات سنواته.
+  const guessed = guessEntriesColumnMapping(rows);
+  if (guessed.code !== -1 && (guessed.debit !== -1 || guessed.credit !== -1)) {
+    const viaMapping = parseEntriesFileWithMapping(rows, guessed.headerRowIndex, guessed)
+      .filter((g) => g.rows.some((r) => r.code));
+    dbg.push(`Guessed mapping => ${viaMapping.length} groups`);
+    _parseDebug.info = dbg.join("\n");
+    if (viaMapping.length > 0) return viaMapping;
+  }
 
   const candidateRow =
     rows.find((r) => Array.isArray(r) && r.some((c) => cellText(c).includes("رمز الحساب") || cellText(c).includes("AccountNumber"))) ||
