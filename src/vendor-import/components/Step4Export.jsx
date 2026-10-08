@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLanguage } from '../../language.jsx';
 import Note from './Note.jsx';
 import ApiSendResultsModal from './ApiSendResultsModal.jsx';
+import { fileRefsLostViaApi } from '../lib/refSuggest.js';
 
 /** الخطوة ٤: تصدير ملف القالب الرسمي، و/أو الإرسال المباشر عبر API */
 export default function Step4Export({ eng }) {
@@ -9,7 +10,11 @@ export default function Step4Export({ eng }) {
   const good = eng.goodRows;
   const bad = eng.badRows;
   const [showSendModal, setShowSendModal] = useState(false);
-  const handleSendViaApi = () => { setShowSendModal(true); eng.pushViaApi(); };
+  // [إضافة 2026-10-08] تنبيه قبل الإرسال: أرقام مرجعية من ملف العميل لن تنتقل عبر API
+  const [confirmRefs, setConfirmRefs] = useState(false);
+  const lostRefs = fileRefsLostViaApi(eng.sendableRows);
+  const startSend = () => { setConfirmRefs(false); setShowSendModal(true); eng.pushViaApi(); };
+  const handleSendViaApi = () => { if (lostRefs.length) { setConfirmRefs(true); return; } startSend(); };
 
   return (
     <section>
@@ -40,6 +45,22 @@ export default function Step4Export({ eng }) {
             </button>
           )}
         </div>
+        {confirmRefs && (
+          <div className="qvi-msg warn" style={{ marginTop: 10 }}>
+            <b>{t({ ar: `⚠ ${lostRefs.length} مورد بالملف لها رقم مرجعي خاص (مثل ${lostRefs[0]?.ref}) — لن ينتقل عبر الإرسال المباشر.`, en: `⚠ ${lostRefs.length} vendor(s) in the file have their own reference number (e.g. ${lostRefs[0]?.ref}) — it won't carry over via direct send.` })}</b>
+            <div style={{ margin: '6px 0' }}>
+              {t({
+                ar: 'واجهة قيود البرمجية لا تقبل الرقم المرجعي للعملاء/الموردين إطلاقاً (لا حقل له بمواصفة Qoyod الرسمية)، فيعطيهم قيود ترقيمه التلقائي (CUS001، CUS002...). لحفظ أرقام ملف العميل كما هي: حمّل ملف القالب وارفعه من قيود (جهات الاتصال ← استيراد) — القالب يحمل الرقم المرجعي ويحفظه قيود.',
+                en: "Qoyod's API doesn't accept a contact reference number at all (no such field in Qoyod's official spec), so Qoyod assigns its own sequence (CUS001, CUS002...). To keep the client file's numbers as they are: download the template file and upload it in Qoyod (Contacts → Import) — the template carries the reference number and Qoyod keeps it.",
+              })}
+            </div>
+            <div className="qvi-actions">
+              <button className="qvi-btn dark" onClick={() => { setConfirmRefs(false); eng.doExport('valid'); }}>{t({ ar: 'حمّل القالب بالأرقام المرجعية (الصفوف السليمة)', en: 'Download the template with reference numbers (valid rows)' })}</button>
+              <button className="qvi-btn go" onClick={startSend}>{t({ ar: 'أكمل الإرسال عبر API بترقيم قيود التلقائي', en: "Continue sending via API with Qoyod's auto numbering" })}</button>
+              <button className="qvi-btn ghost" onClick={() => setConfirmRefs(false)}>{t({ ar: 'إلغاء', en: 'Cancel' })}</button>
+            </div>
+          </div>
+        )}
         {!eng.canSendViaApi && (
           <p className="hint" style={{ marginTop: 6 }}>
             {t({

@@ -60,3 +60,18 @@ describe('suggestRefs', () => {
     expect(out[0].refAutoSuggested).toBe(false);
   });
 });
+
+describe('fileRefsLostViaApi — أرقام مرجعية من ملف العميل لا تنتقل عبر API', () => {
+  it('يرصد فقط الرقم القادم من الملف لصف سيُنشأ (لا المقترح من الأداة، ولا التحديث/التجاوز)', async () => {
+    const { fileRefsLostViaApi } = await import('../refSuggest.js');
+    const rows = [
+      { name: 'أ', ref: '12060001', refAutoSuggested: false, action: 'create' },
+      { name: 'ب', ref: 'CUS005', refAutoSuggested: true, action: 'create' },
+      { name: 'ج', ref: '12060002', refAutoSuggested: false, action: 'update' },
+      { name: 'د', ref: '12060003', refAutoSuggested: false, action: 'skip' },
+      { name: 'هـ', ref: '', refAutoSuggested: false },
+      { name: 'و', ref: '12060004', refAutoSuggested: false },
+    ];
+    expect(fileRefsLostViaApi(rows).map((r) => r.name)).toEqual(['أ', 'و']);
+  });
+});
