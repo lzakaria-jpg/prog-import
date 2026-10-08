@@ -894,9 +894,27 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
   const customersLookup = buildContactLookup(customersRef.map(asDirectoryRecord));
   const suppliersLookup = buildContactLookup(suppliersRef.map(asDirectoryRecord));
 
+  // [إضافة 2026-10-08] عدد سطور المدينون/الدائنون بكل قيد — وصف القيد (البيان
+  // العام) يُستخدم كمصدر لهوية العميل/المورد فقط لقيد فيه سطر واحد من نوعه؛
+  // قيد بعدة موردين مثلاً يذكر وصفه أحدهم فقط، فلا يُعمَّم على كل السطور.
+  const isDebtorsRow = (row) => {
+    const codeUnknown = !knownCodes.has(row.code);
+    const n = codeUnknown ? normalizeAccountName(row.name) : "";
+    const anc = codeUnknown ? nearestKnownAncestor(row.code) : "";
+    return debtorsCodes.has(row.code) || (!!n && n === debtorsNameNorm) || (!!anc && anc === canonicalDebtors);
+  };
+  const isCreditorsRow = (row) => {
+    const codeUnknown = !knownCodes.has(row.code);
+    const n = codeUnknown ? normalizeAccountName(row.name) : "";
+    const anc = codeUnknown ? nearestKnownAncestor(row.code) : "";
+    return creditorsCodes.has(row.code) || (!!n && n === creditorsNameNorm) || (!!anc && anc === canonicalCreditors);
+  };
+
   let changed = false;
   const nextEntries = entries.map((entry) => {
     let entryChanged = false;
+    const debtorsLines = entry.rows.filter(isDebtorsRow).length;
+    const creditorsLines = entry.rows.filter(isCreditorsRow).length;
     const nextRows = entry.rows.map((row) => {
       if (row._userEdited) return row;
 
@@ -953,6 +971,7 @@ export function applyAutoContactRules(entries, chartAccounts, options = {}) {
             { text: row.detail, kind: "detail" },
             { text: row.contact, kind: "contact" },
             { text: row.comment, kind: "comment" },
+            { text: (isDebtors ? debtorsLines : creditorsLines) === 1 ? entry.desc : "", kind: "entryDesc" },
           ].filter((src) => String(src.text ?? "").trim());
         const lookup = isDebtors ? customersLookup : suppliersLookup;
         let match = null;
