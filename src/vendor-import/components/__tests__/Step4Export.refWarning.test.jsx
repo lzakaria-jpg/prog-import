@@ -28,11 +28,11 @@ const click = (el, text) => act(() => { [...el.querySelectorAll('button')].find(
 
 describe('Step4Export — تنبيه الأرقام المرجعية قبل الإرسال عبر API', () => {
   it('ملف بأرقام مرجعية: لا إرسال قبل التأكيد، وخيار القالب يصدّر الصفوف السليمة', () => {
-    const eng = baseEng([{ i: 1, name: 'أ', ref: '12060001', refAutoSuggested: false, action: 'create' }]);
+    const eng = baseEng([{ i: 1, name: 'أ', ref: 'V0001', refAutoSuggested: false, action: 'create' }]);
     const el = render(eng);
     click(el, 'عبر API');
     expect(eng.pushViaApi).not.toHaveBeenCalled();
-    expect(el.textContent).toContain('12060001');
+    expect(el.textContent).toContain('V0001');
     click(el, 'حمّل قالب قيود جاهز للرفع بالأرقام المرجعية');
     expect(eng.doExport).toHaveBeenCalledWith('qoyod');
     expect(eng.pushViaApi).not.toHaveBeenCalled();
@@ -49,7 +49,7 @@ describe('Step4Export — تنبيه الأرقام المرجعية قبل ال
   });
 
   it('زر قالب قيود جاهز للرفع ظاهر دائماً بجانب الإرسال عبر API ويصدّر نوع qoyod', () => {
-    const eng = baseEng([{ i: 1, name: 'أ', ref: '12060001', refAutoSuggested: false, action: 'create' }]);
+    const eng = baseEng([{ i: 1, name: 'أ', ref: 'V0001', refAutoSuggested: false, action: 'create' }]);
     const el = render(eng);
     expect(el.textContent).toContain('تحميل قالب قيود جاهز للرفع (1 صف)');
     click(el, 'تحميل قالب قيود جاهز للرفع');

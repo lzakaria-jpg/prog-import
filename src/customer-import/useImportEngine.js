@@ -15,7 +15,7 @@ import {
 import { buildContactIndex } from './lib/duplicateMatch.js';
 import { suggestRefs } from './lib/refSuggest.js';
 import { fetchExistingContacts } from './lib/api.js';
-import { exportContacts, errorReportBlob, saveBlob, stamp } from './lib/exporter.js';
+import { exportContacts, errorReportBlob, saveBlob, stamp, qoyodTemplateRows } from './lib/exporter.js';
 import { pushContactsToQoyod } from './lib/contactsPush.js';
 import { buildSendResultsReportBlob } from './lib/sendResultsReport.js';
 import { getSavedKeys, saveKeysToStorage } from '../product-upload/io/keyStorage.js';
@@ -165,7 +165,12 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     setRows((prev) => {
       const next = prev.slice();
       const r = next.find((x) => x === row);
-      if (r) { Object.assign(r, patch); validateRowWithDuplicates(r, contactIndex); }
+      if (r) {
+        Object.assign(r, patch);
+        // رقم مرجعي عدّله المستخدم بيده = رقمه المعتمد، لا "مقترَح تلقائياً"
+        if (Object.prototype.hasOwnProperty.call(patch, 'ref')) r.refAutoSuggested = false;
+        validateRowWithDuplicates(r, contactIndex);
+      }
       return next;
     });
     setTick((x) => x + 1);
@@ -246,8 +251,11 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     fixable: fixableCount,
   }), [rows, tick, badRows, pendingDecisionRows, fixableCount]);
 
+  // [إضافة 2026-10-08] صفوف "قالب قيود جاهز للرفع" (إنشاء جديد فقط + أرقام ملف العميل المرجعية)
+  const qoyodTemplate = useMemo(() => qoyodTemplateRows(rows), [rows, tick]);
+
   const doExport = useCallback(async (kind) => {
-    const list = kind === 'valid' ? goodRows : rows;
+    const list = kind === 'valid' ? goodRows : kind === 'qoyod' ? qoyodTemplate.rows : rows;
     if (kind === 'errors') {
       const blob = errorReportBlob(rows);
       const filename = `qoyod-customers-issues-${stamp()}.xlsx`;
@@ -256,15 +264,25 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
       return;
     }
     if (!list.length) return;
-    const filename = `qoyod-customers-${kind}-${stamp()}.xlsx`;
+    const filename = kind === 'qoyod' ? `qoyod-customers-ready-to-import-${stamp()}.xlsx` : `qoyod-customers-${kind}-${stamp()}.xlsx`;
     try {
       const buf = await fetch(templateUrl).then((r) => r.arrayBuffer());
       const blob = exportContacts(list, buf);
       saveBlob(blob, filename);
-      note('export', 'ok', t({ ar: 'تمت الكتابة داخل قالب قيود الرسمي (Import Customers) ابتداءً من الصف الثاني.', en: "Written into Qoyod's official template (Import Customers) starting from row 2." }));
+      if (kind === 'qoyod') {
+        const { excluded, autoRefsBlanked } = qoyodTemplate;
+        const withRef = list.filter((r) => r.ref !== '').length;
+        const parts = [t({ ar: `قالب قيود جاهز للرفع: ${list.length} صف إنشاء جديد — ${withRef} منها برقمها المرجعي من ملف العميل.`, en: `Qoyod ready-to-import template: ${list.length} new row(s) — ${withRef} with the client file's reference number.` })];
+        if (autoRefsBlanked) parts.push(t({ ar: `${autoRefsBlanked} رقم مرجعي مقترَح تلقائياً تُرك فارغاً ليرقّمه قيود بتسلسله.`, en: `${autoRefsBlanked} auto-suggested reference(s) left blank for Qoyod to number.` }));
+        if (excluded.length) parts.push(t({ ar: `مستبعد ${excluded.length} صف: `, en: `Excluded ${excluded.length} row(s): ` }) + excluded.slice(0, 8).map((x) => `${x.row.name || '—'} (${t(x.reason)})`).join('، ') + (excluded.length > 8 ? '…' : ''));
+        parts.push(t({ ar: 'ارفعه من قيود: جهات الاتصال ← استيراد.', en: 'Upload it in Qoyod: Contacts → Import.' }));
+        note('export', excluded.length ? 'warn' : 'ok', parts.join(' '));
+      } else {
+        note('export', 'ok', t({ ar: 'تمت الكتابة داخل قالب قيود الرسمي (Import Customers) ابتداءً من الصف الثاني.', en: "Written into Qoyod's official template (Import Customers) starting from row 2." }));
+      }
       onExport && onExport({ kind, filename, blob, rows: list.map((r) => r.name) });
     } catch (e) { fail('export', e); }
-  }, [goodRows, rows, onExport, note, fail, t]);
+  }, [goodRows, rows, qoyodTemplate, onExport, note, fail, t]);
 
   const apiStoppedRef = useRef({ current: false });
   const [apiSending, setApiSending] = useState(false);
@@ -303,7 +321,7 @@ export default function useImportEngine({ apiKey: apiKeyProp = '', onExport, onE
     wb, sheetName, aoa, headerRow, headers, map,
     rows, refBasis,
     apiSending, apiSendProgress, apiSendResult,
-    goodRows, badRows, sendableRows, pendingDecisionRows, canSendViaApi,
+    goodRows, badRows, sendableRows, pendingDecisionRows, canSendViaApi, qoyodTemplate,
     stats,
     setStep, setCustomerName,
     connect, saveApiKeyForCustomer, loadSavedApiKey, removeSavedApiKey,
