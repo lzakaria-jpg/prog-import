@@ -2032,6 +2032,162 @@ export function enforceQoyodParentConstraints(rows, tree1Index) {
   return { rows: out, flagged, autoFixedPay };
 }
 
+/**
+ * [إضافة 2026-10-08 — طلب صريح من المستخدم] تعديل نوع/فئة حساب أب يُنزَل
+ * تلقائياً على كل ذريته (بالمخطط وبالتعديل اليدوي بالجدول والسحب والإفلات -
+ * كلها تمر عبر updateRow). كان التعديل يُعلِّم الأبناء بخطأ "توافق النوع مع
+ * الأب" فقط ويتركها للمستخدم واحداً واحداً.
+ *
+ * القواعد (حسب مستوى الأب):
+ * - أب مستوى 2 (نوعه = الفئة نفسها): كل ابن مباشر نوعه خارج أنواع الفئة الجديدة
+ *   يُعاد اختيار نوعه من داخل الفئة الجديدة فقط: من اسمه، وإلا النوع الافتراضي
+ *   للفئة (مثال: الفئة "المبيعات" نوعها الوحيد "المبيعات").
+ * - أب مستوى 3+ (نوعه نوع م3): الابن يأخذ نوع الأب الجديد لو كان نوعه = نوع الأب
+ *   القديم، أو خارج فئة الأب الجديدة، أو كان نوعه منقولاً تلقائياً من الأب سابقاً.
+ *   ابن نوعه مختلف عن الأب عمداً ولا يزال صالحاً بنفس الفئة يبقى كما هو.
+ *   لو الأب بلا نوع بعد (تغيير الفئة يفرّغ النوع) => من الاسم داخل الفئة الجديدة.
+ * - التطبيق متسلسل لكل المستويات (ابن الابن يتبع ابنه بنفس القاعدة).
+ * - الحقل _typeFollowsParent يعلّم الأبناء الذين نوعهم منقول تلقائياً، حتى يتبعوا
+ *   أي تعديل لاحق على الأب؛ تعديل يدوي على الابن نفسه يلغيه (updateRow).
+ */
+export const PARENT_MISMATCH_ERROR_PREFIX = "توافق النوع مع الأب:";
+
+export function pickTypeWithinCategory(row, category, preferredType = "") {
+  const allowed = LEVEL3_MAP[category] || [];
+  if (!allowed.length) return "";
+  if (preferredType && allowed.includes(preferredType)) return preferredType;
+  if (row && allowed.includes(row.type)) return row.type;
+  const nameText = row ? [row.nameAr, row.nameEn].filter(Boolean).join(" ").trim() : "";
+  return (nameText && inferLevel3TypeFromText(nameText, "", allowed)) || DEFAULT_TYPE_BY_LEVEL2[category] || allowed[0];
+}
+
+function categoryOfParentRow(row) {
+  if (!row) return "";
+  if (Number(row.level) === 2) return canonicalizeLevel2Category(row.type) || "";
+  return TYPE_TO_LEVEL2[row.type] || canonicalizeLevel2Category(row.level2Category) || "";
+}
+
+export function cascadeParentTypeChange(rows, parentId, { oldCode = "", oldType = "" } = {}) {
+  const out = rows.slice();
+  const parentIdx = out.findIndex((r) => r.id === parentId);
+  if (parentIdx === -1) return { rows: out, changed: 0 };
+  const childrenOf = new Map();
+  out.forEach((r, i) => {
+    if (r.status !== "new" || r.deleted) return;
+    const pc = String(r.parent || "").trim();
+    if (!pc) return;
+    if (!childrenOf.has(pc)) childrenOf.set(pc, []);
+    childrenOf.get(pc).push(i);
+  });
+  let changed = 0;
+  const visited = new Set([parentIdx]);
+
+  const visit = (parentRow, parentCodes, parentOldType) => {
+    const parentLevel = Number(parentRow.level);
+    if (!(parentLevel >= 2)) return;
+    const category = categoryOfParentRow(parentRow);
+    if (!category || !LEVEL3_MAP[category]) return;
+    const allowed = LEVEL3_MAP[category];
+    const parentNewType = parentLevel >= 3 && allowed.includes(parentRow.type) ? parentRow.type : "";
+    const childIdxs = [...new Set(parentCodes.filter(Boolean).flatMap((c) => childrenOf.get(c) || []))];
+    childIdxs.forEach((ci) => {
+      if (visited.has(ci)) return;
+      visited.add(ci);
+      const child = out[ci];
+      const childOldType = child.type || "";
+      let newType = childOldType;
+      let follows = !!child._typeFollowsParent;
+      if (parentLevel === 2) {
+        if (!allowed.includes(childOldType)) { newType = pickTypeWithinCategory({ ...child, type: "" }, category); follows = false; }
+      } else {
+        const mustFollow = !allowed.includes(childOldType)
+          || (parentOldType && childOldType === parentOldType)
+          || child._typeFollowsParent;
+        if (mustFollow) {
+          newType = parentNewType || pickTypeWithinCategory({ ...child, type: "" }, category);
+          // يبقى تابعاً للأب: لو الأب بلا نوع بعد (تغيير فئته فقط)، أول نوع
+          // يُختار له لاحقاً ينزل على هذا الابن أيضاً
+          follows = true;
+        }
+      }
+      const typeChanged = newType !== childOldType;
+      const catChanged = (child.level2Category || "") !== category;
+      if (typeChanged || catChanged || follows !== !!child._typeFollowsParent) {
+        const updated = { ...child, type: newType, level2Category: category, _typeFollowsParent: follows };
+        if (typeChanged || catChanged) {
+          updated.userEdited = true;
+          updated.errors = (child.errors || []).filter((e) => !e.startsWith(PARENT_MISMATCH_ERROR_PREFIX));
+          updated.warnings = (child.warnings || []).filter((w) => !(newType && w === "نوع الحساب غير محدد"));
+          if (child.apiStatus === "skip" || child.apiStatus === "error") { updated.apiStatus = undefined; updated.apiStatusReason = ""; }
+          changed++;
+        }
+        out[ci] = updated;
+      }
+      visit(out[ci], [String(out[ci].code || "").trim()], childOldType);
+    });
+  };
+
+  const parentRow = out[parentIdx];
+  visit(parentRow, [String(oldCode || "").trim(), String(parentRow.code || "").trim()], oldType);
+  return { rows: out, changed };
+}
+
+/**
+ * [استخراج 2026-10-08] منطق updateRow كاملاً كدالة نقية (بلا أي تغيير سلوكي)
+ * حتى يُختبر تعديل الصفوف وتسلسل نوع الأب لأبنائه بنفس المسار الفعلي بالأداة.
+ */
+export function applyRowPatch(prev, id, patch, tree1Index) {
+  const nextPatch = { ...patch };
+  if (nextPatch.type && TYPE_TO_LEVEL2[nextPatch.type]) {
+    nextPatch.level2Category = TYPE_TO_LEVEL2[nextPatch.type];
+  }
+
+  // [إضافة 2026-09-09] تعديل حقل يؤثر فعليًا على حمولة الإرسال بعد محاولة
+  // إرسال سابقة "تخطّي"/"فشل" يُعيد الصف لحالة "لم يُحاول بعد" بصريًا -
+  // حتى ما تبقى شارة API قديمة مضلِّلة على بيانات غيّرها المستخدم فعلاً.
+  // صف "أُرسل بنجاح" لا يُلمَس هنا إطلاقًا (يبقى مستبعدًا من الإرسال دومًا،
+  // لأنه فعليًا موجود بمنشأة العميل بصرف النظر عن أي تعديل محلي لاحق).
+  const touchesPayload = ["code", "nameAr", "nameEn", "type", "level2Category", "payCollect", "desc"].some((k) => k in nextPatch);
+
+  const mapped = prev.map((r) => {
+    if (r.id !== id) return r;
+    // [إضافة 2026-09-10] userEdited: true - علم عالمي بحت (لا يقرأه أي منطق
+    // فحص/تدقيق/تحقق حالي، فقط لتغذية فلتر عرض "الحسابات المعدَّلة" الجديد
+    // للمراجعة قبل الإرسال) - يُعلَّم على أي استدعاء لـupdateRow لأن كل
+    // استدعاء أصلاً ناتج عن تعديل مستخدم فعلي بواجهة الجدول/الشجرة.
+    const updated = { ...r, ...nextPatch, userEdited: true };
+    // تعديل يدوي على نوع/فئة الحساب نفسه => لم يعد نوعه "منقولاً من الأب"
+    if ("type" in nextPatch || "level2Category" in nextPatch) updated._typeFollowsParent = false;
+    if (touchesPayload && (r.apiStatus === "skip" || r.apiStatus === "error")) {
+      updated.apiStatus = undefined;
+      updated.apiStatusReason = "";
+    }
+    const errors = [], warnings = [];
+    if (!updated.code) errors.push("الرمز فارغ");
+    if (!updated.level) warnings.push("المستوى غير محدد");
+    if (!updated.type) warnings.push("نوع الحساب غير محدد");
+    if (updated.autoParent) warnings.push("حساب أب أُنشئ تلقائيًا - تأكد من اسمه ونوعه");
+    return { ...updated, errors, warnings };
+  });
+
+  // [إضافة 2026-10-08] تغيير نوع/فئة حساب أب => ينزل تلقائياً على ذريته
+  // (cascadeParentTypeChange). يُستخدم رمز الأب القديم أيضاً لأن السحب
+  // والإفلات يغيّر رمز الأب بنفس الاستدعاء قبل إعادة ترقيم أبنائه.
+  const before = prev.find((r) => r.id === id);
+  const after = mapped.find((r) => r.id === id);
+  let cascaded = mapped;
+  if (before && after && !after.deleted
+    && ((before.type || "") !== (after.type || "") || (before.level2Category || "") !== (after.level2Category || ""))) {
+    cascaded = cascadeParentTypeChange(mapped, id, { oldCode: before.code, oldType: before.type || "" }).rows;
+  }
+
+  // تغيير النوع/الأب/المستوى ينزل تلقائيًا على كل الذرية
+  if ("type" in nextPatch || nextPatch.parent || nextPatch.level || "level2Category" in nextPatch) {
+    return enforceCategoryInheritance(cascaded, tree1Index).rows;
+  }
+  return cascaded;
+}
+
 /** إعادة احتساب المستوى لكل حساب جديد بناءً على مستوى أبيه الفعلي */
 export function repairLevels(rows, ctx) {
   const tree1Index = ctx.tree1Index || [];
@@ -2719,44 +2875,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
 
   const updateRow = (id, patch) => {
     if (blockedBySending()) return;
-    setResults((prev) => {
-      const nextPatch = { ...patch };
-      if (nextPatch.type && TYPE_TO_LEVEL2[nextPatch.type]) {
-        nextPatch.level2Category = TYPE_TO_LEVEL2[nextPatch.type];
-      }
-
-      // [إضافة 2026-09-09] تعديل حقل يؤثر فعليًا على حمولة الإرسال بعد محاولة
-      // إرسال سابقة "تخطّي"/"فشل" يُعيد الصف لحالة "لم يُحاول بعد" بصريًا -
-      // حتى ما تبقى شارة API قديمة مضلِّلة على بيانات غيّرها المستخدم فعلاً.
-      // صف "أُرسل بنجاح" لا يُلمَس هنا إطلاقًا (يبقى مستبعدًا من الإرسال دومًا،
-      // لأنه فعليًا موجود بمنشأة العميل بصرف النظر عن أي تعديل محلي لاحق).
-      const touchesPayload = ["code", "nameAr", "nameEn", "type", "level2Category", "payCollect", "desc"].some((k) => k in nextPatch);
-
-      const mapped = prev.map((r) => {
-        if (r.id !== id) return r;
-        // [إضافة 2026-09-10] userEdited: true - علم عالمي بحت (لا يقرأه أي منطق
-        // فحص/تدقيق/تحقق حالي، فقط لتغذية فلتر عرض "الحسابات المعدَّلة" الجديد
-        // للمراجعة قبل الإرسال) - يُعلَّم على أي استدعاء لـupdateRow لأن كل
-        // استدعاء أصلاً ناتج عن تعديل مستخدم فعلي بواجهة الجدول/الشجرة.
-        const updated = { ...r, ...nextPatch, userEdited: true };
-        if (touchesPayload && (r.apiStatus === "skip" || r.apiStatus === "error")) {
-          updated.apiStatus = undefined;
-          updated.apiStatusReason = "";
-        }
-        const errors = [], warnings = [];
-        if (!updated.code) errors.push("الرمز فارغ");
-        if (!updated.level) warnings.push("المستوى غير محدد");
-        if (!updated.type) warnings.push("نوع الحساب غير محدد");
-        if (updated.autoParent) warnings.push("حساب أب أُنشئ تلقائيًا - تأكد من اسمه ونوعه");
-        return { ...updated, errors, warnings };
-      });
-
-      // تغيير النوع/الأب/المستوى ينزل تلقائيًا على كل الذرية
-      if (nextPatch.type || nextPatch.parent || nextPatch.level || nextPatch.level2Category) {
-        return enforceCategoryInheritance(mapped, treeMetaRef.current.tree1Index).rows;
-      }
-      return mapped;
-    });
+    setResults((prev) => applyRowPatch(prev, id, patch, treeMetaRef.current.tree1Index));
   };
 
   const availableTypesFor = (level2Category) => { if (!level2Category) return ALL_LEVEL3_TYPES; return LEVEL3_MAP[level2Category] || ALL_LEVEL3_TYPES; };
@@ -4049,7 +4168,12 @@ export function AccountsTreeView({ rows, treeMeta, blockedBySending = () => fals
     const { newLevel, targetLevel, targetCategory } = validity;
     const patch = { parent: targetCode, level: newLevel, level2Category: targetCategory || "" };
 
-    const targetType = targetNode.isAnchor ? (LEVEL3_MAP[targetCategory]?.[0] || "") : targetNode.row.type;
+    // [إصلاح 2026-10-08] نوع الحساب المنقول لازم يكون من أنواع فئة الأب الجديد:
+    // أب م3+ => نوع الأب نفسه (لو صالح بالفئة)؛ أب م2 أو أب من الشجرة الحالية
+    // (نوعه = اسم الفئة لا نوع م3) => نوعه الحالي لو صالح، وإلا من اسمه داخل الفئة.
+    const targetIsTypedParent = !targetNode.isAnchor && Number(targetNode.row.level) >= 3;
+    const targetType = pickTypeWithinCategory(draggedNode.row, targetCategory, targetIsTypedParent ? targetNode.row.type : "")
+      || (targetNode.isAnchor ? (LEVEL3_MAP[targetCategory]?.[0] || "") : targetNode.row.type);
     patch.type = targetType;
 
     /*
