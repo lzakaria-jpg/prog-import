@@ -27,6 +27,7 @@ import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
 import { getSavedKeys, saveKeysToStorage } from "./io/keyStorage.js";
 import { readWorkbookSheets } from "./io/excelReader.js";
 import { buildOpeningBalanceWorkbook, workbookToBlob, downloadBlob } from "./io/openingBalanceExport.js";
+import { UPLOAD_OUTCOME, countUploadOutcomes, buildFailedProductsWorkbook, buildCreatedProductsWorkbook } from "./io/uploadResultsExport.js";
 
 const DEFAULT_REVENUE_ACCT = "4101";
 const DEFAULT_EXPENSE_ACCT = "5101";
@@ -336,6 +337,9 @@ export default function useProductUploadEngine() {
   const [uploading, setUploading] = useState(false);
   const [showProgressCard, setShowProgressCard] = useState(false);
   const stoppedRef = useRef(false);
+  // [إضافة 2026-10-08] نتيجة كل منتج بآخر دفعة رفع (لقطة كاملة) — لزرّي التصدير
+  // بعد الانتهاء: "المتخطّاة والأخطاء" و"تم إنشاؤها" (io/uploadResultsExport.js).
+  const [uploadOutcomes, setUploadOutcomes] = useState(null);
 
   const appendLog = useCallback((msg, cls = "info") => {
     setLog((prev) => [...prev, { msg, cls }]);
@@ -369,6 +373,7 @@ export default function useProductUploadEngine() {
 
     stoppedRef.current = false;
     setLog([]);
+    setUploadOutcomes(null);
     setShowProgressCard(true);
     setUploading(true);
     let uploaded = 0, updatedCount = 0, skipped = 0, errors = 0;
@@ -393,6 +398,12 @@ export default function useProductUploadEngine() {
 
     const revCode = revenueAcct.trim() || DEFAULT_REVENUE_ACCT;
     const expCode = expenseAcct.trim() || DEFAULT_EXPENSE_ACCT;
+
+    // نتيجة كل صف بالدفعة (فهرس list) — تُعبّأ بكل فرع بالحلقة أدناه
+    let runList = excelData;
+    const outcomes = [];
+    let fatalMessage = "";
+    const mark = (i, status, reason = "", extra = {}) => { outcomes[i] = { status, reason, ...extra }; };
 
 
     try {
@@ -574,6 +585,7 @@ export default function useProductUploadEngine() {
         product_type: "RawMaterial", _createKey: ck,
       })) : [];
       const list = [...excelData, ...createRows];
+      runList = list;
       const createIndexByKey = {};
       createRows.forEach((r, j) => { createIndexByKey[r._createKey] = excelData.length + j; });
       const typeOf = (i) => (i >= excelData.length ? "RawMaterial" : (plan ? plan.effectiveTypes[i] : (excelData[i].product_type || "Product")));
@@ -637,6 +649,9 @@ export default function useProductUploadEngine() {
           // منتج موجود مسبقاً يبقى صالحاً كمكوّن لمنتج مجمّع لاحق بنفس الدفعة
           const exRef = (p.sku && existingRefBySku.get(matchKey(p.sku))) || existingRefByName.get(matchKey(p.name));
           if (exRef) idByIndex[i] = exRef;
+          mark(i, UPLOAD_OUTCOME.SKIPPED, existingAction.reason === "sku"
+            ? t({ ar: `الرمز "${p.sku}" موجود مسبقاً بالمنشأة`, en: `SKU "${p.sku}" already exists in the company` })
+            : t({ ar: "الاسم موجود مسبقاً بالمنشأة", en: "Name already exists in the company" }));
           skipped++;
           updateStatsN(); setProgN(step + 1);
           continue;
@@ -664,6 +679,7 @@ export default function useProductUploadEngine() {
               ar: `${tag} لم يُرسَل المنتج المجمّع "${p.name}": مكوّنات لم تُنشأ بنجاح قبله (${missing.join("، ")})`,
               en: `${tag} Bundle "${p.name}" NOT sent: components were not created successfully before it (${missing.join(", ")})`,
             }), "error");
+            mark(i, UPLOAD_OUTCOME.ERROR, t({ ar: `مكوّنات لم تُنشأ بنجاح: ${missing.join("، ")}`, en: `Components not created: ${missing.join(", ")}` }));
             errors++;
             updateStatsN(); setProgN(step + 1);
             continue;
@@ -689,6 +705,7 @@ export default function useProductUploadEngine() {
         if (sec && sec.unit) {
           if (!unitId) {
             appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": الوحدة الأساسية لم تُنشأ، والوحدة الثانوية (${sec.unit}) تعتمد عليها`, en: `${tag} "${p.name}" NOT sent: base unit wasn't created and the secondary unit (${sec.unit}) depends on it` }), "error");
+            mark(i, UPLOAD_OUTCOME.ERROR, t({ ar: `الوحدة الأساسية "${p.unit}" لم تُنشأ، والوحدة الثانوية تعتمد عليها`, en: `Base unit "${p.unit}" wasn't created; the secondary unit depends on it` }));
             errors++; updateStatsN(); setProgN(step + 1);
             continue;
           }
@@ -696,6 +713,7 @@ export default function useProductUploadEngine() {
           const unit2Id = existingAlias ? existingAlias.id : await ensureUnitId(sec.unit);
           if (!unit2Id) {
             appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": تعذّر إنشاء الوحدة الثانوية "${sec.unit}"`, en: `${tag} "${p.name}" NOT sent: could not create secondary unit "${sec.unit}"` }), "error");
+            mark(i, UPLOAD_OUTCOME.ERROR, t({ ar: `تعذّر إنشاء الوحدة الثانوية "${sec.unit}"`, en: `Could not create secondary unit "${sec.unit}"` }));
             errors++; updateStatsN(); setProgN(step + 1);
             continue;
           }
@@ -759,17 +777,20 @@ export default function useProductUploadEngine() {
             if (isUpdate) {
               appendLog(t({ ar: `${tag} تم التحديث (${typeLabel}): ${p.name} (المعرّف: ${existingAction.id})${compNote}`, en: `${tag} UPDATED (${typeLabel}): ${p.name} (ID: ${existingAction.id})${compNote}` }), "success");
               updatedCount++;
+              mark(i, UPLOAD_OUTCOME.UPDATED, "", { id: existingAction.id, type: pType });
               // عمداً: لا createdRowIndexes.add(i) — منتج موجود أصلاً يُستثنى من
               // ملف الأرصدة الافتتاحية (راجع تعليق createdRowIndexes أعلاه).
             } else {
               appendLog(t({ ar: `${tag} تم الإنشاء (${typeLabel}): ${p.name} (المعرّف: ${res.product.id})${compNote}`, en: `${tag} CREATED (${typeLabel}): ${p.name} (ID: ${res.product.id})${compNote}` }), "success");
               uploaded++;
+              mark(i, UPLOAD_OUTCOME.CREATED, "", { id: res.product.id, type: pType });
               if (i < excelData.length) createdRowIndexes.add(i);
             }
             existingProducts.names.add(nameLower);
             if (p.sku) { existingProducts.skus.add(p.sku); skuToId[p.sku] = res.product.id; }
           } else {
             appendLog(t({ ar: `${tag} فشل: ${p.name}`, en: `${tag} FAILED: ${p.name}` }), "error");
+            mark(i, UPLOAD_OUTCOME.ERROR, t({ ar: "رد غير متوقع من قيود (بلا بيانات المنتج)", en: "Unexpected response from Qoyod (no product data)" }));
             errors++;
           }
         } catch (e) {
@@ -782,6 +803,7 @@ export default function useProductUploadEngine() {
             ? t({ ar: " — الوحدات الثانوية تتطلب صلاحية Unit Conversions لمفتاح API", en: " — secondary units require the Unit Conversions permission on the API key" })
             : "");
           appendLog(t({ ar: `${tag} خطأ: ${p.name} - ${e.message}${permHint}`, en: `${tag} ERROR: ${p.name} - ${e.message}${permHint}` }), "error");
+          mark(i, UPLOAD_OUTCOME.ERROR, `${e.message}${permHint}`);
           errors++;
         }
 
@@ -851,7 +873,20 @@ export default function useProductUploadEngine() {
       );
     } catch (e) {
       appendLog(t({ ar: `فادح: ${e.message}`, en: `FATAL: ${e.message}` }), "error");
+      fatalMessage = e.message || String(e);
     }
+
+    // أي صف لم يصله الدور (إيقاف يدوي/خطأ فادح) = "لم يُرسَل" — يدخل ملف التصدير
+    // مع المتخطّاة والأخطاء حتى لا يضيع من إعادة الرفع.
+    const notSentReason = fatalMessage
+      ? t({ ar: `توقف الرفع بخطأ فادح قبل الوصول له: ${fatalMessage}`, en: `Upload stopped by a fatal error before reaching it: ${fatalMessage}` })
+      : t({ ar: "أُوقف الرفع قبل الوصول له", en: "Upload was stopped before reaching it" });
+    runList.forEach((_, i) => { if (!outcomes[i]) mark(i, UPLOAD_OUTCOME.NOT_SENT, notSentReason); });
+    setUploadOutcomes({
+      list: runList, outcomes,
+      headerRow: headerRowIndex >= 0 ? (rawRows[headerRowIndex] || []) : [],
+      rawRows, colsMap, bomLines, fileName,
+    });
 
     // [إصلاح] الرفع أنشأ وحدات/فئات/منتجات جديدة — البيانات المُجهَّزة مسبقاً صارت
     // قديمة؛ إعادة استخدامها برفع ثانٍ كانت ستُنشئ نفس الوحدات/الفئات مرتين.
@@ -862,8 +897,27 @@ export default function useProductUploadEngine() {
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
     previewAccounts, previewTaxes, previewUnits, previewCategories, appendLog, t, fetchReferenceData,
     unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
-    secondaryUnits, autoSecondaryUnits,
+    secondaryUnits, autoSecondaryUnits, rawRows, headerRowIndex, colsMap, fileName,
   ]);
+
+  // [إضافة 2026-10-08] زرّا التصدير بعد انتهاء الرفع
+  const uploadOutcomeCounts = useMemo(() => countUploadOutcomes(uploadOutcomes?.outcomes), [uploadOutcomes]);
+  const exportBaseName = useCallback(() => {
+    const base = String(uploadOutcomes?.fileName || "products").replace(/\.[^.]+$/, "");
+    return base || "products";
+  }, [uploadOutcomes]);
+  const exportFailedProducts = useCallback(() => {
+    if (!uploadOutcomes) return;
+    const built = buildFailedProductsWorkbook({ ...uploadOutcomes, t });
+    if (!built) return;
+    downloadBlob(workbookToBlob(built.workbook), t({ ar: `منتجات-لم-ترفع-${exportBaseName()}.xlsx`, en: `not-uploaded-${exportBaseName()}.xlsx` }));
+  }, [uploadOutcomes, t, exportBaseName]);
+  const exportCreatedProducts = useCallback(() => {
+    if (!uploadOutcomes) return;
+    const built = buildCreatedProductsWorkbook({ ...uploadOutcomes, t });
+    if (!built) return;
+    downloadBlob(workbookToBlob(built.workbook), t({ ar: `منتجات-تم-انشاؤها-${exportBaseName()}.xlsx`, en: `created-${exportBaseName()}.xlsx` }));
+  }, [uploadOutcomes, t, exportBaseName]);
 
   const previewSummary = useMemo(() => {
     const catSet = new Set(excelData.map((p) => p.category).filter(Boolean));
@@ -910,5 +964,6 @@ export default function useProductUploadEngine() {
     previewSummary,
     // upload run
     log, stats, progress, uploading, showProgressCard, startUpload, stopUpload,
+    uploadOutcomes, uploadOutcomeCounts, exportFailedProducts, exportCreatedProducts,
   };
 }

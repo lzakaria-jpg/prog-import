@@ -3245,7 +3245,7 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
               /* [إصلاح] مخطط الشجرة أولوية مطلقة على البحث - كان أي بحث (حتى
                  لو تعبّى تلقائيًا بالخطأ) يقفل المخطط فورًا ويرجّع لنتائج
                  البحث بدون أي تفاعل حقيقي من المستخدم. */
-              <AccountsTreeView rows={activeNewRows} treeMeta={treeMetaRef.current} updateRow={updateRow} setRowDeleted={setRowDeleted} addChildAccount={addChildAccount} availableTypesFor={availableTypesFor} />
+              <AccountsTreeView rows={activeNewRows} treeMeta={treeMetaRef.current} blockedBySending={blockedBySending} updateRow={updateRow} setRowDeleted={setRowDeleted} addChildAccount={addChildAccount} availableTypesFor={availableTypesFor} />
             ) : searchActive ? (
               <SearchResultsView query={searchQuery} newRows={searchedActiveNewRows} existingRows={searchedExistingRows} deletedRows={searchedDeletedRows} updateRow={updateRow} setRowDeleted={setRowDeleted} availableTypesFor={availableTypesFor} missingParentCodes={missingParentCodes} />
             ) : activeFilter === "existing" ? (
@@ -3932,7 +3932,11 @@ const TreeNodeBox = React.memo(function TreeNodeBox({
   );
 }, (p, n) => p.node === n.node && p.x === n.x && p.y === n.y && p.isOpen === n.isOpen && p.isBeingDragged === n.isBeingDragged && p.dropFeedback === n.dropFeedback && p.isRecentlyMoved === n.isRecentlyMoved && p.isEditing === n.isEditing && p.isIssueOpen === n.isIssueOpen && p.node.children.length === n.node.children.length);
 
-function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAccount, availableTypesFor }) {
+// [إصلاح — بلاغ حقيقي بفيديو 2026-10-08: "النقل بالمخطط لا يتم"] handleDrop أدناه
+// كان يستدعي blockedBySending المعرّفة داخل MergeTool فقط (لا بهذا النطاق) منذ
+// 2026-09-14 - ReferenceError صامت داخل مستمع pointerup عند كل إفلات، فلا يُطبَّق
+// أي نقل إطلاقاً رغم ظهور "معاينة النقل" سليمة. تُمرَّر الآن كخاصية صريحة.
+export function AccountsTreeView({ rows, treeMeta, blockedBySending = () => false, updateRow, setRowDeleted, addChildAccount, availableTypesFor }) {
   const { t, dir, lang } = useLanguage();
   const level1CodeMap = treeMeta?.level1CodeMap || {};
   const level2CodeMap = treeMeta?.level2CodeMap || {};
@@ -4236,6 +4240,11 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
 
   useEffect(() => {
     if (!draggedCode) return;
+    // منع تظليل النصوص أثناء السحب (ظهر بالفيديو: نصوص الحسابات تتظلل بالأزرق
+    // مع حركة الماوس) - يُعاد للوضع السابق فور انتهاء السحب.
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    try { window.getSelection()?.removeAllRanges(); } catch { /* لا شيء */ }
     const handleMove = (e) => {
       setGhostPos({ x: e.clientX, y: e.clientY });
       const hitEl = document.elementFromPoint(e.clientX, e.clientY);
@@ -4249,7 +4258,12 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
       const hitCode = nodeEl ? nodeEl.getAttribute("data-tree-node-code") : null;
       const { positionedByCode: pbc, handleDrop: doDrop } = dragRuntimeRef.current;
       const targetNode = hitCode && hitCode !== draggedCode ? pbc.get(hitCode) : null;
-      if (targetNode) doDrop(targetNode);
+      try {
+        if (targetNode) doDrop(targetNode);
+      } catch (err) {
+        console.error("tree drop failed", err);
+        setDropMessage({ type: "error", text: `تعذّر إتمام النقل: ${err?.message || err}` });
+      }
       // شبكة أمان: أيًا كان مصير الإفلات (نجح/فشل/بلا هدف)، تنظيف كامل لحالة
       // السحب هنا دائمًا - تمامًا كضمان onDragEnd الأصلي بالمتصفح سابقًا.
       setDraggedCode(null);
@@ -4260,6 +4274,7 @@ function AccountsTreeView({ rows, treeMeta, updateRow, setRowDeleted, addChildAc
     window.addEventListener("pointerup", handleUp);
     window.addEventListener("pointercancel", handleUp);
     return () => {
+      document.body.style.userSelect = prevUserSelect;
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
       window.removeEventListener("pointercancel", handleUp);

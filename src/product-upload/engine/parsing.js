@@ -477,6 +477,9 @@ export function rowsToProducts(rows, headerIdx, cols) {
     p.sellable_explicit = cols.sellable >= 0;
     p.unit2 = cols.unit2 >= 0 && get(cols.unit2) !== null ? String(get(cols.unit2)).trim() : "";
     p.unit2_rate_raw = cols.unit2_rate >= 0 && get(cols.unit2_rate) !== null ? String(get(cols.unit2_rate)).trim() : "";
+    // [إضافة 2026-10-08] فهرس الصف الخام بالشيت — لتصدير المنتجات الفاشلة بنفس
+    // أعمدة ملف العميل حرفياً (io/uploadResultsExport.js) لإعادة رفعها مباشرة.
+    p._sheetRow = i;
 
     data.push(p);
   }
