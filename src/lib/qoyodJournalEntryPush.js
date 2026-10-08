@@ -50,6 +50,7 @@
  ============================================================================
 */
 import { api } from '../product-upload/io/network.js';
+import { resolveContactIdForRow } from './journalContacts.js';
 
 const RATE_LIMIT_MS = 300; // نفس التأخير المستخدم فعليًا بأدوات API الأخرى بالمشروع
 
@@ -124,8 +125,13 @@ export function resolveLocationId(value, locationsIndex) {
  * @param {Set<string>} opts.creditorsCodes أكواد حسابات "الدائنون" المكتشفة
  * @param {object} [opts.projectsIndex] {loaded, byId, byName} أو غير موجود
  * @param {object} [opts.locationsIndex] {loaded, byId, byName} أو غير موجود
+ * @param {object} [opts.contactLookups] {customers, suppliers} — فهارس الدليل الموحَّد
+ *   (journalContacts.buildContactLookup). [إصلاح جذري 2026-10-08] لو مُمرَّرة:
+ *   خانة الجهة (رقم مرجعي/معرّف/اسم/رقم ضريبي) تُحوَّل للمعرّف الداخلي الحقيقي
+ *   بقيود، وأي قيمة لا تتحول لمعرّف = خطأ صريح للقيد قبل الإرسال (بدل إرسال
+ *   الرقم المرجعي كـcontact_id ورفضه من قيود: "Contact id 22010002 is not valid").
  */
-export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex } = {}) {
+export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex, contactLookups } = {}) {
   if (!entry || !entry.rows || !entry.rows.length) return { ok: false, error: 'قيد فارغ' };
 
   const isoDate = dmyToIso(entry.date);
@@ -165,7 +171,14 @@ export function buildJournalEntryPayload(entry, { chartMap, debtorsCodes, credit
     // contact_id: فقط لبنود المدينين/الدائنين، وفقط لو contact رقم صحيح موجب
     // (رمز ضريبة القيمة المضافة "1"/"2" على حسابات أخرى لا يُفسَّر أبدًا كمعرّف
     // عميل — راجع تعليق الرأس أعلاه).
-    if ((debtorsCodes && debtorsCodes.has(r.code)) || (creditorsCodes && creditorsCodes.has(r.code))) {
+    const isDebtorsLine = !!(debtorsCodes && debtorsCodes.has(r.code));
+    const isCreditorsLine = !isDebtorsLine && !!(creditorsCodes && creditorsCodes.has(r.code));
+    if ((isDebtorsLine || isCreditorsLine) && contactLookups) {
+      const lookup = isDebtorsLine ? contactLookups.customers : contactLookups.suppliers;
+      const resolved = resolveContactIdForRow(r, lookup, isDebtorsLine ? 'العميل' : 'المورد');
+      if (!resolved.ok) return { ok: false, error: `${resolved.error} (السطر ${i + 1})` };
+      if (resolved.id !== undefined) item.contact_id = resolved.id;
+    } else if (isDebtorsLine || isCreditorsLine) {
       const contactId = parseInt(String(r.contact || '').trim(), 10);
       if (!isNaN(contactId) && contactId > 0 && String(contactId) === String(r.contact || '').trim()) {
         item.contact_id = contactId;
@@ -217,7 +230,7 @@ function isBlankValue(v) {
  * @returns {Promise<{total:number, sent:number, failed:number, stoppedEarly:boolean, fatalError?:string, entries:Array}>}
  */
 export async function pushJournalEntriesToQoyod(entries, apiKey, opts = {}) {
-  const { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex, onEntry, onProgress, stoppedRef } = opts;
+  const { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex, contactLookups, onEntry, onProgress, stoppedRef } = opts;
   const resultEntries = [];
   const emit = (e) => { resultEntries.push(e); if (onEntry) onEntry(e); };
 
@@ -232,7 +245,7 @@ export async function pushJournalEntriesToQoyod(entries, apiKey, opts = {}) {
     const entry = entries[i];
     if (onProgress) onProgress(i, entries.length);
 
-    const built = buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex });
+    const built = buildJournalEntryPayload(entry, { chartMap, debtorsCodes, creditorsCodes, projectsIndex, locationsIndex, contactLookups });
     if (!built.ok) {
       failed++;
       emit({ seq: entry.seq, status: 'error', reason: built.error });

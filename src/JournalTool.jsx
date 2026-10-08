@@ -23,6 +23,7 @@ import { buildSendResultsReportBlob } from "./lib/journalSendResultsReport";
 // رصد الكيانات الناقصة (حساب/عميل/مورد/مشروع/موقع) قبل الإرسال عبر API —
 // راجع تعليقات رأس journalMissingEntities.js/qoyodJournalEntityCreate.js.
 import { computeMissingJournalEntitiesPlan, isMissingJournalEntitiesPlanEmpty } from "./lib/journalMissingEntities";
+import { mergeContactDirectory, buildContactLookup, resolveContactIdForRow, findContactInText } from "./lib/journalContacts.js";
 import { pushMissingJournalEntitiesToQoyod } from "./lib/qoyodJournalEntityCreate";
 import JournalMissingEntitiesPanel from "./JournalMissingEntitiesPanel.jsx";
 
@@ -83,6 +84,17 @@ function UploadCard({ title, subtitle, fileName, ok, count, onFile, busy, accept
 // لكل حقل منطقي (تسلسل القيد، التاريخ، الرمز...) عمود من أعمدة الملف الفعلية
 // — كل خيار بالقائمة يعرض حرف/رقم العمود + نص خليته بصف الرأس المُختار + معاينة
 // أول قيمة بيانات حقيقية تحته، حتى يتأكد المستخدم بصريًا قبل التطبيق بدل التخمين.
+// [إضافة 2026-10-08] ملخص الدليل المدمج: الإجمالي + كم منها مربوط بمعرّف قيود
+// حقيقي ولديه رقم مرجعي (الحالة المثالية) + كم برقم مرجعي فقط (غير موجود بالمنشأة)
+function contactDirectoryCountLabel(list, t, noun) {
+  const linked = list.filter((c) => c.id !== undefined && c.id !== null && c.trueRef).length;
+  const fileOnly = list.filter((c) => (c.id === undefined || c.id === null)).length;
+  return t({
+    ar: `${list.length} ${noun.ar}${linked ? ` — ${linked} مربوط برقم مرجعي` : ""}${fileOnly ? ` — ${fileOnly} بالملف فقط (غير موجود بالمنشأة)` : ""}`,
+    en: `${list.length} ${noun.en}${linked ? ` — ${linked} linked to a ref no.` : ""}${fileOnly ? ` — ${fileOnly} file-only (not in company)` : ""}`,
+  });
+}
+
 const MAPPER_FIELDS = [
   { key: "seq", ar: "تسلسل القيد", en: "Entry Sequence", required: false },
   { key: "date", ar: "التاريخ", en: "Date", required: false },
@@ -91,6 +103,9 @@ const MAPPER_FIELDS = [
   { key: "debit", ar: "مدين", en: "Debit", required: true },
   { key: "credit", ar: "دائن", en: "Credit", required: true },
   { key: "comment", ar: "تعليق", en: "Comment", required: false },
+  // [إضافة 2026-10-08] عمود هوية العميل/المورد (اسم، أو رقم مرجعي، أو رقم ضريبي)
+  // — يُطابَق تلقائياً بسطور المدينون/الدائنون (راجع journalContacts.js)
+  { key: "party", ar: "الجهة (اسم/رقم مرجعي/رقم ضريبي للعميل أو المورد)", en: "Party (customer/vendor name, ref no. or VAT no.)", required: false },
   // [إضافة 2026-09-15] المشروع/الموقع - طلب المستخدم الصريح: قد يكون لكل منهما
   // عمود منفصل على مستوى القيد كله (يُطبَّق افتراضيًا على كل بنوده) وعمود آخر
   // منفصل على مستوى سطر القيد تحديدًا (يتجاوز الافتراضي لذلك السطر فقط) -
@@ -617,7 +632,22 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // الاختياريان (اسم + رقم مرجعي) لتعبية حسابي المدينون/الدائنون الافتراضيين.
   const [vat15Code, setVat15Code] = useState("1");
   const [vatZeroCode, setVatZeroCode] = useState("2");
-  const [customersRefList, setCustomersRefList] = useState(null);
+  // [إصلاح جذري 2026-10-08 — بلاغ حقيقي: "Contact id 22010002 is not valid"]
+  // مصدرا العملاء/الموردين منفصلان ويُدمجان بدليل واحد (journalContacts.js) بدل
+  // أن يستبدل أحدهما الآخر: API (المعرّف الداخلي) + الملف المرفوع (الرقم المرجعي).
+  // customersRefList/suppliersRefList صارتا مشتقتين (useMemo أدناه) لا حالة مستقلة.
+  const [customersApiList, setCustomersApiList] = useState(null);
+  const [suppliersApiList, setSuppliersApiList] = useState(null);
+  const [customersFileList, setCustomersFileList] = useState(null);
+  const [suppliersFileList, setSuppliersFileList] = useState(null);
+  const customersRefList = useMemo(
+    () => (customersApiList || customersFileList ? mergeContactDirectory(customersApiList, customersFileList) : null),
+    [customersApiList, customersFileList]
+  );
+  const suppliersRefList = useMemo(
+    () => (suppliersApiList || suppliersFileList ? mergeContactDirectory(suppliersApiList, suppliersFileList) : null),
+    [suppliersApiList, suppliersFileList]
+  );
   const [customersRefFileName, setCustomersRefFileName] = useState("");
   const [customersRefBusy, setCustomersRefBusy] = useState(false);
   // [إضافة 2026-09-21] هل customersRefList/suppliersRefList مصدرهما جلب API
@@ -625,9 +655,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // يدويًا (ترقيم داخلي خاص بالعميل نفسه، قد لا يطابق معرّفات قيود الحقيقية
   // إطلاقًا)؟ لازم لتفادي رصد "عميل/مورد ناقص" زائف حين لا تُعرف قائمة كاملة
   // وموثوقة من الأساس — راجع missing_customer_ref/missing_vendor_ref أدناه.
-  const [customersRefIsApi, setCustomersRefIsApi] = useState(false);
-  const [suppliersRefIsApi, setSuppliersRefIsApi] = useState(false);
-  const [suppliersRefList, setSuppliersRefList] = useState(null);
+  const customersRefIsApi = customersApiList !== null;
+  const suppliersRefIsApi = suppliersApiList !== null;
   const [suppliersRefFileName, setSuppliersRefFileName] = useState("");
   const [suppliersRefBusy, setSuppliersRefBusy] = useState(false);
   const [showRefSettings, setShowRefSettings] = useState(false);
@@ -684,6 +713,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // (الذي يُخفي ملخص النجاح عمدًا) حتى يظهر ملخص العدد الفعلي المجلوب مع
   // تنبيه واضح بجانبه أن الشجرة قد تكون غير مكتملة، بدل إخفاء النجاح كليًا.
   const [apiFetchSummary, setApiFetchSummary] = useState(null);
+  const [apiFetchWarning, setApiFetchWarning] = useState("");
   // [إضافة — بلاغ حقيقي من المستخدم: "طول كتير الى الان ما خلص"] عدد الحسابات
   // المُجمَّعة حتى الآن أثناء الجلب — بلا هذا كان زر "جارٍ الجلب..." يبقى بلا أي
   // رقم لدقائق مع الإنقاذ الفردي (per_page=1) لشجرة حسابات كبيرة فيبدو متجمّداً.
@@ -755,8 +785,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // يُستخدَم لرصد "عميل/مورد ناقص" (contact مُعبَّأ برقم لا يطابق أي عميل/مورد
   // حقيقي)، فقط حين تكون القائمة مصدرها API فعليًا (customersRefIsApi/
   // suppliersRefIsApi) — راجع تعليقهما أعلاه لسبب هذا الشرط.
-  const customersRefSet = useMemo(() => new Set((customersRefList || []).map((c) => String(c.ref))), [customersRefList]);
-  const suppliersRefSet = useMemo(() => new Set((suppliersRefList || []).map((c) => String(c.ref))), [suppliersRefList]);
+  const customersLookup = useMemo(() => buildContactLookup(customersRefList || []), [customersRefList]);
+  const suppliersLookup = useMemo(() => buildContactLookup(suppliersRefList || []), [suppliersRefList]);
 
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(
@@ -802,6 +832,16 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     // الحقيقي بالضبط (resolveProjectId/resolveLocationId المُصدَّرتين من
     // qoyodJournalEntryPush.js) بدل أي استنتاج مستقل قد ينحرف عنه. دوَّن مرة
     // واحدة فقط لكل قيمة مختلفة بنفس القيد (لا صفاً بصفٍّ لو تكرّرت نفس القيمة).
+    // [إضافة 2026-10-08] الوصف حقل إلزامي بقيود — قيد بلا وصف كان يظهر "سليماً"
+    // ثم يفشل حتماً عند الإرسال ("وصف القيد فارغ").
+    if (!String(entry.desc || "").trim()) {
+      issues.push({
+        id: `${entry.seq}-missingdesc`,
+        type: "missing_desc",
+        severity: "error",
+        message: "وصف القيد فارغ — قيود يشترط وصفاً لكل قيد، أدخله بخانة الوصف أعلى القيد",
+      });
+    }
     const reportedProjects = new Set();
     const reportedLocations = new Set();
     entry.rows.forEach((r, i) => {
@@ -814,66 +854,94 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const isDebtors = debtorsCodes.has(r.code) || (!codeKnown && isSystemAccountNameMatch(r.name, DEBTORS_ACCOUNT_NAME));
       const isCreditors = creditorsCodes.has(r.code) || (!codeKnown && isSystemAccountNameMatch(r.name, CREDITORS_ACCOUNT_NAME));
       if (isDebtors || isCreditors) {
+        const kindLabel = isDebtors ? "العميل" : "المورد";
+        const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
+        const lookup = isDebtors ? customersLookup : suppliersLookup;
+        const missingType = isDebtors ? "missing_customer_ref" : "missing_vendor_ref";
+        const missingId = `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`;
         if (!r.contact) {
           // [إضافة — طلب صريح من المستخدم] كل سطر مدينون/دائنون يحمل باسمه
-          // (عمود التفصيل غالبًا، أو التعليقات) اسمَ العميل/المورد الحقيقي.
+          // (عمود الجهة، أو التفصيل، أو التعليقات) اسمَ العميل/المورد الحقيقي.
           // حين تكون القائمة المرجعية مجلوبة فعليًا عبر API ولم تُملأ خانة
           // "جهة اتصال" تلقائيًا (applyAutoContactRules تملؤها فور تطابق الاسم
-          // مع عميل/مورد موجود)، فهذا يعني أن هذا الاسم غير موجود فعلاً بمنشأة
-          // العميل — فيُعرَض ككيان ناقص قابل للإنشاء بدل مجرد خطأ يدوي.
+          // أو الرقم المرجعي مع عميل/مورد موجود)، فهذا يعني أن هذا الاسم غير
+          // موجود فعلاً بمنشأة العميل — فيُعرَض ككيان ناقص قابل للإنشاء.
           // التجميع بالاسم المُطبَّع بـcomputeMissingJournalEntitiesPlan، فاسم
           // واحد متكرر بمئات الأسطر يصير عميلًا واحدًا بقائمة قيوده.
-          const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
           const accountName = chartMap[r.code]?.name || r.name || "";
-          const lineName = String(r.detail || r.comment || "").trim();
+          const lineName = String(r.party || r.detail || r.comment || "").trim();
           // احتياط: بعض المخططات تُسقِط اسم الحساب نفسه بخانة التعليقات حين
           // يكون السطر بلا تفصيل ولا تعليق (راجع finalComment بـexcelCore.js) —
           // إنشاء عميل باسم "المدينون" خطأ فادح، فيُستبعَد صراحةً هنا (يُقارَن
           // باسم الشجرة واسم الملف معًا، فالرمز قد يكون مجهولاً بالشجرة أصلاً).
+          // [إضافة 2026-10-08] رقم مجرد (رقم مرجعي/ضريبي غير معروف) ليس اسماً —
+          // إنشاء عميل اسمه "22010002" خطأ فادح أيضاً.
           const lineNameNorm = normalizeAccountName(lineName);
           const usableName = lineName
             && lineNameNorm !== normalizeAccountName(accountName)
             && lineNameNorm !== normalizeAccountName(r.name)
+            && !/^[\d\s\u0660-\u0669\u06F0-\u06F9]+$/.test(lineName)
             ? lineName : "";
           if (isApiSourced && usableName) {
             issues.push({
-              id: `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`,
-              type: isDebtors ? "missing_customer_ref" : "missing_vendor_ref",
+              id: missingId,
+              type: missingType,
               severity: "error",
               rowIndex: r._rowIndex,
               code: r.code,
               typedName: usableName,
-              message: `السطر ${i + 1}: ${isDebtors ? "العميل" : "المورد"} "${usableName}" غير موجود فعلياً بمنشأة العميل (بحسب آخر جلب من قيود) — يمكن إنشاؤه تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`,
+              message: `السطر ${i + 1}: ${kindLabel} "${usableName}" غير موجود فعلياً بمنشأة العميل (بحسب آخر جلب من قيود) — يمكن إنشاؤه تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`,
             });
           } else {
+            // رقم يخص النوع الآخر (رقم مورد على حساب المدينون أو العكس) — خطأ إدخال
+            // بملف العميل نفسه، لا يُخمَّن: يُوضَّح للمستخدم ليصحح الحساب أو الرقم
+            const otherHit = lineName && /\d{4,}/.test(lineName)
+              ? findContactInText(lineName, isDebtors ? suppliersLookup : customersLookup) : null;
+            const numericHint = otherHit
+              ? ` (الرقم "${lineName}" يخص ${isDebtors ? "المورد" : "العميل"} "${otherHit.name}" بينما السطر على حساب ${isDebtors ? "المدينون" : "الدائنون"} — صحّح الحساب أو الرقم بملف العميل)`
+              : lineName && !usableName && /\d{4,}/.test(lineName)
+                ? ` (الرقم "${lineName}" المكتوب بالسطر غير موجود بملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي المرفوع — ارفع الملف الكامل أو صحّح الرقم)`
+                : "";
             issues.push({
               id: `${entry.seq}-row${r._rowIndex}-contactref`,
               type: "missing_contact_ref",
               severity: "error",
               rowIndex: r._rowIndex,
               code: r.code,
-              message: `السطر ${i + 1}: الحساب "${accountName || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${isDebtors ? "العميل" : "المورد"} في خانة "جهة اتصال/ضريبة/موظف"${r.comment ? ` (الاسم المتاح بالسطر: "${r.comment}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)"}`,
+              message: `السطر ${i + 1}: الحساب "${accountName || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${kindLabel} في خانة "جهة اتصال/ضريبة/موظف"${numericHint || (lineName ? ` (الاسم المتاح بالسطر: "${lineName}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)")}`,
             });
           }
-        } else {
-          // [إضافة 2026-09-21] contact مُعبَّأ فعلاً لكنه لا يطابق أي عميل/مورد
-          // حقيقي بمنشأة العميل — يُفحَص فقط حين تكون القائمة المرجعية مجلوبة
-          // فعليًا عبر API (customersRefIsApi/suppliersRefIsApi)، لا ملفاً
-          // مرفوعاً يدوياً (ترقيمه الداخلي قد لا يطابق معرّفات قيود الحقيقية
-          // إطلاقاً — راجع تعليق الحالتين أعلى الملف).
-          const isApiSourced = isDebtors ? customersRefIsApi : suppliersRefIsApi;
-          const refSet = isDebtors ? customersRefSet : suppliersRefSet;
-          if (isApiSourced && !refSet.has(String(r.contact).trim())) {
-            const typedName = r.detail || r.contact || r.comment || "";
-            issues.push({
-              id: `${entry.seq}-row${r._rowIndex}-${isDebtors ? "missingcustomer" : "missingvendor"}`,
-              type: isDebtors ? "missing_customer_ref" : "missing_vendor_ref",
-              severity: "error",
-              rowIndex: r._rowIndex,
-              code: r.code,
-              typedName,
-              message: `السطر ${i + 1}: ${isDebtors ? "العميل" : "المورد"} "${typedName || r.contact}" غير موجود فعلياً بمنشأة العميل (بحسب آخر جلب من قيود) — يمكن إنشاؤه تلقائياً عبر لوحة الكيانات الناقصة قبل الإرسال.`,
-            });
+        } else if (isApiSourced) {
+          // [إصلاح جذري 2026-10-08] الإرسال يحتاج المعرّف الداخلي الحقيقي بقيود —
+          // نفس دالة الإرسال بالضبط (resolveContactIdForRow) تُستخدم هنا للتدقيق،
+          // فلا يمر أي سطر بقيمة لا تتحول لمعرّف حقيقي (كان الرقم المرجعي المكتوب
+          // يدوياً يمر "سليماً" ثم يرفضه قيود عند الإرسال).
+          const resolved = resolveContactIdForRow(r, lookup, kindLabel);
+          if (!resolved.ok) {
+            const value = String(r.contact).trim();
+            const fromFile = resolved.record;
+            const nameCandidate = fromFile?.name || (/^[\d\s]+$/.test(value) ? "" : value);
+            if (resolved.reason !== "ambiguous" && nameCandidate) {
+              issues.push({
+                id: missingId,
+                type: missingType,
+                severity: "error",
+                rowIndex: r._rowIndex,
+                code: r.code,
+                typedName: nameCandidate,
+                contactRef: fromFile?.trueRef || "",
+                message: `السطر ${i + 1}: ${resolved.error}`,
+              });
+            } else {
+              issues.push({
+                id: `${entry.seq}-row${r._rowIndex}-contactref`,
+                type: "missing_contact_ref",
+                severity: "error",
+                rowIndex: r._rowIndex,
+                code: r.code,
+                message: `السطر ${i + 1}: ${resolved.error}`,
+              });
+            }
           }
         }
       }
@@ -921,7 +989,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     return issues;
   }, [
     chartAccounts, chartMap, parentInfo, postingAccounts, debtorsCodes, creditorsCodes,
-    customersRefIsApi, suppliersRefIsApi, customersRefSet, suppliersRefSet, projectsRef, locationsRef,
+    customersRefIsApi, suppliersRefIsApi, customersLookup, suppliersLookup, projectsRef, locationsRef,
   ]);
 
   // [ميزة جديدة] تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف": تُعاد كل مرة يتغيّر
@@ -1101,18 +1169,16 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // يملأ نفس الحالات (chartAccounts/customersRefList/suppliersRefList) التي
   // يملؤها الرفع اليدوي بالضبط — بلا أي تعديل على أي منطق تحليل/مطابقة قائم.
   const handleFetchFromApi = async () => {
-    setApiFetchError(""); setApiFetchBusy(true); setApiFetchSummary(null); setApiFetchProgress(0);
+    setApiFetchError(""); setApiFetchWarning(""); setApiFetchBusy(true); setApiFetchSummary(null); setApiFetchProgress(0);
     try {
       const result = await fetchJournalReferencesFromApi(apiKey, { onAccountsProgress: (total) => setApiFetchProgress(total) });
       suggestionCacheRef.current.clear();
       setChartAccounts(result.chartAccounts);
       setChartFileName(t({ ar: "جُلبت عبر API", en: "Fetched via API" }));
-      setCustomersRefList(result.customersRefList.length ? result.customersRefList : null);
-      setCustomersRefFileName(result.customersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
-      setCustomersRefIsApi(true);
-      setSuppliersRefList(result.suppliersRefList.length ? result.suppliersRefList : null);
-      setSuppliersRefFileName(result.suppliersRefList.length ? t({ ar: "جُلب عبر API", en: "Fetched via API" }) : "");
-      setSuppliersRefIsApi(true);
+      // [إصلاح 2026-10-08] لا يُمسح ملف العملاء/الموردين المرفوع — يُدمج مع API
+      setCustomersApiList(result.customersApi ?? null);
+      setSuppliersApiList(result.suppliersApi ?? null);
+      setApiFetchWarning((result.warnings || []).join(" — "));
       setProjectsRef(result.projectsRef);
       setLocationsRef(result.locationsRef);
       setApiFetchSummary(result.counts);
@@ -1145,11 +1211,11 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const rows = await readWorkbookRows(file);
       const list = parseNameRefFile(rows);
       if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم العميل والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
-      setCustomersRefList(list);
-      setCustomersRefIsApi(false);
+      // [إصلاح 2026-10-08] يُدمج مع عملاء API (لا يستبدلهم) — راجع journalContacts.js
+      setCustomersFileList(list);
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف العملاء المرجعي: " + err.message, lang));
-      setCustomersRefList(null);
+      setCustomersFileList(null);
     } finally { setCustomersRefBusy(false); }
   };
 
@@ -1159,11 +1225,10 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       const rows = await readWorkbookRows(file);
       const list = parseNameRefFile(rows);
       if (list.length === 0) throw new Error("لم يتم العثور على عمودي اسم المورد والرقم المرجعي في الملف — تأكد من وجود عمود اسم وعمود رقم مرجعي بعناوين واضحة");
-      setSuppliersRefList(list);
-      setSuppliersRefIsApi(false);
+      setSuppliersFileList(list);
     } catch (err) {
       setParseError(localizeError("خطأ في قراءة ملف الموردين المرجعي: " + err.message, lang));
-      setSuppliersRefList(null);
+      setSuppliersFileList(null);
     } finally { setSuppliersRefBusy(false); }
   };
 
@@ -1408,13 +1473,16 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
         .map((l) => ({ code: l.accountCode, name: l.accountName, type: "", description: "", parentCode: "", canPay: "", id: l.accountId }));
       if (newAccounts.length) setChartAccounts((prev) => [...(prev || []), ...newAccounts]);
     }
+    // [إصلاح 2026-10-08] العميل/المورد المُنشأ يُضاف لقائمة API بمعرّفه الحقيقي،
+    // مربوطاً برقمه المرجعي من ملف العميل (linkedRef) حتى لو عُدِّل اسمه باللوحة
+    const refOfCreated = (planList, key) => (planList.find((p) => p.typedName === key) || {}).contactRef || "";
     if (created.customers.size) {
-      const newRefs = Array.from(created.customers.values()).map((c) => ({ name: c.name, ref: String(c.id) }));
-      setCustomersRefList((prev) => [...(prev || []), ...newRefs]);
+      const added = Array.from(created.customers.entries()).map(([key, c]) => ({ id: c.id, name: c.name, linkedRef: refOfCreated(missingEntitiesPlan.customers, key) }));
+      setCustomersApiList((prev) => [...(prev || []), ...added]);
     }
     if (created.vendors.size) {
-      const newRefs = Array.from(created.vendors.values()).map((v) => ({ name: v.name, ref: String(v.id) }));
-      setSuppliersRefList((prev) => [...(prev || []), ...newRefs]);
+      const added = Array.from(created.vendors.entries()).map(([key, v]) => ({ id: v.id, name: v.name, linkedRef: refOfCreated(missingEntitiesPlan.vendors, key) }));
+      setSuppliersApiList((prev) => [...(prev || []), ...added]);
     }
     if (created.locations.size) {
       setLocationsRef((prev) => {
@@ -1442,6 +1510,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     setShowApiSendModal(true);
     const result = await pushJournalEntriesToQoyod(sendableEntries, apiKey, {
       chartMap, debtorsCodes, creditorsCodes, projectsIndex: projectsRef, locationsIndex: locationsRef,
+      contactLookups: { customers: customersLookup, suppliers: suppliersLookup },
       onProgress: (current, total) => setApiSendProgress({ current, total }),
       stoppedRef: apiStoppedRef.current,
     });
@@ -1471,8 +1540,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     suggestionCacheRef.current.clear();
     // [ميزة جديدة] "بدء من جديد" يعني عميلاً مختلفاً محتملاً — لا تُبقِ ملفي
     // العملاء/الموردين المرجعيين أو رمزي الضريبة المخصَّصين من العميل السابق.
-    setCustomersRefList(null); setCustomersRefFileName(""); setCustomersRefIsApi(false);
-    setSuppliersRefList(null); setSuppliersRefFileName(""); setSuppliersRefIsApi(false);
+    setCustomersApiList(null); setCustomersFileList(null); setCustomersRefFileName("");
+    setSuppliersApiList(null); setSuppliersFileList(null); setSuppliersRefFileName("");
     setVat15Code("1"); setVatZeroCode("2");
     setManualVatCode(""); setManualDebtorsCode(""); setManualCreditorsCode("");
     setShowRefSettings(false);
@@ -1579,6 +1648,11 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
                   })}
                 </div>
               )}
+              {!apiFetchBusy && apiFetchWarning && (
+                <div className="mt-2 rounded-md border px-3 py-2" style={{ borderColor: COLORS.amber || "#d97706", background: "rgba(217,119,6,0.08)", color: "#b45309" }}>
+                  ⚠ {apiFetchWarning} — {t({ ar: "أعد الجلب قبل الإرسال، وإلا لن تُطابَق جهات هذا النوع بمعرّفاتها الحقيقية.", en: "Fetch again before sending, otherwise these contacts won't be matched to their real IDs." })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1648,12 +1722,13 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <UploadCard title={{ ar: "ملف العملاء المرجعي (اختياري)", en: "Customers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم العميل + الرقم المرجعي", en: "Two columns: customer name + reference number" }}
-                  fileName={customersRefFileName} ok={!!customersRefList} busy={customersRefBusy}
-                  count={customersRefList ? t({ ar: `${customersRefList.length} عميل`, en: `${customersRefList.length} customers` }) : ""} onFile={handleCustomersRefUpload} accept=".xlsx,.xls,.csv" />
-                <UploadCard title={{ ar: "ملف الموردين المرجعي (اختياري)", en: "Suppliers reference file (optional)" }} subtitle={{ ar: "عمودان: اسم المورد + الرقم المرجعي", en: "Two columns: supplier name + reference number" }}
-                  fileName={suppliersRefFileName} ok={!!suppliersRefList} busy={suppliersRefBusy}
-                  count={suppliersRefList ? t({ ar: `${suppliersRefList.length} مورد`, en: `${suppliersRefList.length} suppliers` }) : ""} onFile={handleSuppliersRefUpload} accept=".xlsx,.xls,.csv" />
+                {/* [إصلاح 2026-10-08] الملف يُدمج مع API (لا يستبدله) — العرض يوضح المصدرين */}
+                <UploadCard title={{ ar: "ملف العملاء المرجعي (اختياري)", en: "Customers reference file (optional)" }} subtitle={{ ar: "اسم العميل + الرقم المرجعي (+ الرقم الضريبي اختياري) — يُدمج مع عملاء API", en: "Customer name + reference number (+ optional VAT no.) — merged with API customers" }}
+                  fileName={[customersApiList ? t({ ar: `API (${customersApiList.length})`, en: `API (${customersApiList.length})` }) : "", customersFileList ? customersRefFileName : ""].filter(Boolean).join(" + ")} ok={!!customersRefList} busy={customersRefBusy}
+                  count={customersRefList ? contactDirectoryCountLabel(customersRefList, t, { ar: "عميل", en: "customers" }) : ""} onFile={handleCustomersRefUpload} accept=".xlsx,.xls,.csv" />
+                <UploadCard title={{ ar: "ملف الموردين المرجعي (اختياري)", en: "Suppliers reference file (optional)" }} subtitle={{ ar: "اسم المورد + الرقم المرجعي (+ الرقم الضريبي اختياري) — يُدمج مع موردي API", en: "Supplier name + reference number (+ optional VAT no.) — merged with API suppliers" }}
+                  fileName={[suppliersApiList ? t({ ar: `API (${suppliersApiList.length})`, en: `API (${suppliersApiList.length})` }) : "", suppliersFileList ? suppliersRefFileName : ""].filter(Boolean).join(" + ")} ok={!!suppliersRefList} busy={suppliersRefBusy}
+                  count={suppliersRefList ? contactDirectoryCountLabel(suppliersRefList, t, { ar: "مورد", en: "suppliers" }) : ""} onFile={handleSuppliersRefUpload} accept=".xlsx,.xls,.csv" />
               </div>
             </div>
           )}

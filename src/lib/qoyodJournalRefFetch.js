@@ -97,6 +97,24 @@ export function buildNameRefListFromApi(apiContacts) {
 }
 
 /**
+ * [إضافة 2026-10-08] عملاء/موردو API بشكل الدليل الموحَّد: المعرّف الداخلي +
+ * الاسم + الرقم الضريبي (+ رقم مرجعي لو أرجعه API بأي اسم حقل — غير موثَّق
+ * حالياً، فيُقرأ دفاعياً فقط كما بـbill-import/lib/api.js).
+ */
+export function buildContactApiList(apiContacts) {
+  const out = [];
+  (apiContacts || []).forEach((c) => {
+    const id = c?.id;
+    if (id === undefined || id === null) return;
+    const name = String(c?.name ?? c?.organization ?? '').trim();
+    if (!name) return;
+    const refRaw = c?.reference ?? c?.reference_number ?? c?.ref ?? c?.code ?? '';
+    out.push({ id, name, taxNumber: String(c?.tax_number ?? '').trim(), ref: String(refRaw ?? '').trim() });
+  });
+  return out;
+}
+
+/**
  * فهرس مشاريع منشأة العميل — نسخة مطابقة تمامًا لـbuildProjectsIndexFromApi
  * بـsales-invoice-import/api/qoyodSalesRefFetch.js (نفس شكل الحقول، نفس درجة
  * عدم التأكد الميداني — راجع تعليقها هناك). منسوخة هنا (لا مستوردة) لتبقى
@@ -175,18 +193,24 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
     throw new Error(`تعذّر جلب شجرة الحسابات من قيود: ${e.message || String(e)}`);
   }
 
+  // [إصلاح 2026-10-08] فشل جلب العملاء/الموردين كان يُبتلَع بصمت (قائمة فارغة
+  // تُعامَل كأنها "المنشأة بلا عملاء") — فيُعرض كل عميل كـ"ناقص" ويُقترح إنشاؤه
+  // مكرراً. الآن: null (غير محمَّل) + تحذير صريح للمستخدم.
+  const warnings = [];
   let apiCustomers;
   try {
     apiCustomers = await fetchAll('/customers', key);
   } catch (e) {
-    apiCustomers = [];
+    apiCustomers = null;
+    warnings.push(`تعذّر جلب العملاء من قيود: ${e.message || String(e)}`);
   }
 
   let apiVendors;
   try {
     apiVendors = await fetchAll('/vendors', key);
   } catch (e) {
-    apiVendors = [];
+    apiVendors = null;
+    warnings.push(`تعذّر جلب الموردين من قيود: ${e.message || String(e)}`);
   }
 
   let apiProjects;
@@ -211,10 +235,15 @@ export async function fetchJournalReferencesFromApi(apiKey, { onAccountsProgress
   // لأي حقل warning إطلاقًا.
   return {
     chartAccounts: buildChartAccountsFromApi(apiAccounts),
-    customersRefList: buildNameRefListFromApi(apiCustomers),
-    suppliersRefList: buildNameRefListFromApi(apiVendors),
+    customersRefList: buildNameRefListFromApi(apiCustomers || []),
+    suppliersRefList: buildNameRefListFromApi(apiVendors || []),
+    // [إضافة 2026-10-08] دليل API بالمعرّف الداخلي + الرقم الضريبي (يُدمج مع ملف
+    // العملاء/الموردين المرفوع — راجع journalContacts.js). null = تعذّر الجلب.
+    customersApi: apiCustomers === null ? null : buildContactApiList(apiCustomers),
+    suppliersApi: apiVendors === null ? null : buildContactApiList(apiVendors),
+    warnings,
     projectsRef: { loaded: true, ...buildProjectsIndexFromApi(apiProjects) },
     locationsRef: { loaded: true, ...buildLocationsIndexFromApi(apiInventories) },
-    counts: { accounts: apiAccounts.length, customers: apiCustomers.length, vendors: apiVendors.length, projects: apiProjects.length, locations: apiInventories.length },
+    counts: { accounts: apiAccounts.length, customers: (apiCustomers || []).length, vendors: (apiVendors || []).length, projects: apiProjects.length, locations: apiInventories.length },
   };
 }

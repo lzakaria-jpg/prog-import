@@ -30,6 +30,9 @@ export function issuesAreOnlyMissingEntities(issues) {
 function pushToGroup(map, key, seq, extra) {
   if (!map.has(key)) map.set(key, { ...extra, seqs: [] });
   const g = map.get(key);
+  // [إضافة 2026-10-08] الرقم المرجعي من ملف العميل (لو عُرف) — يربط العميل/المورد
+  // المُنشأ برقمه المرجعي بعد الإنشاء (راجع journalContacts.js)
+  if (extra && extra.contactRef && !g.contactRef) g.contactRef = extra.contactRef;
   if (!g.seqs.includes(seq)) g.seqs.push(seq);
 }
 
@@ -56,9 +59,9 @@ export function computeMissingJournalEntitiesPlan(entries, issuesBySeq) {
         const key = normalizeAccountName(iss.code) || String(iss.code).trim().toLowerCase();
         pushToGroup(accounts, key, entry.seq, { code: iss.code, nameFromFile: iss.accountNameFromFile || '' });
       } else if (iss.type === 'missing_customer_ref' && iss.typedName) {
-        pushToGroup(customers, normalizeAccountName(iss.typedName), entry.seq, { typedName: iss.typedName });
+        pushToGroup(customers, normalizeAccountName(iss.typedName), entry.seq, { typedName: iss.typedName, ...(iss.contactRef ? { contactRef: iss.contactRef } : {}) });
       } else if (iss.type === 'missing_vendor_ref' && iss.typedName) {
-        pushToGroup(vendors, normalizeAccountName(iss.typedName), entry.seq, { typedName: iss.typedName });
+        pushToGroup(vendors, normalizeAccountName(iss.typedName), entry.seq, { typedName: iss.typedName, ...(iss.contactRef ? { contactRef: iss.contactRef } : {}) });
       } else if (iss.type === 'missing_project' && iss.typedName) {
         pushToGroup(projects, normalizeAccountName(iss.typedName), entry.seq, { typedName: iss.typedName });
       } else if (iss.type === 'missing_location' && iss.typedName) {
