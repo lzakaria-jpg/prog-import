@@ -201,3 +201,62 @@ describe('قراءة ملفات العميل', () => {
       .toEqual([{ id: 5, name: 'أ', taxNumber: '3001', ref: '' }, { id: 6, name: 'ج', taxNumber: '', ref: '' }]);
   });
 });
+
+describe('جلب API وحده — الاسم داخل البيان أو عمود الجهة', () => {
+  const chart = [
+    { code: '1206', name: 'المدينون', parentCode: '', id: 11 },
+    { code: '2201', name: 'الدائنون', parentCode: '', id: 22 },
+    { code: '12020001', name: 'بنك الجزيرة', parentCode: '', id: 44 },
+  ];
+  const dirApiOnly = mergeContactDirectory(api, null);
+
+  it('اسم الجهة كاملاً داخل جملة التعليق => يُطابَق بمعرّفه مباشرة', () => {
+    const entries = [{ seq: '1', date: '01/01/2023', desc: 'دفعة', rows: [
+      { _rowIndex: 0, code: '12020001', name: '', contact: '', debit: 100, credit: 0, comment: '' },
+      { _rowIndex: 1, code: '2201', name: '', contact: '', debit: 0, credit: 100, comment: 'دفعة الى المورد مؤسسة الحلول من بنك الجزيرة' },
+    ] }];
+    const out = applyAutoContactRules(entries, chart, { customersRef: dirApiOnly, suppliersRef: dirApiOnly });
+    expect(out[0].rows[1]._contactId).toBe(984);
+    expect(out[0].rows[1].contact).toBe('984');
+  });
+
+  it('وصف القيد (البيان العام) مصدر فقط لقيد فيه سطر عملاء واحد', () => {
+    const one = [{ seq: '1', date: '01/01/2023', desc: 'دفعة من العميل مؤسسة لام للفعاليات الترفيهية 50%', rows: [
+      { _rowIndex: 0, code: '12020001', name: '', contact: '', debit: 100, credit: 0, comment: '' },
+      { _rowIndex: 1, code: '1206', name: '', contact: '', debit: 0, credit: 100, comment: '' },
+    ] }];
+    expect(applyAutoContactRules(one, chart, { customersRef: dirApiOnly, suppliersRef: dirApiOnly })[0].rows[1]._contactId).toBe(515);
+    const two = [{ ...one[0], rows: [...one[0].rows, { _rowIndex: 2, code: '1206', name: '', contact: '', debit: 0, credit: 50, comment: '' }] }];
+    const out = applyAutoContactRules(two, chart, { customersRef: dirApiOnly, suppliersRef: dirApiOnly });
+    expect(out[0].rows[1].contact).toBe('');
+    expect(out[0].rows[2].contact).toBe('');
+  });
+
+  it('جهتان مختلفتان بنفس الجملة => لا تخمين', () => {
+    const lookup = buildContactLookup(dirApiOnly);
+    expect(findContactInText('تسوية بين مؤسسة الحلول و شركة ريسبونس للتسويق', lookup)).toBeNull();
+  });
+
+  it('رقم مرجعي بلا ملف جهات => لا يُطابَق بمعرّف داخلي بالمصادفة', () => {
+    const lookup = buildContactLookup(dirApiOnly);
+    expect(findContactInText('22010002', lookup)).toBeNull();
+  });
+});
+
+describe('حفظ روابط الأرقام المرجعية لكل منشأة', () => {
+  const memStorage = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v) }; };
+  it('ملف الجهات مرة واحدة => الجلب وحده يكفي بالمرة التالية (الربط بالمعرّف لا بالاسم)', async () => {
+    const { companyStoreKey, extractLinkedRefs, saveStoredContactRefs, loadStoredContactRefs, applyStoredRefs } = await import('../journalContacts.js');
+    const storage = memStorage();
+    const merged = mergeContactDirectory(api, file);
+    saveStoredContactRefs('KEY-1', { customers: [], suppliers: extractLinkedRefs(merged) }, storage);
+    const stored = loadStoredContactRefs('KEY-1', storage);
+    expect(stored.suppliers.map((s) => s.ref).sort()).toEqual(['12060001', '22010002', '22010003']);
+    // جلسة لاحقة: API فقط (حتى لو تغيّر اسم الجهة بالمنشأة)
+    const renamed = api.map((c) => (c.id === 983 ? { ...c, name: 'ريسبونس (اسم جديد)' } : c));
+    const lookup = buildContactLookup(mergeContactDirectory(applyStoredRefs(renamed, stored.suppliers), null));
+    expect(lookupContact('22010002', lookup).record.id).toBe(983);
+    expect(loadStoredContactRefs('KEY-2', storage).suppliers).toEqual([]);
+    expect(companyStoreKey('KEY-1')).not.toContain('KEY-1');
+  });
+});

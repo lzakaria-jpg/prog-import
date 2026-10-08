@@ -78,7 +78,9 @@ export function mergeContactDirectory(apiList, fileList) {
     const rec = {
       name: String(c.name || "").trim(),
       id: c.id,
-      trueRef: cleanRef(c.ref || ""),
+      // linkedRef: رابط مؤكَّد مسبقاً (رقم مرجعي => هذا المعرّف) — من إنشاء جهة
+      // ناقصة بالأداة، أو محفوظ من رفع سابق لنفس المنشأة — صالح بلا أي ملف
+      trueRef: cleanRef(c.ref || c.linkedRef || ""),
       taxNumber: normalizeTaxNumber(c.taxNumber),
       aliases: [],
     };
@@ -125,15 +127,48 @@ export function mergeContactDirectory(apiList, fileList) {
 
 /** فهارس الدليل — تُبنى مرة واحدة لكل تشغيل (لا لكل سطر) */
 export function buildContactLookup(records) {
-  const byRef = new Map(), byId = new Map(), byTax = new Map(), byName = new Map();
+  const byRef = new Map(), byId = new Map(), byTax = new Map(), byName = new Map(), byFirstWord = new Map();
   const add = (map, k, rec) => { if (!k) return; if (!map.has(k)) map.set(k, []); if (!map.get(k).includes(rec)) map.get(k).push(rec); };
   (records || []).forEach((rec) => {
     add(byRef, rec.trueRef, rec);
     if (rec.id !== undefined && rec.id !== null) add(byId, String(rec.id), rec);
     add(byTax, rec.taxNumber, rec);
-    [rec.name, ...(rec.aliases || [])].forEach((n) => add(byName, contactNameKey(n), rec));
+    [rec.name, ...(rec.aliases || [])].forEach((n) => {
+      const key = contactNameKey(n);
+      add(byName, key, rec);
+      // فهرس البحث داخل جملة: اسم من كلمتين فأكثر فقط (اسم من كلمة واحدة
+      // مثل "نقدي" قد يظهر بأي بيان عابر — لا يُعتمد عليه داخل جملة)
+      const words = key.split(" ").filter(Boolean);
+      if (words.length >= 2) {
+        if (!byFirstWord.has(words[0])) byFirstWord.set(words[0], []);
+        byFirstWord.get(words[0]).push({ key, rec });
+      }
+    });
   });
-  return { byRef, byId, byTax, byName, size: (records || []).length };
+  return { byRef, byId, byTax, byName, byFirstWord, size: (records || []).length };
+}
+
+/**
+ * [إضافة 2026-10-08] اسم عميل/مورد مذكور كاملاً داخل جملة بيان حرة ("دفعة من
+ * العميل شركة لام للفعاليات قيمة الفاتورة 5") — كلمات الاسم كاملة متتالية
+ * بحدود كلمات. أكثر من جهة مختلفة بنفس الجملة = لا شيء (لا تخمين)، إلا لو اسم
+ * أحدها جزء من اسم الأخرى (يُعتمد الأطول).
+ */
+export function findContactNameInSentence(text, lookup) {
+  if (!lookup || !lookup.byFirstWord) return null;
+  const norm = normalizeContactText(text);
+  if (!norm) return null;
+  const padded = ` ${norm} `;
+  const hits = [];
+  new Set(norm.split(" ")).forEach((w) => {
+    (lookup.byFirstWord.get(w) || []).forEach(({ key, rec }) => {
+      if (padded.includes(` ${key} `)) hits.push({ key, rec });
+    });
+  });
+  if (!hits.length) return null;
+  const maximal = hits.filter((h) => !hits.some((o) => o.key !== h.key && o.key.includes(h.key)));
+  const recs = new Set(maximal.map((h) => h.rec));
+  return recs.size === 1 ? [...recs][0] : null;
 }
 
 function single(list) {
@@ -189,7 +224,14 @@ export function findContactInText(text, lookup, { allowId = false } = {}) {
   if (!found.size && allowId && /^\d+$/.test(raw)) (lookup.byId.get(raw) || []).forEach((r) => found.add(r));
   if (found.size === 1) return [...found][0];
   if (found.size > 1) return null;
-  return single(lookup.byName.get(contactNameKey(raw)));
+  return single(lookup.byName.get(contactNameKey(raw))) || findContactNameInSentence(raw, lookup);
+}
+
+/** أرقام بالنص (4 خانات فأكثر) لا تطابق أي رقم مرجعي/ضريبي/معرّف معروف — لتنبيه
+ *  "الملف يكتب الجهات بأرقامها المرجعية" (لا تُرجعها واجهة قيود البرمجية) */
+export function unknownNumericTokens(text, lookup) {
+  const raw = toLatinDigits(text);
+  return (raw.match(/\d{4,}/g) || []).filter((tok) => !(lookup && (lookup.byRef.has(tok) || lookup.byId.has(tok) || lookup.byTax.has(normalizeTaxNumber(tok)))));
 }
 
 /**
@@ -219,4 +261,59 @@ export function resolveContactIdForRow(row, lookup, kindLabel) {
     return { ok: false, reason: "ambiguous", error: `${kindLabel} "${value}" يطابق أكثر من جهة (${names}) — حدّده بدقة` };
   }
   return { ok: false, reason: "not_found", error: `${kindLabel} "${value}" غير موجود لا بملف ${kindLabel === "العميل" ? "العملاء" : "الموردين"} ولا بمنشأة العميل` };
+}
+
+/*
+ * [إضافة 2026-10-08 — طلب المستخدم: "الجلب عبر API وحده يكفي"] واجهة قيود لا
+ * تُرجع الرقم المرجعي، فربط رقم مرجعي => معرّف يحتاج ملف الجهات مرة واحدة. بعدها
+ * تحفظ الأداة الربط محلياً لكل منشأة (مفتاحه بصمة غير قابلة للعكس من مفتاح API)،
+ * فملفات السنوات التالية لنفس المنشأة تُطابَق بالجلب وحده بلا أي ملف.
+ */
+const STORE_PREFIX = "qoyod-journal-contact-refs:";
+
+export function companyStoreKey(apiKey) {
+  const k = String(apiKey || "").trim();
+  if (!k) return "";
+  let h = 5381;
+  for (let i = 0; i < k.length; i++) h = ((h << 5) + h + k.charCodeAt(i)) >>> 0;
+  return `${STORE_PREFIX}${h.toString(36)}${k.length}`;
+}
+
+/** الروابط المؤكَّدة فقط (معرّف حقيقي + رقم مرجعي) من دليل مدمج */
+export function extractLinkedRefs(records) {
+  return (records || [])
+    .filter((r) => r.id !== undefined && r.id !== null && r.trueRef)
+    .map((r) => ({ id: r.id, ref: r.trueRef, name: r.name }));
+}
+
+/** يدمج روابط محفوظة بقائمة API (بالمعرّف الداخلي — لا يعتمد على الاسم) */
+export function applyStoredRefs(apiList, stored) {
+  if (!apiList || !stored || !stored.length) return apiList;
+  const byId = new Map(stored.map((s) => [String(s.id), s.ref]));
+  return apiList.map((c) => (!c.ref && !c.linkedRef && byId.has(String(c.id)) ? { ...c, linkedRef: byId.get(String(c.id)) } : c));
+}
+
+export function loadStoredContactRefs(apiKey, storage = globalThis.localStorage) {
+  const key = companyStoreKey(apiKey);
+  if (!key || !storage) return { customers: [], suppliers: [] };
+  try {
+    const parsed = JSON.parse(storage.getItem(key) || "null");
+    return { customers: parsed?.customers || [], suppliers: parsed?.suppliers || [] };
+  } catch {
+    return { customers: [], suppliers: [] };
+  }
+}
+
+/** يحفظ الروابط بالدمج مع المحفوظ سابقاً (رابط جديد لنفس الرقم المرجعي يستبدل القديم) */
+export function saveStoredContactRefs(apiKey, { customers = [], suppliers = [] }, storage = globalThis.localStorage) {
+  const key = companyStoreKey(apiKey);
+  if (!key || !storage) return false;
+  const prev = loadStoredContactRefs(apiKey, storage);
+  const mergeList = (a, b) => {
+    const m = new Map(a.map((x) => [x.ref, x]));
+    b.forEach((x) => m.set(x.ref, x));
+    return [...m.values()];
+  };
+  const next = { customers: mergeList(prev.customers, customers), suppliers: mergeList(prev.suppliers, suppliers), savedAt: new Date().toISOString() };
+  try { storage.setItem(key, JSON.stringify(next)); return true; } catch { return false; }
 }

@@ -23,7 +23,7 @@ import { buildSendResultsReportBlob } from "./lib/journalSendResultsReport";
 // رصد الكيانات الناقصة (حساب/عميل/مورد/مشروع/موقع) قبل الإرسال عبر API —
 // راجع تعليقات رأس journalMissingEntities.js/qoyodJournalEntityCreate.js.
 import { computeMissingJournalEntitiesPlan, isMissingJournalEntitiesPlanEmpty } from "./lib/journalMissingEntities";
-import { mergeContactDirectory, buildContactLookup, resolveContactIdForRow, findContactInText } from "./lib/journalContacts.js";
+import { mergeContactDirectory, buildContactLookup, resolveContactIdForRow, findContactInText, extractLinkedRefs, applyStoredRefs, loadStoredContactRefs, saveStoredContactRefs } from "./lib/journalContacts.js";
 import { pushMissingJournalEntitiesToQoyod } from "./lib/qoyodJournalEntityCreate";
 import JournalMissingEntitiesPanel from "./JournalMissingEntitiesPanel.jsx";
 
@@ -714,6 +714,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // تنبيه واضح بجانبه أن الشجرة قد تكون غير مكتملة، بدل إخفاء النجاح كليًا.
   const [apiFetchSummary, setApiFetchSummary] = useState(null);
   const [apiFetchWarning, setApiFetchWarning] = useState("");
+  const [storedRefsCount, setStoredRefsCount] = useState(0);
   // [إضافة — بلاغ حقيقي من المستخدم: "طول كتير الى الان ما خلص"] عدد الحسابات
   // المُجمَّعة حتى الآن أثناء الجلب — بلا هذا كان زر "جارٍ الجلب..." يبقى بلا أي
   // رقم لدقائق مع الإنقاذ الفردي (per_page=1) لشجرة حسابات كبيرة فيبدو متجمّداً.
@@ -787,6 +788,14 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
   // suppliersRefIsApi) — راجع تعليقهما أعلاه لسبب هذا الشرط.
   const customersLookup = useMemo(() => buildContactLookup(customersRefList || []), [customersRefList]);
   const suppliersLookup = useMemo(() => buildContactLookup(suppliersRefList || []), [suppliersRefList]);
+  // [إضافة 2026-10-08] حفظ الروابط المؤكَّدة (معرّف + رقم مرجعي) لهذه المنشأة —
+  // فقط حين تكون مبنية فعلاً على جلب API حقيقي (لا ملف وحده)
+  useEffect(() => {
+    if (!apiKey.trim()) return;
+    const customers = customersApiList ? extractLinkedRefs(customersRefList) : [];
+    const suppliers = suppliersApiList ? extractLinkedRefs(suppliersRefList) : [];
+    if (customers.length || suppliers.length) saveStoredContactRefs(apiKey, { customers, suppliers });
+  }, [apiKey, customersApiList, suppliersApiList, customersRefList, suppliersRefList]);
 
   const [structuralIssuesBySeq, setStructuralIssuesBySeq] = useState({});
   const postingAccounts = useMemo(
@@ -897,17 +906,26 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
             // بملف العميل نفسه، لا يُخمَّن: يُوضَّح للمستخدم ليصحح الحساب أو الرقم
             const otherHit = lineName && /\d{4,}/.test(lineName)
               ? findContactInText(lineName, isDebtors ? suppliersLookup : customersLookup) : null;
+            const hasRefFile = !!(isDebtors ? customersFileList : suppliersFileList);
+            const isNumericOnly = lineName && !usableName && /\d{4,}/.test(lineName);
+            // [إضافة 2026-10-08] واجهة قيود البرمجية لا تُرجع الرقم المرجعي للعملاء/
+            // الموردين إطلاقاً (موثَّق بمرجع Qoyod API) — رقم مرجعي بالملف لا يمكن ربطه
+            // بالجلب وحده؛ يُقال ذلك صراحة بدل "غير موجود" المضلِّلة.
+            const refOnlyNoFile = isNumericOnly && !otherHit && !hasRefFile;
             const numericHint = otherHit
               ? ` (الرقم "${lineName}" يخص ${isDebtors ? "المورد" : "العميل"} "${otherHit.name}" بينما السطر على حساب ${isDebtors ? "المدينون" : "الدائنون"} — صحّح الحساب أو الرقم بملف العميل)`
-              : lineName && !usableName && /\d{4,}/.test(lineName)
-                ? ` (الرقم "${lineName}" المكتوب بالسطر غير موجود بملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي المرفوع — ارفع الملف الكامل أو صحّح الرقم)`
-                : "";
+              : refOnlyNoFile
+                ? ` (الرقم "${lineName}" رقم مرجعي — واجهة قيود البرمجية لا تُرجع الأرقام المرجعية للعملاء/الموردين، فلا يُربط بالجلب وحده: اكتب اسم ${kindLabel} أو رقمه الضريبي بالبيان/عمود الجهة، أو ارفع ملف ${isDebtors ? "العملاء" : "الموردين"} (تصدير جهات الاتصال من قيود) مرة واحدة)`
+                : isNumericOnly
+                  ? ` (الرقم "${lineName}" المكتوب بالسطر غير موجود بملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي المرفوع — ارفع الملف الكامل أو صحّح الرقم)`
+                  : "";
             issues.push({
               id: `${entry.seq}-row${r._rowIndex}-contactref`,
               type: "missing_contact_ref",
               severity: "error",
               rowIndex: r._rowIndex,
               code: r.code,
+              refOnlyNoFile,
               message: `السطر ${i + 1}: الحساب "${accountName || r.code}" حساب ${isDebtors ? "المدينون" : "الدائنون"} الافتراضي — يتطلب قيود تحديد الرقم المرجعي لـ${kindLabel} في خانة "جهة اتصال/ضريبة/موظف"${numericHint || (lineName ? ` (الاسم المتاح بالسطر: "${lineName}" — تحقق منه في ملف ${isDebtors ? "العملاء" : "الموردين"} المرجعي إن رُفع، أو أدخل الرقم يدويًا)` : " (أدخله يدويًا، أو ارفع ملف مرجعي يحوي اسمه)")}`,
             });
           }
@@ -989,7 +1007,7 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     return issues;
   }, [
     chartAccounts, chartMap, parentInfo, postingAccounts, debtorsCodes, creditorsCodes,
-    customersRefIsApi, suppliersRefIsApi, customersLookup, suppliersLookup, projectsRef, locationsRef,
+    customersRefIsApi, suppliersRefIsApi, customersLookup, suppliersLookup, customersFileList, suppliersFileList, projectsRef, locationsRef,
   ]);
 
   // [ميزة جديدة] تعبية تلقائية لعمود "جهة اتصال/ضريبة/موظف": تُعاد كل مرة يتغيّر
@@ -1176,8 +1194,12 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setChartAccounts(result.chartAccounts);
       setChartFileName(t({ ar: "جُلبت عبر API", en: "Fetched via API" }));
       // [إصلاح 2026-10-08] لا يُمسح ملف العملاء/الموردين المرفوع — يُدمج مع API
-      setCustomersApiList(result.customersApi ?? null);
-      setSuppliersApiList(result.suppliersApi ?? null);
+      // [إضافة 2026-10-08] روابط رقم مرجعي => معرّف محفوظة من رفع سابق لنفس المنشأة
+      // (ملف جهات رُفع مرة واحدة) — تكفي الجلب وحده لملفات السنوات التالية
+      const stored = loadStoredContactRefs(apiKey);
+      setCustomersApiList(result.customersApi ? applyStoredRefs(result.customersApi, stored.customers) : null);
+      setSuppliersApiList(result.suppliersApi ? applyStoredRefs(result.suppliersApi, stored.suppliers) : null);
+      setStoredRefsCount(stored.customers.length + stored.suppliers.length);
       setApiFetchWarning((result.warnings || []).join(" — "));
       setProjectsRef(result.projectsRef);
       setLocationsRef(result.locationsRef);
@@ -1547,6 +1569,13 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     setShowRefSettings(false);
   };
 
+  // [إضافة 2026-10-08] سطور مدينون/دائنون جهتها مكتوبة برقم مرجعي فقط بلا ملف
+  // جهات مرفوع — تنبيه واحد عام بدل اكتشافه سطراً سطراً
+  const refOnlyLinesCount = useMemo(
+    () => Object.values(issuesBySeq).reduce((n, arr) => n + arr.filter((i) => i.refOnlyNoFile).length, 0),
+    [issuesBySeq]
+  );
+
   const filters = [
     { key: "all", label: { ar: `الكل (${totalEntries})`, en: `All (${totalEntries})` } },
     { key: "ok", label: { ar: `سليمة (${totalEntries - entriesWithIssues})`, en: `Valid (${totalEntries - entriesWithIssues})` } },
@@ -1643,8 +1672,8 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
               {!apiFetchBusy && !apiFetchError && apiFetchSummary && (
                 <div className="mt-3 rounded-md border px-3 py-2" style={{ borderColor: COLORS.green, background: "rgba(21,128,61,0.08)", color: COLORS.green }}>
                   ✅ {t({
-                    ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع، ${apiFetchSummary.locations} موقع.`,
-                    en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s), ${apiFetchSummary.locations} location(s).`,
+                    ar: `تم الجلب بنجاح — ${apiFetchSummary.accounts} حساب، ${apiFetchSummary.customers} عميل، ${apiFetchSummary.vendors} مورد، ${apiFetchSummary.projects} مشروع، ${apiFetchSummary.locations} موقع.${storedRefsCount ? ` + ${storedRefsCount} رقم مرجعي محفوظ لهذه المنشأة من رفع سابق (بلا حاجة لملف الجهات).` : ""}`,
+                    en: `Fetched successfully — ${apiFetchSummary.accounts} account(s), ${apiFetchSummary.customers} customer(s), ${apiFetchSummary.vendors} vendor(s), ${apiFetchSummary.projects} project(s), ${apiFetchSummary.locations} location(s).${storedRefsCount ? ` + ${storedRefsCount} reference number(s) remembered for this company from a previous upload (no contacts file needed).` : ""}`,
                   })}
                 </div>
               )}
@@ -1803,6 +1832,14 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
               </div>
               <p className="mt-1 text-xs text-[#94A3B8]">{t({ ar: "Ctrl+F للبحث السريع", en: "Ctrl+F for quick search" })}</p>
             </div>
+            {refOnlyLinesCount > 0 && (
+              <div className="mb-4 rounded-md border px-3 py-2 text-xs leading-6" style={{ borderColor: "#d97706", background: "rgba(217,119,6,0.08)", color: "#92400e" }}>
+                ⚠ {t({
+                  ar: `${refOnlyLinesCount} سطر عملاء/موردين مكتوبة جهته برقم مرجعي فقط (مثل 22010002). واجهة قيود البرمجية تُرجع اسم العميل/المورد ورقمه الضريبي ومعرّفه، لكنها لا تُرجع الرقم المرجعي إطلاقاً — فالجلب وحده يتعرّف تلقائياً على الجهة المكتوبة بالاسم أو الرقم الضريبي (بالبيان أو عمود الجهة)، أما الرقم المرجعي فيحتاج ملف العملاء/الموردين (تصدير جهات الاتصال من قيود) مرة واحدة من الإعدادات الاختيارية، ويُدمج مع الجلب تلقائياً.`,
+                  en: `${refOnlyLinesCount} customer/vendor line(s) identify the party by reference number only (e.g. 22010002). Qoyod's API returns the contact's name, VAT number and ID but never its reference number — fetching alone auto-recognizes parties written by name or VAT number; reference numbers need the customers/vendors file (Qoyod contacts export) once, from the optional settings, merged with the fetch automatically.`,
+                })}
+              </div>
+            )}
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {filters.map(({ key, label }) => (
                 <button key={key} onClick={() => { setFilter(key); setPage(0); }}
