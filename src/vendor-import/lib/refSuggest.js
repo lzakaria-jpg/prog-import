@@ -88,3 +88,14 @@ export function suggestRefs(rows, opts = {}) {
 
   return { rows: outRows, basis: { hasExisting, prefix, width } };
 }
+
+/**
+ * [إضافة 2026-10-08 — بلاغ حقيقي] صفوف ستُنشأ عبر API وتحمل رقماً مرجعياً من
+ * ملف العميل نفسه (لا مقترحاً من الأداة) — واجهة قيود البرمجية لا تقبل الرقم
+ * المرجعي إطلاقاً (لا حقل له بـPOST /customers|/vendors بمواصفة Qoyod v2.1)،
+ * فيعطي قيود هذه الجهات ترقيمه التلقائي (CUS001...). يُستخدم لتنبيه المستخدم
+ * قبل الإرسال وعرض البديل الذي يحفظ الأرقام: ملف القالب الرسمي.
+ */
+export function fileRefsLostViaApi(rows) {
+  return (rows || []).filter((r) => String(r.ref ?? '').trim() !== '' && !r.refAutoSuggested && r.action !== 'update' && r.action !== 'skip');
+}
