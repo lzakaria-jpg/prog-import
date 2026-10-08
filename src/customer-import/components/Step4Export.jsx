@@ -13,6 +13,7 @@ export default function Step4Export({ eng }) {
   // [إضافة 2026-10-08] تنبيه قبل الإرسال: أرقام مرجعية من ملف العميل لن تنتقل عبر API
   const [confirmRefs, setConfirmRefs] = useState(false);
   const lostRefs = fileRefsLostViaApi(eng.sendableRows);
+  const qt = eng.qoyodTemplate || { rows: [], excluded: [] };
   const startSend = () => { setConfirmRefs(false); setShowSendModal(true); eng.pushViaApi(); };
   const handleSendViaApi = () => { if (lostRefs.length) { setConfirmRefs(true); return; } startSend(); };
 
@@ -30,6 +31,20 @@ export default function Step4Export({ eng }) {
         <div className={`qci-msg ${bad.length ? 'warn' : 'ok'}`}>
           <b>{eng.rows.length}</b> {t({ ar: 'صف — جاهز:', en: 'row(s) — ready:' })} <b>{good.length}</b> · {t({ ar: 'به أخطاء مانعة:', en: 'with blocking errors:' })} <b>{bad.length}</b>
           {eng.stats.pendingDecision > 0 && <> · {t({ ar: 'بانتظار قرار التكرار (لن يُرسَل عبر API حتى يُختار):', en: 'awaiting duplicate decision (will not be sent via API until chosen):' })} <b>{eng.stats.pendingDecision}</b></>}
+        </div>
+
+        {/* [إضافة 2026-10-08] قالب قيود جاهز للرفع: يحفظ الأرقام المرجعية من ملف العميل (الإرسال عبر API لا يحفظها) */}
+        <div className="qci-msg ok" style={{ marginTop: 10 }}>
+          <b>{t({ ar: 'قالب قيود جاهز للرفع — بأسماء العملاء وأرقامهم المرجعية من ملف العميل', en: "Qoyod ready-to-import template — names and reference numbers from the client file" })}</b>
+          <div style={{ margin: '6px 0' }}>
+            {t({
+              ar: `يحتوي صفوف الإنشاء الجديد السليمة فقط (${qt.rows.length} صف) — يُستبعد ما به خطأ مانع أو موجود فعلاً بقيود (تحديث/تجاوز/بانتظار قرار) أو مكرر بالاسم/الرقم المرجعي داخل الملف (${qt.excluded.length} صف). الرقم المقترَح تلقائياً من الأداة يُترك فارغاً ليرقّمه قيود. ارفعه من قيود: جهات الاتصال ← استيراد.`,
+              en: `Contains valid new rows only (${qt.rows.length}) — rows with blocking errors, already in Qoyod (update/skip/awaiting decision) or duplicated by name/reference within the file are excluded (${qt.excluded.length}). Tool-suggested references are left blank for Qoyod to number. Upload it in Qoyod: Contacts → Import.`,
+            })}
+          </div>
+          <div className="qci-actions">
+            <button className="qci-btn go" disabled={!qt.rows.length} onClick={() => eng.doExport('qoyod')}>⬇ {t({ ar: `تحميل قالب قيود جاهز للرفع (${qt.rows.length} صف)`, en: `Download Qoyod ready-to-import template (${qt.rows.length} row(s))` })}</button>
+          </div>
         </div>
 
         <div className="qci-actions">
@@ -55,7 +70,7 @@ export default function Step4Export({ eng }) {
               })}
             </div>
             <div className="qci-actions">
-              <button className="qci-btn dark" onClick={() => { setConfirmRefs(false); eng.doExport('valid'); }}>{t({ ar: 'حمّل القالب بالأرقام المرجعية (الصفوف السليمة)', en: 'Download the template with reference numbers (valid rows)' })}</button>
+              <button className="qci-btn dark" disabled={!qt.rows.length} onClick={() => { setConfirmRefs(false); eng.doExport('qoyod'); }}>{t({ ar: 'حمّل قالب قيود جاهز للرفع بالأرقام المرجعية', en: 'Download the Qoyod ready-to-import template with reference numbers' })}</button>
               <button className="qci-btn go" onClick={startSend}>{t({ ar: 'أكمل الإرسال عبر API بترقيم قيود التلقائي', en: "Continue sending via API with Qoyod's auto numbering" })}</button>
               <button className="qci-btn ghost" onClick={() => setConfirmRefs(false)}>{t({ ar: 'إلغاء', en: 'Cancel' })}</button>
             </div>

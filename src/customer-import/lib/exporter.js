@@ -13,7 +13,8 @@
  */
 import * as XLSX from 'xlsx';
 import { DEFAULT_KEYS } from './fields.js';
-import { normalizePhone, normalizeTaxNumber } from './validation.js';
+import { normalizePhone, normalizeTaxNumber, rowErr } from './validation.js';
+import { fixDigits } from './text.js';
 
 /** قيم صف واحد بترتيب أعمدة القالب الرسمي A→... حرفياً (DEFAULT_KEYS) */
 export function rowArray(r) {
@@ -49,6 +50,49 @@ export function exportContacts(rows, templateArrayBuffer) {
 
   const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+/**
+ * [إضافة 2026-10-08، طلب صريح من المستخدم] صفوف "قالب قيود جاهز للرفع" —
+ * ملف يُرفع مباشرة من قيود (جهات الاتصال ← استيراد) فيحفظ قيود الرقم المرجعي
+ * كما بملف العميل (بخلاف الإرسال عبر API الذي لا يقبل الرقم المرجعي إطلاقاً).
+ * القواعد (حتى لا يرفض قيود أي صف):
+ *  - صفوف الإنشاء الجديد فقط: يُستبعد الخطأ المانع، والمعلَّق بانتظار قرار
+ *    تكرار، والتحديث (موجود فعلاً بقيود — الاستيراد ينشئ ولا يحدّث)، والتجاوز.
+ *  - الرقم المرجعي: من ملف العميل (أو المعدَّل يدوياً) يُكتب كما هو؛ المقترَح
+ *    تلقائياً من الأداة يُترك فارغاً فيرقّمه قيود بتسلسله (المقترَح لا ضمان
+ *    لعدم تصادمه مع عميل موجود بالحساب).
+ *  - رقم مرجعي أو اسم مكرر داخل الملف: يُعتمد أول ظهور ويُستبعد التالي مع سببه.
+ * @returns {{ rows: Array<object>, excluded: Array<{ row: object, reason: {ar: string, en: string} }>, autoRefsBlanked: number }}
+ */
+export function qoyodTemplateRows(rows) {
+  const out = [];
+  const excluded = [];
+  const seenRef = new Map();
+  const seenName = new Map();
+  let autoRefsBlanked = 0;
+  const refKey = (v) => fixDigits(String(v ?? '')).trim().toUpperCase();
+  const nameKey = (v) => fixDigits(String(v ?? '')).trim().replace(/\s+/g, ' ').toLowerCase();
+  (rows || []).forEach((r) => {
+    const skip = (ar, en) => excluded.push({ row: r, reason: { ar, en } });
+    if (rowErr(r)) return skip('به خطأ مانع', 'Has a blocking error');
+    if (r.action === null || r.action === undefined) return skip('بانتظار قرار التكرار (إنشاء/تحديث/تجاوز)', 'Awaiting a duplicate decision (create/update/skip)');
+    if (r.action === 'update') return skip('موجود فعلاً بقيود (تحديث) — الاستيراد بالقالب ينشئ فقط', 'Already exists in Qoyod (update) — template import only creates');
+    if (r.action === 'skip') return skip('تجاوز بقرار المستخدم', 'Skipped by user decision');
+    const nk = nameKey(r.name);
+    if (seenName.has(nk)) return skip(`اسم مكرر بالملف مع الصف ${seenName.get(nk)}`, `Duplicate name in the file with row ${seenName.get(nk)}`);
+    const ownRef = !r.refAutoSuggested && refKey(r.ref) !== '';
+    if (ownRef) {
+      const rk = refKey(r.ref);
+      if (seenRef.has(rk)) return skip(`رقم مرجعي مكرر بالملف (${String(r.ref).trim()}) مع الصف ${seenRef.get(rk)}`, `Duplicate reference number in the file (${String(r.ref).trim()}) with row ${seenRef.get(rk)}`);
+      seenRef.set(rk, r.i);
+    } else if (r.refAutoSuggested && refKey(r.ref) !== '') {
+      autoRefsBlanked++;
+    }
+    seenName.set(nk, r.i);
+    out.push({ ...r, ref: ownRef ? String(r.ref).trim() : '' });
+  });
+  return { rows: out, excluded, autoRefsBlanked };
 }
 
 /** حفظ Blob في جهاز المستخدم — منقولة حرفياً من bill-import/lib/exporter.js */
