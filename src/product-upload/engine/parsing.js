@@ -261,6 +261,24 @@ export function suggestLinks(ref, candidates, limit = 3) {
 
 // Detect column indexes from the header row by matching names (Arabic/English).
 // Returns an object of logical column name -> index.
+// يصنّف عنوان عمود وحدة ثانوية/ثالثة: يُرجع مفتاح الحقل أو null. الترتيب يُستنتج
+// من العنوان (ثانوي/ثانية/2 => الثانية، ثالث/ثالثة/3 => الثالثة)، ونوع المحتوى
+// (سعر بيع/سعر شراء/باركود/معامل تحويل/اسم الوحدة) من بقية الكلمات.
+export function secondaryColumnKey(hh) {
+  const h = String(hh || "");
+  const third = /ثالث|third|(^|[^\d.])3([^\d]|$)/i.test(h);
+  const second = /ثانوي|ثانيه|ثانية|secondary|second|(^|[^\d.])2([^\d]|$)/i.test(h);
+  if (!third && !second) return null;
+  if (!/وحد|unit|سعر|price|باركود|barcode|معامل|تحويل|conversion|rate/i.test(h)) return null;
+  const n = third ? "unit3" : "unit2";
+  if (/باركود|barcode/i.test(h)) return `${n}_barcode`;
+  if (/سعر\s*(ال)?بيع|سعر\s*(ال)?مبيع|selling|sale\s*price/i.test(h)) return `${n}_sell`;
+  if (/سعر\s*(ال)?شراء|سعر\s*(ال)?تكلف|purchase\s*price|buying|cost/i.test(h)) return `${n}_buy`;
+  if (/معامل|معدل|نسبه|نسبة|تحويل|conversion|rate/i.test(h)) return `${n}_rate`;
+  if (/(الوحدة|وحدة|unit)/i.test(h) && !/سعر|price/i.test(h)) return n;
+  return null;
+}
+
 export function detectColumns(headerRow) {
   const norm = (h) => String(h || "").trim().replace(/\s+/g, " ");
   const map = {
@@ -279,9 +297,18 @@ export function detectColumns(headerRow) {
     // [إضافة 2026-09-28] الوحدة الثانوية + معامل تحويلها للوحدة الأساسية
     // (مثال: كيلو = 1000 جرام) — اختياريان، -1 لملف لا يحويهما.
     unit2: -1, unit2_rate: -1,
+    // [إضافة 2026-10-20، طلب صريح من المستخدم] وحدتان ثانويتان (قيود يقبل عدة
+    // unit_conversions): سعر بيع/شراء وباركود كل وحدة ثانوية، والوحدة الثالثة.
+    unit2_sell: -1, unit2_buy: -1, unit2_barcode: -1,
+    unit3: -1, unit3_rate: -1, unit3_sell: -1, unit3_buy: -1, unit3_barcode: -1,
   };
   headerRow.forEach((h, i) => {
     const hh = norm(h).toLowerCase();
+    // [إضافة 2026-10-20] أعمدة الوحدات الثانوية الصريحة بترتيبها (ثانوية/ثالثة):
+    // تُصنَّف أولاً وتُخرَج من بقية القواعد العامة (وإلا خطفها عمود الوحدة/سعر
+    // البيع/التكلفة/الباركود العام). بلا رقم ترتيب بالعنوان => القواعد القديمة.
+    const secKey = secondaryColumnKey(hh);
+    if (secKey) { if (map[secKey] === -1) map[secKey] = i; return; }
     // SKU / code — بلا أي تغيير عن الأصل (يبقى "باركود" ضمن مطابقة الرمز كما
     // كان دائماً، حتى لا ينكسر أي ملف عميل حالي يعتمد على هذا الاكتشاف).
     if (map.sku === -1 && /كود|رمز|باركود|sku|barcode|code/i.test(hh)) map.sku = i;
@@ -317,7 +344,7 @@ export function detectColumns(headerRow) {
     // Unit
     // [تعديل 2026-09-28] "الوحدة الثانوية"/"وحدة الشراء" مستثناة من عمود الوحدة
     // الأساسية (كانت ستُخطَف كوحدة أساسية لو سبقتها بالملف).
-    if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh) && !/ثانوي|secondary|الشراء|purchase|تحويل|conversion/i.test(hh)) map.unit = i;
+    if (map.unit === -1 && /اسم الوحدة|الوحدة|unit/i.test(hh) && !/ثانوي|secondary|الشراء|purchase|تحويل|conversion|سعر|price|باركود|barcode/i.test(hh)) map.unit = i;
     if (map.unit2 === -1 && /(الوحدة|وحدة)\s*(ال)?ثانوي|وحدة\s*الشراء|secondary\s*unit|purchase\s*unit/i.test(hh)) map.unit2 = i;
     if (map.unit2_rate === -1 && /معامل|معدل\s*التحويل|نسبة\s*التحويل|conversion|unit\s*rate/i.test(hh) && !/ضريب|tax/i.test(hh)) map.unit2_rate = i;
     // Revenue account
@@ -399,6 +426,15 @@ export const MAPPABLE_FIELDS = [
   ['product_type', 'نوع المنتج', false, 'Product type'],
   ['unit2', 'الوحدة الثانوية', false, 'Secondary unit'],
   ['unit2_rate', 'معامل التحويل (كم وحدة أساسية بالثانوية)', false, 'Conversion rate (base units per secondary)'],
+  // [إضافة 2026-10-20]
+  ['unit2_sell', 'سعر بيع الوحدة الثانوية', false, 'Secondary unit selling price'],
+  ['unit2_buy', 'سعر شراء الوحدة الثانوية', false, 'Secondary unit purchase price'],
+  ['unit2_barcode', 'باركود الوحدة الثانوية', false, 'Secondary unit barcode'],
+  ['unit3', 'الوحدة الثالثة', false, 'Third unit'],
+  ['unit3_rate', 'معامل تحويل الوحدة الثالثة', false, 'Third unit conversion rate'],
+  ['unit3_sell', 'سعر بيع الوحدة الثالثة', false, 'Third unit selling price'],
+  ['unit3_buy', 'سعر شراء الوحدة الثالثة', false, 'Third unit purchase price'],
+  ['unit3_barcode', 'باركود الوحدة الثالثة', false, 'Third unit barcode'],
 ];
 
 // [إضافة 2026-09-19] الاكتشاف التلقائي الكامل لخريطة الأعمدة (detectColumns +
@@ -477,6 +513,11 @@ export function rowsToProducts(rows, headerIdx, cols) {
     p.sellable_explicit = cols.sellable >= 0;
     p.unit2 = cols.unit2 >= 0 && get(cols.unit2) !== null ? String(get(cols.unit2)).trim() : "";
     p.unit2_rate_raw = cols.unit2_rate >= 0 && get(cols.unit2_rate) !== null ? String(get(cols.unit2_rate)).trim() : "";
+    // [إضافة 2026-10-20] سعر/باركود الوحدة الثانوية + الوحدة الثالثة (كلها اختيارية)
+    ["unit2_sell", "unit2_buy", "unit2_barcode", "unit3", "unit3_rate", "unit3_sell", "unit3_buy", "unit3_barcode"].forEach((k) => {
+      const raw = cols[k] >= 0 && get(cols[k]) !== null ? String(get(cols[k])).trim() : "";
+      p[k === "unit3" ? "unit3" : `${k}_raw`] = raw;
+    });
     // [إضافة 2026-10-08] فهرس الصف الخام بالشيت — لتصدير المنتجات الفاشلة بنفس
     // أعمدة ملف العميل حرفياً (io/uploadResultsExport.js) لإعادة رفعها مباشرة.
     p._sheetRow = i;
@@ -648,8 +689,32 @@ export function autoSecondaryFor(baseUnit) {
  * تنبيه بالمعاينة والسجل — لا يُفترض له معامل أبداً.
  */
 export function resolveSecondaryUnit(p, { type, autoForRawMaterial } = {}) {
-  const unit2 = String(p.unit2 || "").trim();
-  const rateRaw = String(p.unit2_rate_raw || "").trim();
+  return withExtras(resolveSlot(p, { type, autoForRawMaterial }, "unit2", "unit2_rate_raw"), p, "unit2");
+}
+
+// [إضافة 2026-10-20] الوحدة الثالثة: نفس قواعد الثانوية بلا تحويل تلقائي (جرام→كيلو)،
+// وتتعارض مع الثانية لو كانت بنفس الاسم (وحدتان متطابقتان => تُتخطّى الثالثة).
+export function resolveThirdUnit(p, secondResult) {
+  const q = { ...p, unit3: p.unit3 || "" };
+  const r = resolveSlot(q, {}, "unit3", "unit3_rate_raw");
+  if (r && r.unit && secondResult && secondResult.unit && matchKey(r.unit) === matchKey(secondResult.unit)) return { skip: "same_as_second" };
+  if (r && r.unit && !(secondResult && secondResult.unit)) return { skip: "no_second_unit" };
+  return withExtras(r, p, "unit3");
+}
+
+// سعر بيع/شراء وباركود الوحدة الثانوية/الثالثة من الملف (إن وُجدت) — تتفوّق على
+// الحساب التلقائي (سعر الأساسية × المعامل) بـbuildUnitConversion.
+function withExtras(r, p, slot) {
+  if (!r || !r.unit) return r;
+  const sell = parseSellingPriceNumber(p[`${slot}_sell_raw`]);
+  const buy = parseSellingPriceNumber(p[`${slot}_buy_raw`]);
+  const barcode = String(p[`${slot}_barcode_raw`] || "").trim();
+  return { ...r, ...(sell !== null ? { sell } : {}), ...(buy !== null ? { buy } : {}), ...(barcode ? { barcode } : {}) };
+}
+
+function resolveSlot(p, { type, autoForRawMaterial }, unitKeyName, rateKeyName) {
+  const unit2 = String(p[unitKeyName] || "").trim();
+  const rateRaw = String(p[rateKeyName] || "").trim();
   if (unit2) {
     if (!String(p.unit || "").trim()) return { skip: "no_base_unit" };
     if (matchKey(unit2) === matchKey(p.unit)) return { skip: "same_as_base" };
@@ -674,12 +739,16 @@ const round6 = (n) => Math.round(n * 1e6) / 1e6;
 // عنصر unit_conversions واحد. سعرا الوحدة الثانوية = سعر الوحدة الأساسية ×
 // المعامل (نفس علاقة مثال مواصفة قيود)، ويُرسَلان فقط لو السعر الأساسي
 // موجود فعلاً بالملف.
-export function buildUnitConversion({ fromUnitId, rate, p }) {
+export function buildUnitConversion({ fromUnitId, rate, p, extras }) {
   const item = { from_unit: fromUnitId, rate };
   const costTrim = p.cost ? String(p.cost).trim() : "";
-  if (costTrim !== "" && costTrim !== "0") item.unit_purchase_price = round6(parseCostNumber(p.cost) * rate);
+  // [إضافة 2026-10-20] سعر الوحدة الصريح بالملف (extras.buy/sell) يتفوّق على الحساب التلقائي
+  if (extras && extras.buy !== undefined) item.unit_purchase_price = round6(extras.buy);
+  else if (costTrim !== "" && costTrim !== "0") item.unit_purchase_price = round6(parseCostNumber(p.cost) * rate);
   const sp = parseSellingPriceNumber(p.selling_price_raw);
-  if (sp !== null) item.unit_selling_price = round6(sp * rate);
+  if (extras && extras.sell !== undefined) item.unit_selling_price = round6(extras.sell);
+  else if (sp !== null) item.unit_selling_price = round6(sp * rate);
+  if (extras && extras.barcode) item.barcode = String(extras.barcode);
   return item;
 }
 
@@ -688,6 +757,8 @@ export function describeSecondaryUnitError(err, t) {
     case "no_base_unit": return t({ ar: "وحدة ثانوية بدون وحدة أساسية", en: "Secondary unit without a base unit" });
     case "same_as_base": return t({ ar: "الوحدة الثانوية نفس الأساسية", en: "Secondary unit equals the base unit" });
     case "bad_rate": return t({ ar: "معامل التحويل فارغ أو غير صالح", en: "Conversion rate is empty or invalid" });
+    case "same_as_second": return t({ ar: "الوحدة الثالثة نفس الثانوية", en: "Third unit equals the secondary unit" });
+    case "no_second_unit": return t({ ar: "وحدة ثالثة بدون وحدة ثانوية صالحة", en: "Third unit without a valid secondary unit" });
     default: return err;
   }
 }

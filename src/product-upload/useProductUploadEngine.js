@@ -20,7 +20,7 @@ import {
   buildProductPayload, chooseTax, resolveAccountId,
   parseSellingPriceNumber, parseQuantityNumber, buildOpeningBalanceRows, resolveExistingProductAction,
   parseBomRows, planBundles, matchKey, PRODUCT_TYPE_LABELS, describeBundleIssue,
-  resolveSecondaryUnit, buildUnitConversion, describeSecondaryUnitError, unitKey,
+  resolveSecondaryUnit, resolveThirdUnit, buildUnitConversion, describeSecondaryUnitError, unitKey,
 } from "./engine/parsing.js";
 import { isRevenueAccount, isExpenseAccount, isExpenseOrNonCurrentAssetAccount, filterAccountsWithFallback } from "./engine/accountFilters.js";
 import { api, fetchAll, fetchAllByCursor } from "./io/network.js";
@@ -305,6 +305,11 @@ export default function useProductUploadEngine() {
   const secondaryUnits = useMemo(
     () => excelData.map((p, i) => resolveSecondaryUnit(p, { type: effectiveTypeOf(i), autoForRawMaterial: autoSecondaryUnits })),
     [excelData, effectiveTypeOf, autoSecondaryUnits]
+  );
+  // [إضافة 2026-10-20] الوحدة الثالثة لكل صف (تعتمد على الثانوية)
+  const thirdUnits = useMemo(
+    () => excelData.map((p, i) => (p.unit3 ? resolveThirdUnit(p, secondaryUnits[i]) : null)),
+    [excelData, secondaryUnits]
   );
   const secondaryUnitSkippedRows = useMemo(
     () => secondaryUnits.map((u, i) => ({ u, i })).filter(({ u }) => u && u.skip),
@@ -718,7 +723,26 @@ export default function useProductUploadEngine() {
             continue;
           }
           const alreadyThere = existingAction.action === "update" && (existingConvUnitsById.get(existingAction.id) || new Set()).has(unit2Id);
-          if (!alreadyThere) unitConversions = [buildUnitConversion({ fromUnitId: unit2Id, rate: sec.rate, p })];
+          if (!alreadyThere) unitConversions = [buildUnitConversion({ fromUnitId: unit2Id, rate: sec.rate, p, extras: sec })];
+
+          // [إضافة 2026-10-20] الوحدة الثالثة (قيود يقبل أكثر من تحويل للمنتج)
+          const sec3 = i < excelData.length ? thirdUnits[i] : null;
+          if (sec3 && sec3.skip) {
+            appendLog(t({
+              ar: `  تنبيه: "${p.name}" — الوحدة الثالثة "${p.unit3}" لم تُرفَع (${describeSecondaryUnitError(sec3.skip, t)})`,
+              en: `  Note: "${p.name}" — third unit "${p.unit3}" skipped (${describeSecondaryUnitError(sec3.skip, t)})`,
+            }), "warn");
+          } else if (sec3 && sec3.unit) {
+            const unit3Id = await ensureUnitId(sec3.unit);
+            if (!unit3Id) {
+              appendLog(t({ ar: `${tag} لم يُرسَل "${p.name}": تعذّر إنشاء الوحدة الثالثة "${sec3.unit}"`, en: `${tag} "${p.name}" NOT sent: could not create third unit "${sec3.unit}"` }), "error");
+              mark(i, UPLOAD_OUTCOME.ERROR, t({ ar: `تعذّر إنشاء الوحدة الثالثة "${sec3.unit}"`, en: `Could not create third unit "${sec3.unit}"` }));
+              errors++; updateStatsN(); setProgN(step + 1);
+              continue;
+            }
+            const alreadyThere3 = existingAction.action === "update" && (existingConvUnitsById.get(existingAction.id) || new Set()).has(unit3Id);
+            if (!alreadyThere3) unitConversions = [...(unitConversions || []), buildUnitConversion({ fromUnitId: unit3Id, rate: sec3.rate, p, extras: sec3 })];
+          }
         }
 
         // Resolve revenue account — [إصلاح] يطابق برقم الحساب أولاً ثم بالاسم
@@ -773,7 +797,8 @@ export default function useProductUploadEngine() {
             const newId = isUpdate ? existingAction.id : res.product.id;
             idByIndex[i] = { id: newId, unitTypeId: res.product.unit_type || unitId || null };
             const compNote = (ingredients && ingredients.length ? t({ ar: ` — ${ingredients.length} مكوّن`, en: ` — ${ingredients.length} component(s)` }) : "")
-              + (unitConversions ? t({ ar: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}`, en: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}` }) : "");
+              + (unitConversions ? t({ ar: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}`, en: ` — 1 ${sec.unit} = ${sec.rate} ${p.unit}` }) : "")
+              + (unitConversions && unitConversions.length > 1 && thirdUnits[i] && thirdUnits[i].unit ? ` — 1 ${thirdUnits[i].unit} = ${thirdUnits[i].rate} ${p.unit}` : "");
             if (isUpdate) {
               appendLog(t({ ar: `${tag} تم التحديث (${typeLabel}): ${p.name} (المعرّف: ${existingAction.id})${compNote}`, en: `${tag} UPDATED (${typeLabel}): ${p.name} (ID: ${existingAction.id})${compNote}` }), "success");
               updatedCount++;
@@ -897,7 +922,7 @@ export default function useProductUploadEngine() {
     apiKey, excelData, revenueAcct, expenseAcct, taxInclusive, skipDups, updateExisting, openingBalanceDate, defaultLocation,
     previewAccounts, previewTaxes, previewUnits, previewCategories, appendLog, t, fetchReferenceData,
     unrecognizedTypeRows, bomErrors, bomLines, componentLinks,
-    secondaryUnits, autoSecondaryUnits, rawRows, headerRowIndex, colsMap, fileName,
+    secondaryUnits, thirdUnits, autoSecondaryUnits, rawRows, headerRowIndex, colsMap, fileName,
   ]);
 
   // [إضافة 2026-10-08] زرّا التصدير بعد انتهاء الرفع
@@ -951,7 +976,7 @@ export default function useProductUploadEngine() {
     revenueAcct, setRevenueAcct, expenseAcct, setExpenseAcct,
     taxInclusive, toggleTaxInclusive, skipDups, toggleSkipDups,
     updateExisting, toggleUpdateExisting,
-    autoSecondaryUnits, toggleAutoSecondaryUnits, secondaryUnits, secondaryUnitSkippedRows,
+    autoSecondaryUnits, toggleAutoSecondaryUnits, secondaryUnits, thirdUnits, secondaryUnitSkippedRows,
     openingBalanceDate, setOpeningBalanceDate, defaultLocation, setDefaultLocation,
     // [إضافة 2026-09-19] بيانات المنشأة المرجعية (حسابات/ضرائب/وحدات/فئات) + التجاوز لكل صف
     previewAccounts, previewTaxes, previewUnits, previewCategories,
