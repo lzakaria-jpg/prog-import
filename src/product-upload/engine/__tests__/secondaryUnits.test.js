@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectColumns, rowsToProducts, resolveSecondaryUnit, buildUnitConversion, buildProductPayload, unitKey, autoSecondaryFor } from "../parsing.js";
+import { detectColumns, rowsToProducts, resolveSecondaryUnit, resolveThirdUnit, buildUnitConversion, buildProductPayload, unitKey, autoSecondaryFor } from "../parsing.js";
 
 describe("أعمدة الوحدة الثانوية", () => {
   it("تُكتشف ولا تخطف عمود الوحدة الأساسية حتى لو سبقته", () => {
@@ -79,5 +79,31 @@ describe("[بلاغ حقيقي] unitKey — ياء/كاف فارسية بأسم�
     const pl = buildProductPayload({ name: "ستيك ساندوتش", is_inventory: false, is_sellable: true, sellable_explicit: true, cost: "" }, { type: "Recipe", ingredients: [{ product_id: 1, quantity: 80 }] });
     expect(pl.selling_price).toBe(1);
     expect(pl.sale_item).toBe(true);
+  });
+});
+
+describe("[2026-10-20] وحدتان ثانويتان + أسعار/باركود الوحدات", () => {
+  const header = ["رمز المنتج", "اسم المنتج", "الوحدة", "الوحدة الثانوية", "معامل التحويل (كم وحدة أساسية بالثانوية)", "سعر بيع الوحدة الثانوية", "سعر شراء الوحدة الثانوية", "باركود الوحدة الثانوية", "الوحدة الثالثة", "معامل تحويل الوحدة الثالثة", "سعر بيع الوحدة الثالثة", "سعر شراء الوحدة الثالثة", "باركود الوحدة الثالثة", "سعر البيع", "التكلفة"];
+  it("تُكتشف كل الأعمدة ولا تخطف الأعمدة العامة", () => {
+    const c = detectColumns(header);
+    expect(c).toMatchObject({ unit: 2, unit2: 3, unit2_rate: 4, unit2_sell: 5, unit2_buy: 6, unit2_barcode: 7, unit3: 8, unit3_rate: 9, unit3_sell: 10, unit3_buy: 11, unit3_barcode: 12, sellingPrice: 13, cost: 14 });
+  });
+  it("الوحدة الثالثة والأسعار تُقرأ وتُحلّ، والسعر الصريح يتفوّق على الحساب", () => {
+    const rows = [header, ["1", "مياه", "حبة", "كرتون", 24, 14, 8.5, "6287", "شدة", 12, 7, 4, "6288", 0.5, 0.25]];
+    const p = rowsToProducts(rows, 0, detectColumns(header))[0];
+    const s2 = resolveSecondaryUnit(p, { type: "Product" });
+    const s3 = resolveThirdUnit(p, s2);
+    expect(s2).toMatchObject({ unit: "كرتون", rate: 24, sell: 14, buy: 8.5, barcode: "6287" });
+    expect(s3).toMatchObject({ unit: "شدة", rate: 12, sell: 7, buy: 4, barcode: "6288" });
+    expect(buildUnitConversion({ fromUnitId: 5, rate: 24, p, extras: s2 })).toEqual({ from_unit: 5, rate: 24, unit_purchase_price: 8.5, unit_selling_price: 14, barcode: "6287" });
+  });
+  it("بلا أسعار صريحة: الحساب القديم (سعر الأساسية × المعامل) كما كان", () => {
+    expect(buildUnitConversion({ fromUnitId: 5, rate: 24, p: { cost: "0.25", selling_price_raw: "0.5" }, extras: { unit: "كرتون", rate: 24 } })).toEqual({ from_unit: 5, rate: 24, unit_purchase_price: 6, unit_selling_price: 12 });
+  });
+  it("وحدة ثالثة بلا ثانوية صالحة أو بنفس اسمها => تُتخطّى؛ بلا ثالثة => null", () => {
+    expect(resolveThirdUnit({ unit: "حبة", unit3: "شدة", unit3_rate_raw: "12" }, null)).toEqual({ skip: "no_second_unit" });
+    expect(resolveThirdUnit({ unit: "حبة", unit3: "كرتون", unit3_rate_raw: "12" }, { unit: "كرتون", rate: 24 })).toEqual({ skip: "same_as_second" });
+    expect(resolveThirdUnit({ unit: "حبة", unit3: "", unit3_rate_raw: "" }, { unit: "كرتون", rate: 24 })).toBeNull();
+    expect(resolveThirdUnit({ unit: "حبة", unit3: "شدة", unit3_rate_raw: "" }, { unit: "كرتون", rate: 24 })).toEqual({ skip: "bad_rate" });
   });
 });

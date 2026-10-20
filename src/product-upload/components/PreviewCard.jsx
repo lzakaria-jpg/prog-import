@@ -40,7 +40,7 @@ export default function PreviewCard({ eng }) {
     excelData, baseExcelData, previewSummary,
     previewAccounts, referenceDataLoading, referenceDataError, fetchReferenceData,
     revenueAccountOptions, expenseAccountOptions, defaultRevenueAccount, defaultExpenseAccount,
-    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct, bundlePlan, secondaryUnits,
+    rowOverrides, setRowAccountOverride, revenueAcct, expenseAcct, bundlePlan, secondaryUnits, thirdUnits = [],
   } = eng;
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -84,7 +84,7 @@ export default function PreviewCard({ eng }) {
   // [إضافة 2026-09-28] عمود النوع يظهر فقط لملف فيه نوع منتج صريح أو شيت مكوّنات
   const showType = previewSummary.withType > 0 || !!bundlePlan;
   const typeOf = (p, i) => (bundlePlan ? bundlePlan.effectiveTypes[i] : p.product_type || "Product");
-  const showUnit2 = secondaryUnits.some(Boolean);
+  const showUnit2 = secondaryUnits.some(Boolean) || thirdUnits.some(Boolean);
   const unit2Count = secondaryUnits.filter((u) => u && u.unit).length;
   const unit2Skipped = secondaryUnits.filter((u) => u && u.skip).length;
   const colCount = BASE_COL_COUNT + [showType, showUnit2, showNameEn, showDescription, showSellingPrice, showBarcode, showQuantity, showLocation].filter(Boolean).length;
@@ -96,6 +96,7 @@ export default function PreviewCard({ eng }) {
         {previewSummary.count} {t({ ar: "منتج", en: "products" })} | {previewSummary.categories} {t({ ar: "فئة", en: "categories" })} | {previewSummary.units} {t({ ar: "وحدة", en: "units" })}
         {showQuantity && ` | ${previewSummary.withQuantity} ${t({ ar: "منتج فيه كمية افتتاحية", en: "product(s) with an opening quantity" })}`}
         {unit2Count > 0 && ` | ${unit2Count} ${t({ ar: "منتج بوحدة ثانوية", en: "with a secondary unit" })}`}
+        {thirdUnits.filter((u) => u && u.unit).length > 0 && ` | ${thirdUnits.filter((u) => u && u.unit).length} ${t({ ar: "منتج بوحدة ثالثة", en: "with a third unit" })}`}
         {unit2Skipped > 0 && ` | ⚠ ${unit2Skipped} ${t({ ar: "وحدة ثانوية ناقصة (يُرفَع المنتج بالأساسية فقط)", en: "incomplete secondary unit(s) (base unit only)" })}`}
         {showType && Object.entries(PRODUCT_TYPE_LABELS).map(([k, lbl]) => {
           const n = excelData.filter((p, i) => typeOf(p, i) === k).length;
@@ -179,6 +180,9 @@ export default function PreviewCard({ eng }) {
                         : secondaryUnits[i].skip
                           ? <span className="qpu-badge yellow" title={t({ ar: "يُرفَع المنتج بوحدته الأساسية فقط", en: "Product uploads with its base unit only" })}>⚠ {p.unit2}: {describeSecondaryUnitError(secondaryUnits[i].skip, t)}</span>
                           : <span title={secondaryUnits[i].source === "auto" ? t({ ar: "تلقائي", en: "Automatic" }) : ""}>1 {secondaryUnits[i].unit} = {secondaryUnits[i].rate} {p.unit}{secondaryUnits[i].source === "auto" ? " ⚙" : ""}</span>}
+                      {thirdUnits[i] && (thirdUnits[i].skip
+                        ? <div><span className="qpu-badge yellow" title={t({ ar: "الوحدة الثالثة لن تُرفَع", en: "The third unit will not be uploaded" })}>⚠ {p.unit3}: {describeSecondaryUnitError(thirdUnits[i].skip, t)}</span></div>
+                        : <div>1 {thirdUnits[i].unit} = {thirdUnits[i].rate} {p.unit}</div>)}
                     </td>
                   )}
                   <td>{p.is_inventory ? <span className="qpu-badge green">{t({ ar: "نعم", en: "Yes" })}</span> : <span className="qpu-badge yellow">{t({ ar: "لا", en: "No" })}</span>}</td>
