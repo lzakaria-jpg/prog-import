@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { verifyAccessJwt, accessTokenFromRequest, _clearAccessCertCache } from "../accessJwt.js";
+import { verifyAccessJwt, inspectAccessJwt, accessTokenFromRequest, _clearAccessCertCache } from "../accessJwt.js";
 
 const TEAM = "qoyod.cloudflareaccess.com";
 const AUD = "aud-tag-123";
@@ -46,5 +46,19 @@ describe("verifyAccessJwt", () => {
     expect(accessTokenFromRequest(new Request("https://x", { headers: { "Cf-Access-Jwt-Assertion": "A" } }))).toBe("A");
     expect(accessTokenFromRequest(new Request("https://x", { headers: { Cookie: "a=1; CF_Authorization=B" } }))).toBe("B");
     expect(accessTokenFromRequest(new Request("https://x"))).toBeNull();
+  });
+});
+
+describe("inspectAccessJwt — أسباب الرفض للتشخيص", () => {
+  beforeEach(() => _clearAccessCertCache());
+  it("يحدد السبب", async () => {
+    const { fetchImpl, sign } = await setup();
+    const o = { teamDomain: TEAM, aud: AUD, fetchImpl, now };
+    expect((await inspectAccessJwt(null, o)).reason).toBe("no_token");
+    expect((await inspectAccessJwt("x", { ...o, aud: "" })).reason).toBe("no_config");
+    expect((await inspectAccessJwt(await sign(good({ aud: ["zzz"] })), o)).reason).toBe("bad_aud");
+    expect((await inspectAccessJwt(await sign(good()), { ...o, teamDomain: "other.cloudflareaccess.com", fetchImpl: async () => ({ ok: true, json: async () => ({ keys: [] }) }) })).reason).toBe("unknown_kid");
+    expect((await inspectAccessJwt(await sign(good()), { ...o, aud: ` ${AUD} ` })).ok).toBe(true);
+    expect((await inspectAccessJwt(await sign(good()), { ...o, teamDomain: `https://${TEAM}/` })).ok).toBe(true);
   });
 });
