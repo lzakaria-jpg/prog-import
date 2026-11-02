@@ -82,4 +82,13 @@ describe("دخول بإيميل قيود + رمز", () => {
     await flush();
     expect(el.querySelector("#in").textContent).toBe("IN:a@qoyod.com");
   });
+
+  it("Access مضبوط لكن ما تعرّف على المستخدم: شاشة سبب واضح بدل نموذج إرسال الرمز", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ status: 401, json: async () => ({ ok: false, reason: "no_session", access: true, access_reason: "bad_aud" }) });
+    act(() => root.render(<LanguageProvider><AuthProvider><Gate /></AuthProvider></LanguageProvider>));
+    await flush();
+    expect(el.querySelector('input[type="email"]')).toBeNull();
+    expect(el.textContent).toContain("ACCESS_AUD");
+    expect(el.querySelector('a[href="/api/auth-session"]')).not.toBeNull();
+  });
 });

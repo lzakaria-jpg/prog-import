@@ -42,6 +42,8 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [via, setVia] = useState(null); // access | code
+  // Cloudflare Access مضبوط على السيرفر لكن ما تعرّف على المستخدم — سبب الرفض (تشخيص)
+  const [accessIssue, setAccessIssue] = useState(null);
 
   // استعادة الجلسة (تحديث الصفحة) أو هوية Cloudflare Access — يتحقق السيرفر
   useEffect(() => {
@@ -49,7 +51,10 @@ export function AuthProvider({ children }) {
     postJson("/api/auth-session", { session: token || null })
       .then((d) => {
         if (d.ok && d.email) { setCurrentUser(d.email); setVia(d.via || "code"); }
-        else if (token) clearSession();
+        else {
+          if (token) clearSession();
+          if (d.access) setAccessIssue(d.access_reason || "unknown");
+        }
       })
       .catch(() => { /* انقطاع شبكة: نطلب الدخول */ })
       .finally(() => setLoading(false));
@@ -95,7 +100,7 @@ export function AuthProvider({ children }) {
     if (via === "access") { try { window.location.assign("/cdn-cgi/access/logout"); } catch { /* اختبارات */ } }
   }, [via]);
 
-  const value = { currentUser, isAuthenticated: !!currentUser, loading, requestCode, verifyCode, logout };
+  const value = { currentUser, isAuthenticated: !!currentUser, loading, accessIssue, requestCode, verifyCode, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -125,7 +130,7 @@ function errorText(reason, t) {
 
 export function LoginScreen() {
   const { t } = useLanguage();
-  const { loading, requestCode, verifyCode } = useAuth();
+  const { loading, accessIssue, requestCode, verifyCode } = useAuth();
   const [step, setStep] = useState("email"); // email | code
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -170,6 +175,8 @@ export function LoginScreen() {
       </div>
     );
   }
+
+  if (accessIssue) return <AccessIssueScreen reason={accessIssue} t={t} />;
 
   const btnStyle = { width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #162560, #0F1A47)", color: "#FFFFFF", fontSize: 16, fontWeight: 700, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 };
 
@@ -239,6 +246,39 @@ function Msg({ kind, children }) {
       background: err ? "#FEE2E2" : "#E0F2FE", color: err ? "#DC2626" : "#0369A1" }}>
       {err ? <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} /> : <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: 2 }} />}
       <span>{children}</span>
+    </div>
+  );
+}
+
+// [2026-11-02] الموقع محمي بـCloudflare Access (المستخدم دخل برمز Cloudflare) لكن
+// السيرفر ما قدر يتحقق من هويته — نعرض السبب بدل شاشة إرسال رمز ثانية مربكة.
+function AccessIssueScreen({ reason, t }) {
+  const reasons = {
+    no_token: t({ ar: "ما وصل توكن Cloudflare Access للأداة. افتح الموقع من جديد (أو بنافذة خفية) وسجّل دخول Cloudflare.", en: "No Cloudflare Access token reached the app. Reopen the site (or a private window) and sign in to Cloudflare." }),
+    bad_aud: t({ ar: "قيمة ACCESS_AUD بإعدادات المشروع لا تطابق تطبيق Access.", en: "ACCESS_AUD doesn't match the Access application." }),
+    bad_iss: t({ ar: "قيمة ACCESS_TEAM_DOMAIN بإعدادات المشروع لا تطابق اسم الفريق.", en: "ACCESS_TEAM_DOMAIN doesn't match the team domain." }),
+    not_qoyod: t({ ar: "الإيميل المستخدم ليس ‎@qoyod.com.", en: "The email used is not @qoyod.com." }),
+    expired: t({ ar: "انتهت جلسة Cloudflare — حدّث الصفحة.", en: "Cloudflare session expired — refresh the page." }),
+  };
+  const msg = reasons[reason] || t({ ar: "تعذّر التحقق من دخول Cloudflare Access.", en: "Couldn't verify the Cloudflare Access sign-in." });
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #162560 0%, #0F1A47 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Cairo, Segoe UI, sans-serif" }}>
+      <div style={{ width: 460, maxWidth: "95vw", background: "#FFFFFF", borderRadius: 20, padding: "36px 32px", boxShadow: "0 25px 60px rgba(0,0,0,0.5)", textAlign: "center" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 16, background: "linear-gradient(135deg, #162560, #0F1A47)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+          <Shield size={32} color="#FFFFFF" />
+        </div>
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: "#162560", margin: "0 0 12px" }}>{t({ ar: "تعذّر الدخول", en: "Sign-in failed" })}</h1>
+        <Msg kind="error">{msg}</Msg>
+        <p style={{ fontSize: 12, color: "#64748B", direction: "ltr" }}>reason: {reason}</p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => window.location.reload()} style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: "#162560", color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+            {t({ ar: "تحديث الصفحة", en: "Reload" })}
+          </button>
+          <a href="/api/auth-session" target="_blank" rel="noreferrer" style={{ padding: "10px 18px", borderRadius: 10, border: "1px solid #CBD5E1", color: "#162560", fontWeight: 700, textDecoration: "none" }}>
+            {t({ ar: "تفاصيل الفحص", en: "Diagnostics" })}
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
