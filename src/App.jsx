@@ -12,7 +12,8 @@ import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
 import CustomerImportTool from "./customer-import";
 import VendorImportTool from "./vendor-import";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Menu, Truck } from "lucide-react";
+import HrEmployeesImportTool from "./qoyod-hr/employees-import";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Menu, Truck, UserPlus, BriefcaseBusiness } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { id: "products", permKey: "tool.products", label: { ar: "مطابقة واستيراد المنتجات", en: "Match & Import Products" }, icon: Package, desc: { ar: "رفع منتجات العميل مباشرة عبر API", en: "Upload customer products directly via API" } },
   { id: "customers", permKey: "tool.customers", label: { ar: "مطابقة واستيراد العملاء", en: "Match & Import Customers" }, icon: Users, desc: { ar: "مطابقة أسماء العملاء وإنشاؤهم مباشرة عبر API", en: "Match customer names and create them directly via API" } },
   { id: "vendors", permKey: "tool.vendors", label: { ar: "مطابقة واستيراد الموردين", en: "Match & Import Vendors" }, icon: Truck, desc: { ar: "مطابقة أسماء الموردين وإنشاؤهم مباشرة عبر API", en: "Match vendor names and create them directly via API" } },
+  { id: "hr-employees", permKey: "tool.hr-employees", label: { ar: "مطابقة واستيراد الموظفين", en: "Match & Import Employees" }, icon: UserPlus, desc: { ar: "تحويل ملف موظفين بأي شكل إلى قالب استيراد قيود اتش ار الرسمي", en: "Convert an employee file in any shape into the official Qoyod HR import template" } },
 ];
 
 // ── تجميع الأدوات ضمن 3 تبويبات رئيسية للصفحة الرئيسية ──────────────
@@ -39,6 +41,12 @@ const CATEGORIES = [
     label: { ar: "أدوات خدمات نقل البيانات", en: "Data Migration Services Tools" },
     icon: ArrowLeftRight,
     toolIds: ["journal", "sales", "bills"],
+  },
+  {
+    id: "hr",
+    label: { ar: "أدوات قيود اتش ار", en: "Qoyod HR Tools" },
+    icon: BriefcaseBusiness,
+    toolIds: ["hr-employees"],
   },
 ];
 
@@ -508,6 +516,9 @@ function AppShell() {
           </div>
           <div style={{ display: tab === "vendors" ? "block" : "none", height: "100%" }}>
             <TabbedTool Component={VendorImportTool} toolKey="vendors" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "hr-employees" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={HrEmployeesImportTool} toolKey="hr-employees" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
           </div>
         </div>
       </main>
