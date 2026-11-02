@@ -8,8 +8,6 @@ import {
 } from "lucide-react";
 import { useLanguage } from "./language";
 import ToolIcon from "./lib/ToolIcon.jsx";
-import { useAuth } from "./auth";
-import { trackMergeImport, trackMergeExport, trackMergeError } from "./activityTracker";
 import { SafeInput, SafeTextarea } from "./lib/SafeInput";
 import { getSavedKeys, saveKeysToStorage } from "./product-upload/io/keyStorage.js";
 import { pushAccountsToQoyod } from "./lib/qoyodAccountPush.js";
@@ -2228,7 +2226,6 @@ export function repairLevels(rows, ctx) {
 // إرسال جارٍ فعليًا لو المستخدم أغلق تبويبه (راجع تعليق TabbedTool.jsx).
 export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyChange, persistKey } = {}, ref) {
   const { t, dir, lang } = useLanguage();
-  const { currentUser } = useAuth();
   // [بلاغ حقيقي من المستخدم: "حتى لو صار تحديث تبقى البيانات محفوظة"] نستعيد
   // مدخلات الأداة (الشجرتان المُحلَّلتان + خرائط الأعمدة + الإعدادات + اسم
   // العميل) من آخر لقطة محفوظة صامتة. لا نستعيد نتيجة المقارنة (results)
@@ -2356,10 +2353,8 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
       if (fileInput1Ref.current) fileInput1Ref.current.value = "";
       setResults(null);
       setToast({ type: "success", text: t({ ar: `تم جلب ${records.length} حساب من منشأة العميل عبر API`, en: `Fetched ${records.length} accounts from the client's company via API` }) });
-      if (currentUser) trackMergeImport(currentUser, { via: "api-fetch-file1", count: records.length });
     } catch (e) {
       setFile1ApiError(e.message || String(e));
-      if (currentUser) trackMergeError(currentUser, { via: "api-fetch-file1", error: e.message });
     } finally {
       setFile1ApiFetching(false);
     }
@@ -2466,10 +2461,6 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
     const isGenuineFailure = result.stoppedEarly && !result.fatalError && !wasManualStop && lastEntry?.status === "error";
     setSendResult((prev) => mergeSendResult(prev, result));
 
-    if (currentUser) {
-      if (result.fatalError) trackMergeError(currentUser, { via: "api", error: result.fatalError });
-      else trackMergeExport(currentUser, { via: "api", sent: result.sent, skipped: result.skipped, failed: result.failed, stoppedEarly: result.stoppedEarly });
-    }
 
     // [إضافة 2026-09-10] "تخطّي الكل والإكمال" مفعّل: أي فشل حقيقي هنا يُتخطى
     // تلقائيًا (الصف يبقى محفوظًا apiStatus:"error" قابلاً للتعديل لاحقًا)
@@ -2622,10 +2613,8 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
       if (which === 1) { setFile1(file); setFile1Rows(rows); setMapping1(mapping); }
       else { setFile2(file); setFile2Rows(rows); setMapping2(mapping); }
       setResults(null);
-      if (currentUser) trackMergeImport(currentUser, { filename: file.name, file_number: which });
     } catch (e) {
       setError(`تعذّرت قراءة الملف: ${e.message || e}`);
-      if (currentUser) trackMergeError(currentUser, { filename: file.name, error: e.message });
     }
   };
 
@@ -2893,7 +2882,6 @@ export const MergeTool = forwardRef(function MergeTool({ onNameChange, onBusyCha
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Accounts Upload Template");
     XLSX.writeFile(wb, "qoyod_new_accounts_ready.xlsx");
-    if (currentUser) trackMergeExport(currentUser, { filename: "qoyod_new_accounts_ready.xlsx" });
   };
 
   const copyJsonForFinalExport = async () => {
