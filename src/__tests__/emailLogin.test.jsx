@@ -35,6 +35,7 @@ describe("دخول بإيميل قيود + رمز", () => {
     const calls = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
       const body = JSON.parse(opts.body); calls.push([url, body]);
+      if (url === "/api/auth-session") { calls.pop(); return { status: 401, json: async () => ({ ok: false, reason: "no_session" }) }; }
       if (url === "/api/auth-email-send") return { status: 200, json: async () => ({ ok: true, challenge: "CH" }) };
       if (url === "/api/auth-email-verify") return { status: 200, json: async () => (body.code === "123456" ? { ok: true, email: "x@qoyod.com", session: "S" } : { ok: false, reason: "wrong_or_expired_code" }) };
       return { status: 404, json: async () => ({ ok: false }) };
@@ -73,5 +74,12 @@ describe("دخول بإيميل قيود + رمز", () => {
     await flush();
     expect(el.querySelector("#in")).toBeNull();
     expect(sessionStorage.getItem("qoyod_session_token")).toBeNull();
+  });
+
+  it("Cloudflare Access: السيرفر يتعرّف على الإيميل فيدخل مباشرة بلا شاشة دخول", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ status: 200, json: async () => ({ ok: true, email: "a@qoyod.com", via: "access" }) });
+    act(() => root.render(<LanguageProvider><AuthProvider><Gate /></AuthProvider></LanguageProvider>));
+    await flush();
+    expect(el.querySelector("#in").textContent).toBe("IN:a@qoyod.com");
   });
 });

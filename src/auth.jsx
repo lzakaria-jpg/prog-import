@@ -4,6 +4,9 @@
 // برموز موقَّعة — المتصفح يحفظ فقط "جلسة" موقَّعة صالحة 12 ساعة، ويتحقق منها
 // السيرفر عند كل فتح للصفحة. لا مستخدمين ولا صلاحيات ولا مدير: كل موظفي قيود
 // يوصلون لكل الأدوات.
+// [إضافة] لو الموقع محمي بـCloudflare Access (Cloudflare يرسل الرمز للإيميل
+// بنفسه، بلا Resend ولا DNS)، /api/auth-session يتعرّف على المستخدم مباشرة من
+// توكن Access فيدخل بلا شاشة دخول ثانية.
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useLanguage } from "./language";
 import { Shield, Mail, KeyRound, AlertCircle, CheckCircle2, RefreshCw, ArrowRight } from "lucide-react";
@@ -38,14 +41,17 @@ async function postJson(url, body) {
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [via, setVia] = useState(null); // access | code
 
-  // استعادة الجلسة (تحديث الصفحة) — يتحقق السيرفر من التوقيع والصلاحية
+  // استعادة الجلسة (تحديث الصفحة) أو هوية Cloudflare Access — يتحقق السيرفر
   useEffect(() => {
     const token = loadSession();
-    if (!token) { setLoading(false); return; }
-    postJson("/api/auth-session", { session: token })
-      .then((d) => { if (d.ok && d.email) setCurrentUser(d.email); else clearSession(); })
-      .catch(() => { /* انقطاع شبكة: نبقي الرمز ونطلب الدخول */ })
+    postJson("/api/auth-session", { session: token || null })
+      .then((d) => {
+        if (d.ok && d.email) { setCurrentUser(d.email); setVia(d.via || "code"); }
+        else if (token) clearSession();
+      })
+      .catch(() => { /* انقطاع شبكة: نطلب الدخول */ })
       .finally(() => setLoading(false));
   }, []);
 
@@ -53,6 +59,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!currentUser) return undefined;
     const id = setInterval(() => {
+      if (via === "access") return; // Cloudflare Access يدير مدة جلسته بنفسه
       const token = loadSession();
       if (!token) { setCurrentUser(null); return; }
       postJson("/api/auth-session", { session: token })
@@ -60,7 +67,7 @@ export function AuthProvider({ children }) {
         .catch(() => {});
     }, 15 * 60 * 1000);
     return () => clearInterval(id);
-  }, [currentUser]);
+  }, [currentUser, via]);
 
   const requestCode = useCallback(async (email) => {
     const e = String(email || "").trim().toLowerCase();
@@ -75,6 +82,7 @@ export function AuthProvider({ children }) {
       if (d.ok && d.session && d.email) {
         saveSession(d.session);
         setCurrentUser(d.email);
+        setVia("code");
       }
       return d;
     } catch { return { ok: false, reason: "network_error" }; }
@@ -83,7 +91,9 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     clearSession();
     setCurrentUser(null);
-  }, []);
+    // خروج من Cloudflare Access نفسه، وإلا يرجع يدخل تلقائياً
+    if (via === "access") { try { window.location.assign("/cdn-cgi/access/logout"); } catch { /* اختبارات */ } }
+  }, [via]);
 
   const value = { currentUser, isAuthenticated: !!currentUser, loading, requestCode, verifyCode, logout };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
