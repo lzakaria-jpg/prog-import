@@ -10,8 +10,6 @@ import { copyTextToClipboard } from "./lib/copyToClipboard";
 import { SafeInput } from "./lib/SafeInput";
 import { useLanguage } from "./language";
 import ToolIcon from "./lib/ToolIcon.jsx";
-import { useAuth } from "./auth";
-import { trackJournalImport, trackJournalExport, trackJournalError } from "./activityTracker";
 import { COLORS } from "./lib/journalColors.js";
 // [إضافة] وضع API — جلب شجرة الحسابات/العملاء/الموردين/المشاريع من منشأة
 // العميل مباشرة، وإرسال القيود الجاهزة إليها — راجع تعليقات رأس الملفين.
@@ -611,7 +609,6 @@ function ApiSendResultsModal({ sending, progress, result, onClose, onDownloadRep
 // إضافتان اختياريتان بحتتان بلا قيمة افتراضية تُغيّر أي سلوك لو تُجوهلتا.
 const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange } = {}, ref) {
   const { t, lang, dir } = useLanguage();
-  const { currentUser } = useAuth();
   const [chartAccounts, setChartAccounts] = useState(null);
   const [chartFileName, setChartFileName] = useState("");
   const [chartBusy, setChartBusy] = useState(false);
@@ -1264,7 +1261,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       // فلا معنى لعرض لوحة تحديد الأعمدة هنا (لا يوجد ما يُحدَّد).
       setParseError(localizeError("خطأ في قراءة ملف القيود: " + err.message, lang));
       setEntries(null); setRawEntriesRows(null); setEntriesBusy(false);
-      if (currentUser) trackJournalError(currentUser, { filename: file.name, error: err.message });
       return;
     }
     setRawEntriesRows(rows);
@@ -1280,7 +1276,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setAuditVersion((version) => version + 1);
       setPage(0);
       setFilter("all");
-      if (currentUser) trackJournalImport(currentUser, { filename: file.name, entries_count: grouped.length });
       // [ميزة جديدة] التعرّف الآلي "نجح" فنيًا (قيود أُنشئت) لكن أغلب حقولها
       // الأساسية فارغة — هذا بالضبط الخطأ الجوهري الذي شهده المستخدم (كل
       // الحسابات "—"، كل التواريخ "بدون تاريخ") فيما بدا للمستخدم كنجاح ظاهري.
@@ -1294,7 +1289,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       setEntries(null);
       setColumnMapping(guessEntriesColumnMapping(rows));
       setShowColumnMapper(true);
-      if (currentUser) trackJournalError(currentUser, { filename: file.name, error: err.message });
     } finally { setEntriesBusy(false); }
   };
 
@@ -1425,7 +1419,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
       });
       const blob = await buildImportFile(sortedEntries);
       downloadBlob(blob, t({ ar: "قيود_جاهزة_للاستيراد.xlsx", en: "journal_entries_ready.xlsx" }));
-      if (currentUser) trackJournalExport(currentUser, { entries_count: entries.length });
     } catch (err) {
       setParseError(localizeError("تعذر إنشاء الملف: " + err.message, lang));
     } finally { setDownloading(false); }
@@ -1538,7 +1531,6 @@ const JournalTool = forwardRef(function JournalTool({ onNameChange, onBusyChange
     });
     setApiSending(false);
     setApiSendResult(result);
-    if (currentUser && result.sent > 0) trackJournalExport(currentUser, { entries_count: result.sent, via_api: true });
   };
 
   const handleDownloadSendResults = async () => {

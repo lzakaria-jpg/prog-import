@@ -3,10 +3,7 @@ import { createPortal } from "react-dom";
 import { MergeTool } from "./MergeTool";
 import JournalTool from "./JournalTool";
 import { LanguageProvider, useLanguage } from "./language";
-import { AuthProvider, useAuth, LoginScreen, AdminPanel, AddUsersOnlyPanel, ChangePasswordModal } from "./auth";
-import { AISettings } from "./AIPanel";
-import { ChatPanel, ChatToggle } from "./chat";
-import { NotificationBell } from "./lib/notifications.jsx";
+import { AuthProvider, useAuth, LoginScreen } from "./auth";
 import { ToastHost } from "./lib/toast.jsx";
 import TabbedTool from "./lib/TabbedTool.jsx";
 import { Watermark } from "./Watermark";
@@ -15,8 +12,7 @@ import InvoiceImportTool from "./sales-invoice-import";
 import ProductUploadTool from "./product-upload";
 import CustomerImportTool from "./customer-import";
 import VendorImportTool from "./vendor-import";
-import { can } from "./lib/permissions";
-import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Sparkles, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Key, Menu, Truck } from "lucide-react";
+import { BookOpen, GitBranch, ChevronLeft, ChevronRight, Languages, Settings, LogOut, Download, RefreshCw, X, ArrowDownToLine, Package, CheckCircle2, Building2, ArrowLeftRight, Users, Menu, Truck } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "journal", permKey: "tool.journal", label: { ar: "مطابقة واستيراد القيود المحاسبية", en: "Match & Import Journal Entries" }, icon: BookOpen, desc: { ar: "فحص وتجهيز وحفظ القيود", en: "Review, prepare & import journal entries" } },
@@ -43,12 +39,6 @@ const CATEGORIES = [
     label: { ar: "أدوات خدمات نقل البيانات", en: "Data Migration Services Tools" },
     icon: ArrowLeftRight,
     toolIds: ["journal", "sales", "bills"],
-  },
-  {
-    id: "settings",
-    label: { ar: "الإعدادات", en: "Settings" },
-    icon: Settings,
-    toolIds: [], // لا أدوات تبويب هنا - تُبنى عناصره (إدارة المستخدمين/الذكاء الاصطناعي) بحسب الصلاحيات داخل AppShell
   },
 ];
 
@@ -229,13 +219,10 @@ function AppShell() {
   }, [clearFlyoutCloseTimer]);
   useEffect(() => clearFlyoutCloseTimer, [clearFlyoutCloseTimer]);
   const { lang, dir, t } = useLanguage();
-  const { currentUser, isAdmin, isUserManager, canAddUsers, currentUserRecord, logout, showAdmin, setShowAdmin, loading, adminEmail } = useAuth();
-  const [showAISettings, setShowAISettings] = useState(false);
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
+  const { currentUser, logout, loading } = useAuth();
 
-  const visibleNavItems = NAV_ITEMS.filter((item) => can(currentUserRecord, item.permKey));
+  // [2026-11-02] بلا صلاحيات: كل موظف قيود مسجَّل دخوله يوصل لكل الأدوات
+  const visibleNavItems = NAV_ITEMS;
   const visibleNavKey = visibleNavItems.map((i) => i.id).join(",");
 
   // إن فقد التبويب المفتوح صلاحيته (تعديل مباشر من مالك آخر)، انتقل لأول أداة متاحة بدل شاشة فارغة.
@@ -250,50 +237,6 @@ function AppShell() {
   // بناء تبويبات الصفحة الرئيسية الثلاثة وعناصر كل قائمة منسدلة تابعة لها،
   // فوق نفس visibleNavItems (المفلترة بالصلاحيات) وبلا أي تغيير لآلية عمل الأدوات
   const categoriesWithItems = CATEGORIES.map((cat) => {
-    if (cat.id === "settings") {
-      const items = [];
-      if (isUserManager) {
-        items.push({
-          id: "manage-users",
-          label: { ar: "إدارة المستخدمين", en: "Manage Users" },
-          desc: { ar: "الأدوار والصلاحيات وسجل التدقيق", en: "Roles, permissions & audit log" },
-          icon: Users,
-          action: () => setShowAdmin(true),
-        });
-      } else if (canAddUsers) {
-        // [إضافة] مستخدم عادي مُنِح فقط manage.add_users — يفتح لوحة مصغَّرة
-        // (AddUsersOnlyPanel) بدل لوحة الإدارة الكاملة، لا وصول لأي شيء آخر.
-        items.push({
-          id: "manage-users",
-          label: { ar: "إضافة مستخدم", en: "Add User" },
-          desc: { ar: "إضافة مستخدم جديد فقط", en: "Add a new user only" },
-          icon: Users,
-          action: () => setShowAdmin(true),
-        });
-      }
-      if (can(currentUserRecord, "tool.ai")) {
-        items.push({
-          id: "ai-settings",
-          label: { ar: "الذكاء الاصطناعي", en: "AI Analysis" },
-          desc: { ar: "إعدادات وتحليل ذكي للقيود", en: "AI settings & smart entry analysis" },
-          icon: Sparkles,
-          action: () => setShowAISettings(true),
-        });
-      }
-      // [تحديث 2026-09-07] المالك له آلية منفصلة تماماً لتغيير بيانات دخوله
-      // (تبويب "بيانات المالك" داخل إدارة المستخدمين) — هذا الخيار لغيره فقط،
-      // لكل من له كلمة مرور فردية عبر نظام user_credentials الجديد.
-      if (!isAdmin) {
-        items.push({
-          id: "change-password",
-          label: { ar: "تغيير كلمة المرور", en: "Change Password" },
-          desc: { ar: "عيّن كلمة مرور جديدة لحسابك", en: "Set a new password for your account" },
-          icon: Key,
-          action: () => setShowChangePassword(true),
-        });
-      }
-      return { ...cat, items };
-    }
     const items = cat.toolIds
       .map((id) => visibleNavItems.find((n) => n.id === id))
       .filter(Boolean)
@@ -311,14 +254,9 @@ function AppShell() {
   // بـvite.config.js) — الآن مصدر واحد يُحقَن وقت البناء، فيستحيل يتكرر نفس
   // التناقض الصامت الذي حصل فعليًا (package.json تحدّث والتذييل لم يتحدّث).
   const currentVersion = __APP_VERSION__;
-  const canUseAI = can(currentUserRecord, "tool.ai");
 
   return (
     <div className="flex h-screen font-cairo" style={{ background: "var(--qoyod-bg)", direction: dir }}>
-      {showAdmin && isUserManager && <AdminPanel />}
-      {showAdmin && !isUserManager && canAddUsers && <AddUsersOnlyPanel />}
-      {showAISettings && canUseAI && <AISettings onClose={() => setShowAISettings(false)} />}
-      {showChangePassword && !isAdmin && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
       {/* [إضافة] ستارة خلف القائمة الجانبية على الجوال فقط — لمسة عليها تُغلق الدرج */}
       {mobileNavOpen && (
@@ -489,8 +427,6 @@ function AppShell() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-slate-300 truncate" style={{ direction: "ltr" }}>{currentUser}</p>
-                {isAdmin && <p className="text-[10px] text-blue-300">{t({ ar: "المالك", en: "Owner" })}</p>}
-                {!isAdmin && isUserManager && <p className="text-[10px] text-blue-300">{t({ ar: "مدير مستخدمين", en: "User Manager" })}</p>}
               </div>
               <button onClick={logout} className="text-slate-500 hover:text-red-400 transition-colors" title={t({ ar: "خروج", en: "Logout" })}>
                 <LogOut size={14} />
@@ -547,74 +483,38 @@ function AppShell() {
         </div>
         <div className="app-content h-full" style={{ padding: "16px 20px" }}>
           <UpdateBanner />
-          {/*
-            كل أداة تُركَّب (mount) فقط إن كانت مسموحة فعلياً — لا تكفي CSS
-            display:none لإخفائها، لأن المكوّن يبقى حياً في الـ DOM ويمكن
-            كشفه بأدوات المطوّر. التنفيذ الفعلي هنا هو الإنفاذ الحقيقي الوحيد
-            المتاح في تطبيق بلا خادم خلفي مستقل (انظر تعليق hasPermission في auth.jsx).
-          */}
           {/* [إضافة 2026-09-14] "التبويبات المتعددة" (طلب صريح من المستخدم: عدة
               عملاء بنفس الوقت داخل نفس الأداة، بلا توقف أي عملية إرسال جارية
               عند التنقل بين التبويبات أو حتى الخروج لأداة أخرى) — عُمِّمت على
               الأدوات الخمس كلها بعد تجربتها أولاً على شجرة الحسابات وحدها.
               راجع تعليق رأس TabbedTool.jsx للآلية الكاملة. */}
-          {can(currentUserRecord, "tool.journal") && (
-            <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={JournalTool} toolKey="journal" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.merge") && (
-            <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={MergeTool} toolKey="merge" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.bills") && (
-            <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={QoyodBillImport} toolKey="bills" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.sales") && (
-            <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={InvoiceImportTool} toolKey="sales" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.products") && (
-            <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={ProductUploadTool} toolKey="products" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.customers") && (
-            <div style={{ display: tab === "customers" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={CustomerImportTool} toolKey="customers" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {can(currentUserRecord, "tool.vendors") && (
-            <div style={{ display: tab === "vendors" ? "block" : "none", height: "100%" }}>
-              <TabbedTool Component={VendorImportTool} toolKey="vendors" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
-            </div>
-          )}
-          {visibleNavItems.length === 0 && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#94A3B8", fontSize: 14, textAlign: "center" }}>
-              {t({ ar: "لا تملك صلاحية الوصول لأي أداة حالياً. تواصل مع مدير النظام.", en: "You don't have access to any tool yet. Contact your admin." })}
-            </div>
-          )}
+          <div style={{ display: tab === "journal" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={JournalTool} toolKey="journal" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "merge" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={MergeTool} toolKey="merge" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "bills" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={QoyodBillImport} toolKey="bills" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "sales" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={InvoiceImportTool} toolKey="sales" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "products" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={ProductUploadTool} toolKey="products" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "customers" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={CustomerImportTool} toolKey="customers" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
+          <div style={{ display: tab === "vendors" ? "block" : "none", height: "100%" }}>
+            <TabbedTool Component={VendorImportTool} toolKey="vendors" defaultTabLabel={{ ar: "عميل جديد", en: "New client" }} />
+          </div>
         </div>
       </main>
 
-      {/* Notifications */}
-      <NotificationBell currentUser={currentUser} isRTL={dir === "rtl"} />
       {/* [إضافة 2026-09-14] إشعارات عائمة عامة — "انتهت العملية بتبويب فلان"
           لعمليات إرسال/رفع تنتهي بتبويب غير ظاهر حالياً (TabbedTool.jsx) */}
       <ToastHost isRTL={dir === "rtl"} />
-
-      {/* Chat — يتطلب صلاحية tool.chat على الأقل؛ عرض القناة العامة نفسها
-          مُتحكَّم فيه داخل ChatPanel بصلاحية chat.view_public المنفصلة */}
-      {can(currentUserRecord, "tool.chat") && (
-        <>
-          {!chatOpen && <ChatToggle onClick={() => { setChatOpen(true); setChatUnread(0); }} isRTL={dir === "rtl"} unreadCount={chatUnread} />}
-          <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} isRTL={dir === "rtl"} onUnreadChange={setChatUnread} />
-        </>
-      )}
     </div>
   );
 }
